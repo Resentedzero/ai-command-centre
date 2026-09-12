@@ -850,7 +850,95 @@ Separate event store, vector table (pgvector column added only if justified late
 message-broker-backed queue table, user/auth tables (solo, single-user V1), separate
 "routing decisions" table (captured in `events.payload` instead).
 
+## Phase 13 — Infrastructure
+
+### 13.1 PostgreSQL on Windows — native EDB installer
+
+**Decision**: install PostgreSQL natively via the EDB (EnterpriseDB) installer — the
+officially recommended Windows installer, linked directly from postgresql.org's own
+downloads page. **Verified** (postgresql.org/download/windows, EDB docs, Sept 2026):
+free for this use case, current stable is the PostgreSQL 18.x line, bundles the
+server + pgAdmin + StackBuilder, and registers as a Windows Service with standard
+auto-start behavior out of the box. No Windows Home-specific restriction was found
+(Windows Home supports standard Windows Services generally) — worth a one-time manual
+check of the service's recovery-action settings after install, but not a blocker.
+
+Rejected: **Docker Desktop** (runs Postgres inside a WSL2-backed VM anyway — strictly
+more moving parts and idle overhead for zero benefit at solo scale). **WSL2 directly**
+(introduces a real filesystem boundary between wherever the backend process runs and
+wherever artifact bytes are read/written — native Windows Postgres avoids this
+entirely).
+
+**pgvector** stays off by default (Phase 2/4). **Verified**: pgvector's own README
+provides no official precompiled Windows binary — enabling it later requires
+compiling from source via NMAKE + Visual Studio C++ Build Tools, or an unofficial
+community-compiled binary. A real build step to do *when* pgvector is actually
+needed, not a blocker on today's install choice.
+
+### 13.2 Background process supervision — manual for V1, NSSM for V1.1
+
+No systemd on Windows, so this gets a stated answer:
+- **V1**: the backend (API + Workflow Interpreter + Executor + async projection loop)
+  runs as a manually started foreground process — appropriate for an actively
+  developed, actively watched solo MVP.
+- **V1.1** (once the platform is stable enough to want unattended operation): wrap the
+  backend as a Windows Service via **NSSM** (free, lightweight, auto-start-on-boot,
+  auto-restart-on-crash) — a deliberate, cheap deferral, not a gap.
+
+### 13.3 Artifact storage paths — relative, POSIX-style, root-configured
+
+`artifacts.storage_reference` stores a forward-slash **relative** path, resolved
+against a configured `ARTIFACT_ROOT` environment variable (a local folder kept outside
+the git repo). Never an absolute Windows path — keeps the reference portable across
+machines or into WSL2/Docker later without a migration.
+
+### 13.4 Language/stack — TypeScript end-to-end, not Python/FastAPI + Next.js
+
+The original brief's Python/FastAPI backend + Next.js frontend is a genuine
+two-runtime split: two package managers, two type systems, a hand-maintained contract
+at the API boundary, and — concretely — Claude Code/Codex switching mental models
+between languages every session. Nothing in the core platform (Workflow Interpreter,
+Executor, Context Compiler, Policy Engine, Capability Registry) needs Python
+specifically; these are plain application logic.
+
+**Decision: TypeScript end-to-end.** Node.js backend (Fastify or similar) hosting the
+API/Application layer and everything beneath it; Next.js/React/TypeScript/
+Tailwind/shadcn frontend (unchanged from the original brief, since it was never
+contested). Postgres access via **Drizzle ORM** — types generated directly from the
+schema, achieving single-source-of-truth types by having only one language, not by
+codegen across a language boundary.
+
+Python remains available **only** as an isolated **local process Tool Adapter** for a
+specific capability that genuinely benefits from its ecosystem (e.g. a future
+financial-backtesting capability shelling out to a Python script) — never as a second
+application runtime.
+
+**Correction to Phase 10.1**: a self-hosted LiteLLM proxy, reasonable under a Python
+backend, would mean supervising a second long-running process under a TypeScript
+backend — another Windows-service problem and a violation of Phase 4's own "no extra
+service" principle. **Revised**: the Model Router module calls the official Anthropic
+and OpenAI TypeScript SDKs (or the Vercel AI SDK's unified interface) directly,
+in-process. The Phase 10.1 interface
+(`{model_tier_or_id, compiled_context, expected_output_shape} -> {result, usage}`) is
+unchanged; only the implementation detail changes, toward less infrastructure.
+
+### 13.5 Final V1 infrastructure list
+
+| Component | Choice | Cost |
+|---|---|---|
+| Backend runtime | Node.js + TypeScript (Fastify) | $0 |
+| Frontend | Next.js + React + TypeScript + Tailwind + shadcn/ui | $0 |
+| Database | PostgreSQL, native Windows install (EDB), Windows Service | $0 |
+| ORM | Drizzle | $0 |
+| Model access | Anthropic + OpenAI TS SDKs (or Vercel AI SDK), in-process | $0 fixed — pay-as-you-go per call, governed by Phase 4/9 budgets |
+| Artifact bytes | Local filesystem under `ARTIFACT_ROOT`, relative paths | $0 |
+| Process supervision | Manual (V1) -> NSSM (V1.1) | $0 |
+| Version control | GitHub | $0 |
+
+No Docker, no Redis, no Temporal, no Langfuse, no separate Model Router service, no
+second language runtime.
+
 ---
 
-*Phases 13–20 (Infrastructure, Extension Strategy, Command Center UI, Gamification,
-Development Workflow, MVP, Roadmap, Risks) to be appended as approved.*
+*Phases 14–20 (Extension Strategy, Command Center UI, Gamification, Development
+Workflow, MVP, Roadmap, Risks) to be appended as approved.*
