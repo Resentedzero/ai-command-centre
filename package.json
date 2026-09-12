@@ -1,0 +1,42 @@
+{
+  "name": "ai-command-centre",
+  "version": "1.0.0",
+  "description": "AI Command Centre — Goal/Workflow/Task/Run/Invocation orchestration platform.",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Resentedzero/ai-command-centre.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Resentedzero/ai-command-centre/issues"
+  },
+  "homepage": "https://github.com/Resentedzero/ai-command-centre#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "events_run_id_sequence_no_idx" ON "events" USING btree ("run_id","sequence_no") WHERE "events"."run_id" is not null;
