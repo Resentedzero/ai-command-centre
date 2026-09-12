@@ -1129,5 +1129,139 @@ data, rather than designed against imagined data now.
 
 ---
 
-*Phases 17–20 (Development Workflow, MVP, Roadmap, Risks) to be appended as
-approved.*
+## Phase 17 — Development Workflow
+
+### 17.1 Roles in the loop
+
+- **Architecture**: human + Claude Code, interactively, producing and refining this
+  spec. Codex isn't well-suited here — it's an implementation/review agent, not a
+  substitute for iterative architectural back-and-forth.
+- **Implementation**: Claude Code, working from this spec plus a scoped
+  implementation plan (via the `writing-plans` skill, invoked once a phase of the
+  spec is frozen) — TDD by default (`test-driven-development` skill).
+- **Review**: Codex, run **non-interactively** via `codex exec` (headless, CI-safe,
+  streams progress, typed SDK available) against Claude Code's diffs, as a genuinely
+  independent second opinion — cross-model review catches blind spots same-model
+  self-review doesn't. Not a second implementer by default; a reviewer.
+- **CI**: lightweight GitHub Actions (lint, typecheck, test on push) — free at this
+  scale, catches breakage before it reaches you.
+
+### 17.2 How context is shared without re-discovery
+
+A root `CLAUDE.md` plus additive per-directory `CLAUDE.md` files, since Claude Code
+auto-scans upward regardless of where work starts.
+
+- **Root `CLAUDE.md`**: a short summary of the core abstractions (Phase 3) and
+  governing principles (Phase 2), pointing to this spec as the source of truth for
+  anything architecture-affecting — never duplicating its content.
+- **Per-module `CLAUDE.md`** (one per major module directory — Workflow Interpreter,
+  Executor, Context Compiler, Model Router, Capability Registry, Policy Engine, Tool
+  Adapters, UI): describes just that module's contract (inputs/outputs/invariants).
+
+### 17.3 Task scoping
+
+Implementation units mirror the domain model itself: one Capability + its Tool
+binding(s) + tests is a unit; one Task Definition kind + its default Context Budget
+is a unit; one Workflow Definition composing existing Task Definitions is a unit.
+This keeps each `writing-plans` cycle bounded and each PR reviewable by Codex in
+isolation.
+
+### 17.4 The loop, concretely
+
+Human + Claude Code settle a spec section → `writing-plans` produces a scoped
+implementation plan for one unit → Claude Code implements via TDD → `codex exec`
+reviews the diff independently → CI runs → human merges. Repeats per unit.
+
+## Phase 18 — MVP
+
+### 18.1 What's V1-real vs. V1-stub, per subsystem
+
+| Subsystem | V1 (real) | Deferred (stub/absent) |
+|---|---|---|
+| Goal→Task→Run→Invocation chain | Full chain, both LLM and Tool Invocations | — |
+| Capability/Grant/Policy | Grant check + `ALLOW`/`DENY`/`REQUIRE_APPROVAL`, exercised end-to-end by one deliberately risky action (18.2) | `CONDITIONAL` autonomy and performance-driven auto-relaxation (Phase 9.4) |
+| Context Compiler | Priority tiers, hard token ceiling, reference-not-content, dedup, layered assembly | Historical-usefulness scoring, LLM-based summarization, embedding-based relevance (pgvector stays off) |
+| Model Router | Two tiers (`CHEAP`/`STRONG`), static difficulty tag per Task Definition | Confidence-based escalation loop (Phase 10.4), auto-adapting tier preference from performance data |
+| Budget Governor | Reserve/reconcile per Run/Task, hard ceiling enforcement | Per-Agent/per-Goal/per-day rollups beyond basic tracking |
+| Event store + projections | Full envelope; **minimum synchronous projections required for correctness** (Run/Task Instance/Workflow Run status, `budget_counters`) — see 18.1a | `agent_performance` and `agent_xp_projection` (both async) deferred entirely, along with their consuming UI |
+| Memory | Deliberately stubbed seam only (see 18.1b) | Task/Agent/Project/Organizational scope write paths, supersession/contradiction handling |
+| Workflow Interpreter | Linear 2-task graph, no branching | Conditional branching, loops, failure-routing |
+| UI | Overview + Activity feed + Approvals queue | Agent Detail, Workflow graph view, Registry admin UI (Definitions seeded via config/scripts, not a UI), Cost dashboard, Memory browser, any gamification/tileset layer |
+| Process supervision | Manual start | NSSM service wrapping (Phase 13.2 V1.1) |
+
+**18.1a — Projections, precisely.** Phase 15's V1 screens (Overview, Activity feed,
+Approvals queue) are fully served by the **synchronous** projections already
+required for correctness — Run/Task Instance/Workflow Run status and
+`budget_counters` — plus the raw Events table (Activity feed is a direct tail of
+Events, not a separate projection) and the `approvals` table (direct governance
+state, not a projection). **No additional asynchronous projection is required for
+the V1 UI.** `agent_performance` and `agent_xp_projection` are both async (Phase
+8.3) and both deferred in full, along with everything that consumes them (Agent
+Detail's performance panel, any gamification surface) — the V1 UI never depends on a
+projection that doesn't exist.
+
+**18.1b — Memory, precisely.** Reviewing the two MVP workflows below: Task B
+consumes Task A's output via the **Artifact** system (by reference), not via Task
+Memory — neither workflow genuinely requires cross-Run recall from a memory scope.
+Task Memory is therefore a **deliberately stubbed seam**: the `memory_items` table
+exists in the schema (Phase 12) and the write path is designed (Phase 7), but no
+memory write is implemented until a real workflow actually needs one — memory
+infrastructure is not built merely to satisfy architectural completeness.
+
+### 18.2 The concrete MVP: two workflows
+
+1. **Standalone Task: "`research.retrieve` → Report."** One Task Instance, one Agent
+   Definition, an agentic loop internally (Phase 11.2): a Retrieval/Tool Invocation
+   against a **`research.retrieve` Capability** feeds a subsequent LLM Invocation,
+   producing a Report Artifact. The Capability is defined by its contract (retrieve
+   information relevant to a query), not by a named external provider — its concrete
+   Tool Binding (direct API, or a deterministic/local implementation where
+   practical) is chosen at implementation time per the Phase 6 decision framework,
+   and the capability boundary must survive replacing that binding entirely. Proves:
+   task receipt, capability selection, tool call, structured tool output, artifact
+   creation, event emission, per-invocation context compilation (including the
+   recompilation-after-tool-call mechanic from Phase 5.8), and model routing at the
+   `CHEAP` tier for retrieval-adjacent steps.
+
+2. **Structured Workflow: "Research → Review-and-`publish.report`."** Two Task
+   Instances: Task A reuses workflow 1's pattern to produce a Report Artifact; Task B
+   (a *different* Agent Definition) consumes Task A's artifact **by reference** and
+   invokes a **`publish.report` Capability** — a clearly bounded external side
+   effect (not merely "a WRITE-class action"), tagged with elevated risk so it
+   deterministically triggers `REQUIRE_APPROVAL`. This is the scenario that exercises
+   the full governance chain end to end:
+   ```
+   Capability Grant -> Policy evaluation -> REQUIRE_APPROVAL
+     -> Approval created with the EXACT proposed action snapshot
+     -> human approval
+     -> re-authorization immediately before execution (Phase 9.5)
+     -> publish.report executes
+     -> outcome Event recorded
+   ```
+   including a specific test of the **material-change invalidation rule**: altering
+   the proposed action's parameters after the Approval is created must invalidate
+   it, requiring a fresh proposal rather than allowing stale-approved execution.
+
+   **Pause/resume is exercised explicitly within this workflow**, not merely
+   claimed: the Workflow Run is deliberately paused either between Task A's
+   completion and Task B's start, or while Task B's `publish.report` Invocation sits
+   `awaiting_approval`, and then resumed — proving Phase 9.7's pause/resume mechanics
+   at a concrete, defined point rather than asserting the capability abstractly.
+
+Together, these two cover all 14 of your original proof points without needing
+branching, looping, multiple memory scopes, or the escalation/autonomy machinery —
+those stay real, designed, and dormant until a genuine second capability demands
+them.
+
+### 18.3 Success criterion
+
+The MVP is successful if adding a third Task Definition, a third Capability, or a
+third Agent Definition afterward requires **no changes to core execution semantics,
+authorization semantics, the event schema, or the UI architecture** — only the new
+Definition, its Tool Binding(s), its Workflow composition (if any), and its tests.
+If a third addition forces a change to any of those four, that's a signal the
+architecture, not the addition, needs revisiting.
+
+---
+
+*Phases 19–20 (Roadmap, Risks) to be appended as approved.*
