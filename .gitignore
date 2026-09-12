@@ -1,0 +1,53 @@
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+
+# API keys / credentials
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Dependencies
+node_modules/
+vendor/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Build / Generated Files
+dist/
+build/
+out/
+.next/
+.nuxt/
+.turbo/
+.cache/
+coverage/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Claude Code - local settings
+.claude/settings.local.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swp
