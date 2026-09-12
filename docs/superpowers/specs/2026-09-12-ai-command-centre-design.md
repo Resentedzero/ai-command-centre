@@ -1040,5 +1040,94 @@ views over the same projection tables — no separate system.
 
 ---
 
-*Phases 15, 17–20 (Command Center UI, Development Workflow, MVP, Roadmap, Risks) to
-be appended as approved.*
+## Phase 15 — Command Center UI
+
+Governing constraint, restated from Phase 4: the UI is a *pure view* over
+projections and the Event stream — every screen is a **query**, and every control is
+a **command sent to the API layer**. No screen writes to Postgres directly, computes
+cost/XP, or evaluates policy client-side.
+
+### 15.1 Screens
+
+**1. Overview (landing screen)** — top-level stat bar and Active Agents panel, built
+entirely from projections. **Revenue is displayed only if a real project/outcome
+projection actually exists for that Project/Goal** — it is not a universal core
+metric and the UI must never invent or approximate a revenue figure itself; a Project
+with no defined revenue-outcome projection simply omits that stat rather than showing
+a fabricated or zero value. Active Agents panel: one card per Agent Definition
+currently bound to a running Run — status, current Task Instance's mission, progress,
+latest Invocation's activity, all read from `runs`/`task_instances`/latest `events`.
+A Live Activity feed renders a tail of the Event stream via SSE (see 15.3), rendered
+human-readably per `event_type`.
+
+**2. Agent Detail** (click a card) — current Task Instance and *why* (its
+Goal/Workflow Run lineage), current Invocation, capabilities in use (context lineage
+per Phase 5.13), recent actions (event trace for its Runs, Phase 8.4), outputs
+(linked Artifacts), performance (`agent_performance` projection), token usage/cost
+(`budget_counters`), permissions (its Capability Grants, read-only display), and
+controls: pause / resume / stop (see 15.2 on how these are modeled).
+
+**3. Workflow/Task view** — a Workflow Run's graph (Task Instance nodes + status),
+drillable into a Task Instance's Run(s) and each Run's Invocation sequence. A visual
+graph library (e.g. React Flow) renders the Workflow Definition's `graph_definition`
+with live status overlaid from `task_instances` — the library only renders; the
+Workflow Interpreter (backend) is the only thing that ever decides the graph's actual
+state.
+
+**4. Approvals queue** — every `pending` Approval, showing the exact proposed action
+snapshot (Phase 9.5), risk tier, and the Invocation/Run it gates. Approve/reject
+buttons are API commands (15.2); the UI never resolves an Approval itself.
+
+**5. Goals & Projects** — list of Goals, their Workflow Runs, grouped by Project.
+
+**6. Registry (admin view)** — Agent Definitions, Capability Grants, Policies:
+read/edit surface for *definitions*, versioned per Phase 3/12 — editing creates a new
+Definition version, never mutates history. Where `autonomy_state` changes happen
+(Phase 9.4's explicit-human-action requirement).
+
+**7. Cost/Budget dashboard** — `budget_counters` by scope, and the (task type, model
+tier) cost-vs-success comparison from Phase 10.5.
+
+**8. Memory/Artifact browser** — Artifacts and Memory Items by scope, with
+provenance chains visible (Phase 5.13/7).
+
+### 15.2 UI commands vs. Invocations — not the same model
+
+Every mutating UI action — start a Goal, pause/resume/stop, edit a Definition,
+approve/reject — is an **API command**, not necessarily an LLM/Tool Invocation. Many
+of these (edit a Definition, approve/reject, pause/resume) are deterministic
+control-plane operations with no model or tool execution involved at all, and are
+**not forced into the Invocation model** just for architectural uniformity. They
+still go through the appropriate authorization/policy checks for their own kind of
+action (e.g. editing a Capability Grant's `autonomy_state` is itself a governed,
+logged change per Phase 9.4, and resolving an Approval follows the Phase 9.5
+lifecycle exactly) — but that governance is modeled on its own terms, not shoehorned
+into `invocations`/`runs` rows that represent agent execution.
+
+### 15.3 SSE / Event stream — a delivery mechanism, not a second source of truth
+
+The SSE feed used for live UI updates (Overview, Agent Detail, Activity feed) is
+**purely a delivery mechanism for already-authoritative Events and projections** — it
+is not a second event system and holds no state of its own. On reconnect (network
+drop, tab refresh), the client resumes from a **known event/projection position**
+(the last `sequence_no` it successfully rendered, or a fresh projection query) rather
+than relying on browser-local state to have remained consistent — a dropped
+connection can never cause the UI to silently diverge from Postgres, only to
+momentarily lag behind it.
+
+### 15.4 Visual direction, and the gamification/presentation boundary
+
+The "sci-fi ops center" aesthetic (glowing status indicators, progress bars, agent
+cards) — and any future stylized presentation layer built on top of it, such as a
+pixel-art tileset/game-world view — is styling over the data sources above.
+Consistent with Phase 16, that boundary is explicit: such a presentation layer **must
+never read raw Events directly, make business decisions, award XP, or contain
+runtime logic** of any kind. It consumes the same projections (including
+`agent_xp_projection`) as every other screen, purely for rendering. Detailed visual
+design is deferred to a dedicated pass once Phase 18's MVP is running against real
+data, rather than designed against imagined data now.
+
+---
+
+*Phases 17–20 (Development Workflow, MVP, Roadmap, Risks) to be appended as
+approved.*
