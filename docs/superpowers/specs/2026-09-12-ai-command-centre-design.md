@@ -938,7 +938,107 @@ unchanged; only the implementation detail changes, toward less infrastructure.
 No Docker, no Redis, no Temporal, no Langfuse, no separate Model Router service, no
 second language runtime.
 
+## Phase 14 — Extension Strategy
+
+### 14.1 Purpose
+
+Every candidate integration has to earn its place through explicit scoring — never
+because it's popular, novel, or "obviously useful." This phase is the evaluation
+framework; Phase 6 already covers *how* a chosen integration gets implemented
+(internal/direct API/MCP/browser/scheduled/webhook).
+
+### 14.2 Scoring rubric
+
+Score each candidate on: **usefulness** (does it unlock or meaningfully improve a
+capability actually needed by an **existing, approved, and near-term** Task
+Definition — not a speculative future one), **frequency** (how often real tasks would
+invoke it), **token overhead** (schema cost per Phase 5.7), **latency**,
+**reliability** (uptime/quality of the API or MCP server), **maintenance burden**
+(who keeps it working as the third party changes their API), **cost** (metered fees),
+**rate limits**, **trust level implications** (Phase 6 — does it start at
+`unverified_third_party`, forcing elevated governance), **strategic importance**
+(does it unlock a whole category of future capability, e.g. browser automation
+unlocks many things at once, vs. a narrow single-purpose API).
+
+### 14.3 Decision rule
+
+An integration is built only when **(a)** an existing, approved, and near-term Task
+Definition/Capability needs it — never a merely "imminent" or speculative one, a
+looser word that could otherwise excuse building ahead of real demand — **and (b)**
+it clears a minimum bar on usefulness + reliability + trust even if convenience alone
+is high. Convenience without a concrete consuming Task Definition is exactly the
+"collection of disconnected chatbots" anti-pattern from Phase 1 — this rule is what
+prevents it.
+
+### 14.4 Worked example
+
+Early e-commerce capability needing product/listing data: **Shopify's direct API**
+scores high (well-documented, low token overhead as a hand-written schema, first-party
+trust level, predictable rate limits) vs. **generic browser automation against
+arbitrary e-commerce sites** scores low (fragile, high latency, `unverified` trust
+by default, Class 4 governance) for the same underlying need. Decision: direct API
+when a clean one exists (per the Phase 6 decision framework); browser automation only
+as the fallback when no API exists at all.
+
+### 14.5 Category checklist (deferred, not built)
+
+The original brief's categories (research, productivity, commerce, finance,
+development, creative, execution) remain a useful **lens**, not a build list — none
+of them get an integration until a real, existing Task Definition in the MVP or its
+approved near-term successor actually needs one and clears the 14.2 rubric.
+
+## Phase 16 — Gamification
+
+Already substantially settled: XP is a pure derived function over Events (Phase 2,
+Phase 8.6), stored in `agent_xp_projection`, and agents never award themselves XP.
+This phase finalizes the design.
+
+### 16.1 XP rules (event pattern -> XP)
+
+Examples matching the original brief's intent, all computed by the async XP
+Projector (Phase 8.3) reading Events — never authored by an agent inline:
+- `task_instance_completed` (successful) -> small XP.
+- `artifact_created` later **referenced by other Task Instances' compiled context**
+  (Phase 5.5/5.13 provenance) -> additional XP. **This is a weak structural
+  usefulness signal only, not evidence of quality** — being referenced by another
+  Task does not inherently mean the artifact was good, correct, or valuable; it only
+  means it was consulted. Artifact reuse may contribute to XP as a weak structural
+  usefulness signal, but XP rules must not be interpreted as quality or governance
+  metrics.
+- `approval_granted` on a proposed action that later shows a successful outcome ->
+  larger XP.
+- A human-graded high-value outcome (once Phase 8.9 evaluation exists) -> largest XP.
+
+Levels are a simple threshold curve over cumulative XP (e.g. level = floor of a
+monotonic function of `xp_total`) — no separate design needed beyond the projection
+already storing `xp_total`.
+
+### 16.2 Critical boundary: XP is not authorization evidence
+
+`agent_xp_projection` (human-facing, motivational, dashboard-only) and
+`agent_performance` (Phase 8.8, governance-facing — success rate, retry rate, cost —
+used by Phase 9.4's `CONDITIONAL` autonomy logic and Phase 10.5's routing) are **both
+derived from Events but must never be interchanged.** XP is for the Command Center
+UI's leaderboard/agent-card display; **only `agent_performance` ever feeds a Policy
+or Model Router decision.** This prevents a purely motivational display number from
+ever becoming a de facto — and un-audited — authorization signal.
+
+### 16.3 Idempotent projection
+
+The XP Projector is **idempotent**: reprocessing or replaying Events (e.g. after a
+crash-recovery replay of the async projection loop, per Phase 8.3) must never award
+XP twice for the same Event. In practice this means the Projector's incremental
+update is keyed by `event_id` (each Event contributes to `xp_total` at most once,
+tracked the same way Invocation idempotency is tracked in Phase 12), not a simple
+"add N and move on" that could double-count on replay.
+
+### 16.4 UI surface
+
+Agent cards show level + XP bar + recent XP-earning events, per the original brief's
+mockup. Organizational-level metrics (leaderboards, aggregate XP) are additional
+views over the same projection tables — no separate system.
+
 ---
 
-*Phases 14–20 (Extension Strategy, Command Center UI, Gamification, Development
-Workflow, MVP, Roadmap, Risks) to be appended as approved.*
+*Phases 15, 17–20 (Command Center UI, Development Workflow, MVP, Roadmap, Risks) to
+be appended as approved.*
