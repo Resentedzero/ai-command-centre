@@ -1,7 +1,9 @@
-# AI Command Centre — Architecture & Design (Phases 1–12)
+# AI Command Centre — Architecture & Design
 
-Status: Phases 1–12 approved by user, with iterative refinements incorporated below.
-Phases 13–20 to follow in subsequent rounds and be appended to this document.
+Status: **Complete — Phases 1–20 approved**, with iterative refinements incorporated
+throughout. This is the frozen V1 architecture. Implementation has not begun; further
+architecture changes are made only in response to a concrete implementation
+discovery, not proactively.
 
 ## Phase 1 — Vision
 
@@ -1264,4 +1266,126 @@ architecture, not the addition, needs revisiting.
 
 ---
 
-*Phases 19–20 (Roadmap, Risks) to be appended as approved.*
+## Phase 19 — Roadmap
+
+Staged by **evidence, not calendar time** — each stage advances when a concrete need
+or enough real data exists, not on a schedule. This mirrors the YAGNI discipline
+running through the whole document.
+
+- **V1 (Phase 18's MVP)**: two workflows, full governance chain proven once, manual
+  process start, minimal UI (Overview/Activity/Approvals).
+- **V1.1**: NSSM service wrapping (unattended operation); UI expands to Agent Detail,
+  Workflow graph, and a Registry admin UI (so Definitions no longer require
+  redeploying config files by hand).
+- **V2**: `agent_performance` and `agent_xp_projection` (both deferred at V1) come
+  online, with enough real Run data to be meaningful; Cost dashboard and
+  gamification UI surfaces appear, now backed by real projections instead of
+  imagined mockups. **`agent_performance` may be displayed in the UI as soon as it
+  exists, even before it is statistically meaningful** — but it must not be allowed
+  to influence Model Router tier-preference adaptation (Phase 10.5) or feed Phase
+  9.4's `CONDITIONAL` autonomy logic until a defined minimum sample-size/confidence
+  criterion is met. Defining and testing that threshold is an explicit part of V2's
+  implementation work, not left implicit or assumed self-evident at build time.
+- **V3**: New Capabilities added strictly per the Phase 14 rubric as real Goals
+  demand them (e.g., a genuine e-commerce or marketing need arrives) — never
+  speculative. Workflow Interpreter gains branching/looping only once a real
+  workflow's logic actually requires it. Agent/Project/Organizational memory scopes
+  are implemented only against concrete gaps that appear in practice, per Phase 7's
+  deliberate-write discipline.
+- **V4**: Model Router's confidence-based escalation loop (Phase 10.4) activates.
+  `CONDITIONAL` autonomy (Phase 9.4) activates for capabilities with a large enough
+  `agent_performance` sample size to clear the **same minimum-sample-size/confidence
+  criterion defined in V2** — never on a hunch, and never before that threshold is
+  met even if the feature is otherwise implemented. pgvector, Langfuse, and the
+  evaluation system (Phase 8.9) are each reconsidered only if a concrete gap in
+  structural retrieval, trace debugging, or grading demonstrably appears — the Phase
+  2/4 "boring infrastructure" defaults hold until then, not indefinitely by
+  assumption.
+- **V5**: Capabilities progressively graduate `ALWAYS_APPROVE → CONDITIONAL →
+  (human-elected) AUTONOMOUS`, always via explicit, logged human decisions informed
+  by real performance data — never a system-driven promotion (Phase 9.4, unchanged).
+  SPEND/TRADE/PUBLISH/DELETE retain their policy-enforced ceiling indefinitely, by
+  design, regardless of stage.
+- **V6+**: Multi-user generalization (Phase 9.8) or a move off single-machine infra
+  (object storage, managed Postgres) only if the platform genuinely outgrows
+  local/solo use — not built ahead of that need. The "digital workforce" vision
+  materializes as an accretion of Capabilities and Workflows on an unchanged core,
+  per Phase 18.3's success criterion — the architecture's job was always to make
+  that accretion cheap, not to anticipate its content.
+
+## Phase 20 — Risks / Failure Modes
+
+What could actually go wrong, and what I'd change if it did:
+
+1. **Scope creep back into "a collection of chatbots."** The Phase 14 rule is a
+   discipline, not an enforcement mechanism — under time pressure it's tempting to
+   add an integration because it's convenient, not because a Task Definition needs
+   it. Mitigation is procedural: treat any integration added without a consuming
+   Task Definition as a spec violation to be caught in review (Phase 17's Codex
+   review pass is a real checkpoint for this, not just code quality).
+2. **Implementation drift from the spec's safety properties.** The architecture
+   forbids models from bypassing Policy/Approval, but that guarantee only holds if
+   the Context Compiler and Policy engine are actually built as specified — a solo
+   implementer under deadline pressure could quietly skip a check (e.g., skip
+   re-authorization-before-execution, Phase 9.5) without the architecture itself
+   catching it. Mitigation: the MVP's Phase 18.2 test scenarios exist specifically to
+   make this drift visible early, not theoretical.
+3. **Human-driven autonomy overreach.** Phase 9.4 requires an explicit human act to
+   promote autonomy — but a human eager to reduce approval friction can still make
+   that act carelessly (promoting SPEND/TRADE without real track record). No
+   architecture prevents a human from overriding their own governance design; this is
+   a discipline risk on you, not a gap in the system, and worth naming rather than
+   pretending a technical control exists where none should.
+4. **Budget misconfiguration.** A Task Definition's default budget set too high
+   defeats cost governance without breaking anything visibly. In V1 (Cost dashboard
+   deferred to V2 per Phase 19), this must be watched via direct `budget_counters`
+   queries rather than a UI — an explicit operational gap worth acknowledging rather
+   than assuming away.
+5. **Single-machine fragility.** Local-first means no redundancy — a corrupted disk
+   or failed Postgres instance loses everything. Acceptable for a solo user, but only
+   if paired with a deliberate practice (periodic `pg_dump` backups) — and that
+   practice must include periodically **actually restoring** a backup, not merely
+   generating backup files. A backup that has never been successfully restored is not
+   considered proven; "the backup file exists" and "the backup works" are different
+   claims, and only the second one is a real mitigation.
+6. **Manual process start undercuts the "living organization" feel.** Until V1.1's
+   NSSM wrapping, the system only works when you remember to start it — worth setting
+   that expectation explicitly rather than letting the UI's "always-on ops center"
+   aesthetic imply otherwise before it's true.
+7. **Trust-level drift.** Phase 6/9's trust levels are assigned at integration time;
+   they don't protect against a previously-verified third-party source degrading or
+   being compromised later. Recommend periodic re-review of trust levels for
+   capabilities in active use, not a set-once-forget assumption.
+8. **Context Compiler under-building.** Phase 5 is the deepest, most
+   implementation-effort-heavy part of the spec; the easiest thing to shortcut under
+   solo-dev pressure is exactly the priority-tiering/dedup/compression discipline
+   that prevents the token waste the whole platform exists to eliminate. Mitigation:
+   implement the **deterministic** context-efficiency measurements early rather than
+   deferring them — tokens included vs. tokens actually referenced via ID/citation
+   matching (Phase 5.16), cache hit/miss per layer, and the exclusion-reasoning
+   already captured in context lineage/provenance (Phase 5.13) — so drift shows up as
+   data, not as a vague feeling that "context feels bloated." This must not be
+   satisfied by reintroducing an LLM-based classifier or any other model call whose
+   sole purpose is measurement — Phase 5.16 deliberately removed that approach, and
+   the mitigation here relies only on the deterministic signals that remain.
+9. **Event schema lock-in.** Everything downstream (UI, cost, XP, audit, future
+   evaluation) derives from the Phase 8.1 event envelope — a poorly shaped early
+   `event_type`/`payload` is expensive to unwind later. Mitigated by treating
+   `payload` as versioned/extensible per event type from day one, and by keeping the
+   MVP's taxonomy (Phase 8.2) deliberately small so there's less surface to get wrong
+   early.
+10. **Premature trust in early performance data.** With only two MVP workflows and
+    low volume, `agent_performance` won't have statistically meaningful signal for a
+    long while. Risk: acting on Phase 9.4's `CONDITIONAL` logic or Phase 10.5's tier-
+    preference adaptation before there's enough data is worse than not having the
+    data at all. Mitigation: the explicit minimum-sample-size/confidence criterion
+    required by Phase 19's V2/V4 entries is the concrete answer to this risk, not
+    merely a stated intention.
+
+---
+
+**This completes the AI Command Centre architecture/design specification, Phases
+1–20.** Further architecture phases are added only if a concrete implementation
+discovery exposes a genuine contradiction or missing boundary — not proactively.
+Implementation (writing-plans, code, or any subagent/fork that would modify
+production code) begins only on explicit authorization.
