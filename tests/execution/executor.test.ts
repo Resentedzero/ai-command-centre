@@ -1,0 +1,1030 @@
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { and, eq } from "drizzle-orm";
+import { resetTestSchema, closeTestDb, withRollback } from "../testDb.js";
+import * as schema from "../../src/db/schema.js";
+import type { DrizzleTransaction } from "../../src/events/emit.js";
+import type { CapabilityPermission } from "../../src/governance/policy.js";
+import type {
+  DeterministicInvocationSpec,
+  LlmInvocationSpec,
+  RetrievalInvocationSpec,
+  ToolInvocationSpec,
+} from "../../src/execution/types.js";
+
+// ---------------------------------------------------------------------------
+// Mock BOTH provider wrapper modules — this file never calls a real provider
+// SDK; the llm-kind tests exercise the REAL authorizeRoute/callModel/
+// compileContext/evaluatePolicy/reserveBudget code, only the outermost
+// provider boundary is mocked (same pattern as modelRouter.test.ts).
+// ---------------------------------------------------------------------------
+vi.mock("../../src/router/providers/anthropic.js", () => ({
+  callAnthropicModel: vi.fn(),
+}));
+vi.mock("../../src/router/providers/openai.js", () => ({
+  callOpenAiModel: vi.fn(),
+}));
+
+import { executeRun } from "../../src/execution/executor.js";
+import * as invocationLifecycleModule from "../../src/execution/invocationLifecycle.js";
+import * as policyModule from "../../src/governance/policy.js";
+import * as budgetModule from "../../src/governance/budget.js";
+import * as approvalsModule from "../../src/governance/approvals.js";
+import { resolveApproval } from "../../src/governance/approvals.js";
+import { compileContext } from "../../src/context/compiler.js";
+import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
+
+beforeAll(async () => {
+  await resetTestSchema();
+}, 30000);
+
+afterAll(async () => {
+  await closeTestDb();
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const DEFAULT_PERMISSION: CapabilityPermission = "WRITE";
+
+async function seedToolRunFixture(
+  tx: DrizzleTransaction,
+  opts: {
+    autonomyState?: "ALWAYS_APPROVE" | "CONDITIONAL" | "AUTONOMOUS";
+    grantPermissions?: CapabilityPermission[];
+    staticRiskTag?: string;
+    trustLevel?: number;
+    limitAmount?: string;
+    withGrant?: boolean;
+  } = {}
+): Promise<{ runId: string; taskInstanceId: string; capabilityId: string; toolBindingId: string; permission: CapabilityPermission }> {
+  const permission = DEFAULT_PERMISSION;
+
+  const [capability] = await tx
+    .insert(schema.capabilities)
+    .values({ name: "cap-" + randomUUID(), staticRiskTag: opts.staticRiskTag ?? "low" })
+    .returning();
+
+  const [toolBinding] = await tx
+    .insert(schema.toolBindings)
+    .values({ capabilityId: capability!.id, kind: "internal", config: {}, trustLevel: opts.trustLevel ?? 2, version: 1 })
+    .returning();
+
+  const [agentDefinition] = await tx
+    .insert(schema.agentDefinitions)
+    .values({ name: "agent-" + randomUUID(), version: 1, role: "tester", objective: "test", instructions: "n/a" })
+    .returning();
+
+  if (opts.withGrant !== false) {
+    await tx.insert(schema.capabilityGrants).values({
+      agentDefinitionId: agentDefinition!.id,
+      agentDefinitionVersion: agentDefinition!.version,
+      capabilityId: capability!.id,
+      permissions: opts.grantPermissions ?? [permission],
+      maxTrustLevelRequired: 1,
+      autonomyState: opts.autonomyState ?? "AUTONOMOUS",
+    });
+  }
+
+  const [project] = await tx.insert(schema.projects).values({ name: "p-" + randomUUID() }).returning();
+  const [taskDefinition] = await tx
+    .insert(schema.taskDefinitions)
+    .values({ name: "t-" + randomUUID(), kind: "standalone", version: 1 })
+    .returning();
+  const [taskInstance] = await tx
+    .insert(schema.taskInstances)
+    .values({
+      taskDefinitionId: taskDefinition!.id,
+      taskDefinitionVersion: taskDefinition!.version,
+      projectId: project!.id,
+      status: "pending",
+      input: {},
+    })
+    .returning();
+  const [run] = await tx
+    .insert(schema.runs)
+    .values({
+      taskInstanceId: taskInstance!.id,
+      agentDefinitionId: agentDefinition!.id,
+      agentDefinitionVersion: agentDefinition!.version,
+      status: "active",
+    })
+    .returning();
+  await tx.insert(schema.budgetCounters).values({
+    scope: "run",
+    scopeRefId: run!.id,
+    limitAmount: opts.limitAmount ?? "1000.00",
+    reservedAmount: "0",
+    consumedAmount: "0",
+  });
+
+  return {
+    runId: run!.id,
+    taskInstanceId: taskInstance!.id,
+    capabilityId: capability!.id,
+    toolBindingId: toolBinding!.id,
+    permission,
+  };
+}
+
+async function seedGenericRunFixture(
+  tx: DrizzleTransaction,
+  opts: { limitAmount?: string } = {}
+): Promise<{ runId: string; taskInstanceId: string }> {
+  const [project] = await tx.insert(schema.projects).values({ name: "p-" + randomUUID() }).returning();
+  const [taskDefinition] = await tx
+    .insert(schema.taskDefinitions)
+    .values({ name: "t-" + randomUUID(), kind: "standalone", version: 1 })
+    .returning();
+  const [taskInstance] = await tx
+    .insert(schema.taskInstances)
+    .values({
+      taskDefinitionId: taskDefinition!.id,
+      taskDefinitionVersion: taskDefinition!.version,
+      projectId: project!.id,
+      status: "pending",
+      input: {},
+    })
+    .returning();
+  const [run] = await tx.insert(schema.runs).values({ taskInstanceId: taskInstance!.id, status: "active" }).returning();
+  await tx.insert(schema.budgetCounters).values({
+    scope: "run",
+    scopeRefId: run!.id,
+    limitAmount: opts.limitAmount ?? "1000.00",
+    reservedAmount: "0",
+    consumedAmount: "0",
+  });
+  return { runId: run!.id, taskInstanceId: taskInstance!.id };
+}
+
+function buildToolSpec(
+  overrides: Partial<ToolInvocationSpec> & Pick<ToolInvocationSpec, "capabilityId" | "toolBindingId" | "permission">
+): ToolInvocationSpec {
+  return {
+    kind: "tool",
+    costClass: "metered_api",
+    proposedActionSnapshot: { action: "do-thing" },
+    estimatedCost: 5,
+    execute: vi.fn(async () => ({ ok: true })),
+    ...overrides,
+  };
+}
+
+function buildDeterministicSpec(execute?: () => Promise<Record<string, unknown>>): DeterministicInvocationSpec {
+  return { kind: "deterministic", costClass: "deterministic", execute: execute ?? vi.fn(async () => ({})) };
+}
+
+function buildRetrievalSpec(execute?: () => Promise<Record<string, unknown>>): RetrievalInvocationSpec {
+  return { kind: "retrieval", costClass: "local_retrieval", execute: execute ?? vi.fn(async () => ({ items: [] })) };
+}
+
+function buildLlmSpec(overrides: Partial<LlmInvocationSpec> = {}): LlmInvocationSpec {
+  return {
+    kind: "llm",
+    costClass: "llm",
+    intent: "synthesize",
+    candidateArtifactIds: [],
+    candidateToolCapabilityIds: [],
+    contextBudget: {
+      maxInputTokens: 10_000,
+      maxArtifactTokens: 2_000,
+      maxRetrievedItems: 50,
+      maxToolSchemaTokens: 2_000,
+      compressionThreshold: 2_000,
+      freshnessRequirementSeconds: 0,
+      expectedOutputTokens: 100,
+    },
+    taskDifficulty: "simple",
+    riskTier: "low",
+    expectedOutputShape: {},
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 1. Deterministic-only specs never touch Policy
+// ---------------------------------------------------------------------------
+
+describe("executeRun on all-deterministic specs", () => {
+  it("never invokes evaluatePolicy (spy-based)", async () => {
+    const spy = vi.spyOn(policyModule, "evaluatePolicy");
+    try {
+      await withRollback(async (tx) => {
+        const { runId } = await seedGenericRunFixture(tx);
+        const outcome = await executeRun(tx, runId, [buildDeterministicSpec(), buildRetrievalSpec()]);
+        expect(outcome).toEqual({ status: "completed", runId });
+      });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("emits invocation_started/invocation_completed itself and persists a non-empty result as an artifact", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx);
+      const spec = buildDeterministicSpec(async () => ({ answer: 42 }));
+      await executeRun(tx, runId, [spec]);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      expect(invocation?.status).toBe("completed");
+      expect(invocation?.kind).toBe("deterministic");
+
+      const events = await tx.query.events.findMany({ where: eq(schema.events.invocationId, invocation!.id) });
+      expect(events.map((e) => e.eventType).sort()).toEqual(["invocation_completed", "invocation_started"]);
+      expect(events.every((e) => e.producer === "executor")).toBe(true);
+
+      const artifact = await tx.query.artifacts.findFirst({
+        where: eq(schema.artifacts.producingInvocationId, invocation!.id),
+      });
+      expect(artifact).toBeDefined();
+      expect(artifact?.inlineContent).toBe(JSON.stringify({ answer: 42 }));
+    });
+  });
+
+  it("does not create an artifact when the result is an empty object", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx);
+      await executeRun(tx, runId, [buildDeterministicSpec(async () => ({}))]);
+      const artifact = await tx.query.artifacts.findFirst();
+      expect(artifact).toBeUndefined();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2. REQUIRE_APPROVAL halts, and resumes from that exact point
+// ---------------------------------------------------------------------------
+
+describe("tool invocation REQUIRE_APPROVAL", () => {
+  it("halts at awaiting_approval; re-invoking executeRun after approval resumes from that exact point, not from the start", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      const toolExecute = vi.fn(async () => ({ done: true }));
+      const secondExecute = vi.fn(async () => ({ second: true }));
+      const specs = [
+        buildToolSpec({ capabilityId, toolBindingId, permission, execute: toolExecute }),
+        buildDeterministicSpec(secondExecute),
+      ];
+
+      const first = await executeRun(tx, runId, specs);
+      expect(first).toEqual({ status: "awaiting_approval", runId });
+      expect(toolExecute).not.toHaveBeenCalled();
+      expect(secondExecute).not.toHaveBeenCalled(); // proves it stopped at spec 0, never reached spec 1
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      expect(invocation?.status).toBe("awaiting_approval");
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      expect(approval).toBeDefined();
+
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+      const second = await executeRun(tx, runId, specs);
+      expect(second).toEqual({ status: "completed", runId });
+      // Resumed exactly once — never restarted from index 0 and re-ran spec 0's tool call twice.
+      expect(toolExecute).toHaveBeenCalledTimes(1);
+      // Continued the loop to spec 1 within the same resuming call.
+      expect(secondExecute).toHaveBeenCalledTimes(1);
+
+      const finalRun = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
+      expect(finalRun?.status).toBe("completed");
+    });
+  });
+
+  it("rejected approval releases the reservation and fails the invocation + Run", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+        limitAmount: "10.00",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission, estimatedCost: 5 });
+      await executeRun(tx, runId, [spec]);
+
+      const counterAfterReserve = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      expect(Number(counterAfterReserve!.reservedAmount)).toBe(5);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      await resolveApproval(tx, approval!.id, "rejected", "reviewer");
+
+      const outcome = await executeRun(tx, runId, [spec]);
+      expect(outcome).toEqual({ status: "failed", runId });
+      expect(spec.execute).not.toHaveBeenCalled();
+
+      const counterAfterRelease = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      expect(Number(counterAfterRelease!.reservedAmount)).toBe(0);
+      expect(Number(counterAfterRelease!.consumedAmount)).toBe(0);
+
+      const finalRun = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
+      expect(finalRun?.status).toBe("failed");
+    });
+  });
+
+  it("still-pending approval is a no-op on re-invocation (returns awaiting_approval again)", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+      await executeRun(tx, runId, [spec]);
+      const outcome = await executeRun(tx, runId, [spec]);
+      expect(outcome).toEqual({ status: "awaiting_approval", runId });
+      expect(spec.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  // Fix-round-1 (Important #3): reauthorize only deep-equals the invocation's
+  // stored proposedActionSnapshot against ITSELF (both written from the
+  // ORIGINAL propose-time spec) — it can never fire on a caller simply
+  // passing a materially different spec object on the resuming executeRun
+  // call, which is the one mutation vector this unit's own design actually
+  // exposes (a fresh invocationSpecs array is supplied on every call).
+  // resumeToolSpec must independently validate the resuming spec's
+  // capabilityId/permission/proposedActionSnapshot against what was actually
+  // proposed and approved, BEFORE reauthorize/execution.
+  it("resuming with a spec whose proposedActionSnapshot differs from what was originally proposed fails the run rather than executing the mutated action", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      const originalSpec = buildToolSpec({
+        capabilityId,
+        toolBindingId,
+        permission,
+        proposedActionSnapshot: { action: "safe-thing" },
+      });
+      await executeRun(tx, runId, [originalSpec]);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+      const mutatedExecute = vi.fn(async () => ({ done: true }));
+      const mutatedSpec = buildToolSpec({
+        capabilityId,
+        toolBindingId,
+        permission,
+        proposedActionSnapshot: { action: "mutated-dangerous-thing" },
+        execute: mutatedExecute,
+      });
+
+      const outcome = await executeRun(tx, runId, [mutatedSpec]);
+      expect(outcome).toEqual({ status: "failed", runId });
+      expect(mutatedExecute).not.toHaveBeenCalled(); // never executed the mutated action
+
+      const finalInvocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.id, invocation!.id) });
+      expect(finalInvocation?.status).toBe("failed");
+      const finalRun = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
+      expect(finalRun?.status).toBe("failed");
+
+      // The reservation held while awaiting approval must still be released,
+      // not stranded, on this rejection path.
+      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      expect(Number(counter!.reservedAmount)).toBe(0);
+    });
+  });
+
+  // Fix-round-2 (New Important, found by the round-1 re-review):
+  // `invocations.costClass` is a real, persisted column. A resuming spec that
+  // claims `costClass: "deterministic"` against an invocation actually
+  // proposed with a real cost class (e.g. "metered_api") makes
+  // `reserveBudget` short-circuit to `NOOP_RESERVATION_ID` — budget
+  // enforcement completely bypassed, not just mis-sized. This is the same
+  // threat model as the proposedActionSnapshot-mismatch test above, via a
+  // different field.
+  it("resuming with a spec whose costClass differs from the originally-proposed invocation's stored costClass fails the run without ever taking the no-op budget path", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+        limitAmount: "1000.00",
+      });
+      const originalSpec = buildToolSpec({
+        capabilityId,
+        toolBindingId,
+        permission,
+        costClass: "metered_api",
+        estimatedCost: 6,
+      });
+      await executeRun(tx, runId, [originalSpec]);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      expect(invocation?.costClass).toBe("metered_api");
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+      const bypassExecute = vi.fn(async () => ({ done: true }));
+      const bypassSpec = buildToolSpec({
+        capabilityId,
+        toolBindingId,
+        permission,
+        costClass: "deterministic", // mismatched vs. the stored "metered_api" — would force reserveBudget's NOOP short-circuit
+        estimatedCost: 6,
+        execute: bypassExecute,
+      });
+
+      const outcome = await executeRun(tx, runId, [bypassSpec]);
+      expect(outcome).toEqual({ status: "failed", runId });
+      expect(bypassExecute).not.toHaveBeenCalled(); // never executed with budget enforcement bypassed
+
+      const finalInvocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.id, invocation!.id) });
+      expect(finalInvocation?.status).toBe("failed");
+      const finalRun = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
+      expect(finalRun?.status).toBe("failed");
+
+      // The original real reservation (6 units, held while awaiting approval)
+      // was released properly — no no-op path was ever taken for this
+      // resumption, and nothing was left stranded or double-counted.
+      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      expect(Number(counter!.reservedAmount)).toBe(0);
+      expect(Number(counter!.consumedAmount)).toBe(0);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. Explicit order-of-operations test
+// ---------------------------------------------------------------------------
+
+describe("explicit order-of-operations (Grant-check -> Policy -> Budget -> Approval)", () => {
+  it("calls resolveCapabilityGrant, evaluatePolicy, reserveBudget, createApproval in exactly that sequence for a REQUIRE_APPROVAL spec", async () => {
+    const callOrder: string[] = [];
+
+    const originalResolveGrant = invocationLifecycleModule.resolveCapabilityGrant;
+    const originalEvaluatePolicy = policyModule.evaluatePolicy;
+    const originalReserveBudget = budgetModule.reserveBudget;
+    const originalCreateApproval = approvalsModule.createApproval;
+
+    const grantSpy = vi
+      .spyOn(invocationLifecycleModule, "resolveCapabilityGrant")
+      .mockImplementation(async (...args: Parameters<typeof originalResolveGrant>) => {
+        callOrder.push("grant");
+        return originalResolveGrant(...args);
+      });
+    const policySpy = vi
+      .spyOn(policyModule, "evaluatePolicy")
+      .mockImplementation(async (...args: Parameters<typeof originalEvaluatePolicy>) => {
+        callOrder.push("policy");
+        return originalEvaluatePolicy(...args);
+      });
+    const budgetSpy = vi
+      .spyOn(budgetModule, "reserveBudget")
+      .mockImplementation(async (...args: Parameters<typeof originalReserveBudget>) => {
+        callOrder.push("budget");
+        return originalReserveBudget(...args);
+      });
+    const approvalSpy = vi
+      .spyOn(approvalsModule, "createApproval")
+      .mockImplementation(async (...args: Parameters<typeof originalCreateApproval>) => {
+        callOrder.push("approval");
+        return originalCreateApproval(...args);
+      });
+
+    try {
+      await withRollback(async (tx) => {
+        const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+          autonomyState: "ALWAYS_APPROVE",
+        });
+        const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+        const outcome = await executeRun(tx, runId, [spec]);
+        expect(outcome).toEqual({ status: "awaiting_approval", runId });
+      });
+
+      expect(callOrder).toEqual(["grant", "policy", "budget", "approval"]);
+    } finally {
+      grantSpy.mockRestore();
+      policySpy.mockRestore();
+      budgetSpy.mockRestore();
+      approvalSpy.mockRestore();
+    }
+  });
+
+  it("ALLOW path (AUTONOMOUS grant) never calls createApproval", async () => {
+    const approvalSpy = vi.spyOn(approvalsModule, "createApproval");
+    try {
+      await withRollback(async (tx) => {
+        const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+          autonomyState: "AUTONOMOUS",
+        });
+        const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+        const outcome = await executeRun(tx, runId, [spec]);
+        expect(outcome).toEqual({ status: "completed", runId });
+      });
+      expect(approvalSpy).not.toHaveBeenCalled();
+    } finally {
+      approvalSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. reauthorize + fresh reserveBudget are two separate calls on resume
+// ---------------------------------------------------------------------------
+
+describe("immediately-before-execution re-check on resume", () => {
+  it("calls reauthorize and a fresh reserveBudget as two independent calls (not fused)", async () => {
+    const callOrder: string[] = [];
+    const originalReauthorize = approvalsModule.reauthorize;
+    const originalReserveBudget = budgetModule.reserveBudget;
+
+    const reauthorizeSpy = vi
+      .spyOn(approvalsModule, "reauthorize")
+      .mockImplementation(async (...args: Parameters<typeof originalReauthorize>) => {
+        callOrder.push("reauthorize");
+        return originalReauthorize(...args);
+      });
+    const reserveBudgetSpy = vi
+      .spyOn(budgetModule, "reserveBudget")
+      .mockImplementation(async (...args: Parameters<typeof originalReserveBudget>) => {
+        callOrder.push(`reserveBudget:${args[4]}`);
+        return originalReserveBudget(...args);
+      });
+
+    try {
+      await withRollback(async (tx) => {
+        const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+          autonomyState: "ALWAYS_APPROVE",
+        });
+        const spec = buildToolSpec({ capabilityId, toolBindingId, permission, estimatedCost: 7 });
+
+        await executeRun(tx, runId, [spec]);
+        const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+        const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+        await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+        reauthorizeSpy.mockClear();
+        reserveBudgetSpy.mockClear();
+        callOrder.length = 0;
+
+        const outcome = await executeRun(tx, runId, [spec]);
+        expect(outcome).toEqual({ status: "completed", runId });
+      });
+
+      // Exactly one reauthorize call and exactly one fresh reserveBudget call
+      // during resumption — two distinct, independently-invoked functions,
+      // not a single fused check.
+      expect(reauthorizeSpy).toHaveBeenCalledTimes(1);
+      expect(reserveBudgetSpy).toHaveBeenCalledTimes(1);
+      expect(callOrder).toEqual(["reauthorize", "reserveBudget:7"]);
+    } finally {
+      reauthorizeSpy.mockRestore();
+      reserveBudgetSpy.mockRestore();
+    }
+  });
+
+  it("reauthorization failure (Grant revoked after approval) releases the reservation and fails the Run", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+      await executeRun(tx, runId, [spec]);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+      // Revoke the Grant after approval but before resumption.
+      await tx
+        .update(schema.capabilityGrants)
+        .set({ revokedAt: new Date() })
+        .where(eq(schema.capabilityGrants.capabilityId, capabilityId));
+
+      const outcome = await executeRun(tx, runId, [spec]);
+      expect(outcome).toEqual({ status: "failed", runId });
+      expect(spec.execute).not.toHaveBeenCalled();
+
+      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      expect(Number(counter!.reservedAmount)).toBe(0);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. DENY and insufficient-budget paths fail the invocation AND the Run
+// ---------------------------------------------------------------------------
+
+describe("tool invocation DENY / insufficient budget", () => {
+  it("DENY (no Grant) fails the invocation and the Run, without ever reserving budget", async () => {
+    const budgetSpy = vi.spyOn(budgetModule, "reserveBudget");
+    try {
+      await withRollback(async (tx) => {
+        const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, { withGrant: false });
+        const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+        const outcome = await executeRun(tx, runId, [spec]);
+        expect(outcome).toEqual({ status: "failed", runId });
+        expect(spec.execute).not.toHaveBeenCalled();
+
+        const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+        expect(invocation?.status).toBe("failed");
+        const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
+        expect(run?.status).toBe("failed");
+
+        const failedEvent = await tx.query.events.findFirst({
+          where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_failed")),
+        });
+        expect(failedEvent).toBeDefined();
+      });
+      expect(budgetSpy).not.toHaveBeenCalled();
+    } finally {
+      budgetSpy.mockRestore();
+    }
+  });
+
+  it("insufficient budget on the ALLOW path fails the invocation and the Run without executing", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "AUTONOMOUS",
+        limitAmount: "1.00",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission, estimatedCost: 100 });
+      const outcome = await executeRun(tx, runId, [spec]);
+      expect(outcome).toEqual({ status: "failed", runId });
+      expect(spec.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  it("a thrown execute() releases the reservation and fails the invocation + Run", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "AUTONOMOUS",
+        limitAmount: "10.00",
+      });
+      const spec = buildToolSpec({
+        capabilityId,
+        toolBindingId,
+        permission,
+        estimatedCost: 5,
+        execute: vi.fn(async () => {
+          throw new Error("tool blew up");
+        }),
+      });
+      const outcome = await executeRun(tx, runId, [spec]);
+      expect(outcome).toEqual({ status: "failed", runId });
+
+      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      expect(Number(counter!.reservedAmount)).toBe(0);
+      expect(Number(counter!.consumedAmount)).toBe(0);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. ALLOW path: reconcile + persist artifact + complete, no re-check
+// ---------------------------------------------------------------------------
+
+describe("tool invocation ALLOW path", () => {
+  it("executes, reconciles budget with the estimated cost, persists the result as an artifact, and completes", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "AUTONOMOUS",
+        limitAmount: "10.00",
+      });
+      const spec = buildToolSpec({
+        capabilityId,
+        toolBindingId,
+        permission,
+        estimatedCost: 4,
+        execute: vi.fn(async () => ({ result: "ok" })),
+      });
+
+      const outcome = await executeRun(tx, runId, [spec]);
+      expect(outcome).toEqual({ status: "completed", runId });
+
+      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      expect(Number(counter!.reservedAmount)).toBe(0);
+      expect(Number(counter!.consumedAmount)).toBe(4);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      expect(invocation?.status).toBe("completed");
+
+      const artifact = await tx.query.artifacts.findFirst({
+        where: eq(schema.artifacts.producingInvocationId, invocation!.id),
+      });
+      expect(artifact?.inlineContent).toBe(JSON.stringify({ result: "ok" }));
+      expect(artifact?.type).toBe("invocation_result");
+    });
+  });
+
+  // Fix-round-1 (Important #2): reconcileBudget runs inside the try block,
+  // and (before this fix) the catch unconditionally called releaseReservation
+  // on the SAME reservation id. reconcileBudget/releaseReservation are NOT
+  // idempotent (budget.ts's own header) — calling both double-decrements
+  // reserved_amount with nothing to detect it. Reachable via
+  // persistInvocationResultAsArtifact's JSON.stringify throwing a plain
+  // TypeError (not a DB error, so the transaction survives) on a tool result
+  // containing a BigInt, which happens AFTER reconcileBudget already
+  // succeeded.
+  it("a tool result that JSON.stringify can't serialize fails cleanly WITHOUT double-releasing the already-reconciled reservation", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "AUTONOMOUS",
+        limitAmount: "10.00",
+      });
+      const spec = buildToolSpec({
+        capabilityId,
+        toolBindingId,
+        permission,
+        estimatedCost: 4,
+        execute: vi.fn(async () => ({ bad: 10n })),
+      });
+
+      const outcome = await executeRun(tx, runId, [spec]);
+      expect(outcome).toEqual({ status: "failed", runId });
+
+      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      // reconcileBudget already ran (released the 4-unit estimate, added 4 to
+      // consumed) before persistInvocationResultAsArtifact's throw. A double
+      // release would drive reservedAmount NEGATIVE (-4) instead of 0.
+      expect(Number(counter!.reservedAmount)).toBe(0);
+      expect(Number(counter!.consumedAmount)).toBe(4);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      expect(invocation?.status).toBe("failed");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. "llm" kind: no Policy, Unit 5 owns started/completed, Executor owns failed
+// ---------------------------------------------------------------------------
+
+describe('"llm" kind orchestration', () => {
+  it("never calls evaluatePolicy/computeRiskTier's grant-based path (no Grant/Policy step at all for llm)", async () => {
+    const policySpy = vi.spyOn(policyModule, "evaluatePolicy");
+    try {
+      await withRollback(async (tx) => {
+        const { runId } = await seedGenericRunFixture(tx);
+        vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+          result: { text: "hi" },
+          usage: { tokensIn: 10, tokensOut: 5, costAmount: 0.01 },
+        });
+        const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
+        expect(outcome).toEqual({ status: "completed", runId });
+      });
+      expect(policySpy).not.toHaveBeenCalled();
+    } finally {
+      policySpy.mockRestore();
+    }
+  });
+
+  it("does not duplicate invocation_started/invocation_completed (Unit 5 already emits them)", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx);
+      vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+        result: { text: "hi" },
+        usage: { tokensIn: 10, tokensOut: 5, costAmount: 0.01 },
+      });
+      await executeRun(tx, runId, [buildLlmSpec()]);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const startedEvents = await tx.query.events.findMany({
+        where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_started")),
+      });
+      const completedEvents = await tx.query.events.findMany({
+        where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_completed")),
+      });
+      expect(startedEvents.length).toBe(1);
+      expect(startedEvents[0]!.producer).toBe("model-router");
+      expect(completedEvents.length).toBe(1);
+      expect(completedEvents[0]!.producer).toBe("model-router");
+
+      expect(invocation?.status).toBe("completed");
+      const artifact = await tx.query.artifacts.findFirst({
+        where: eq(schema.artifacts.producingInvocationId, invocation!.id),
+      });
+      expect(artifact).toBeDefined();
+      expect(artifact?.inlineContent).toBe(JSON.stringify({ text: "hi" }));
+    });
+  });
+
+  it("authorizeRoute {authorized:false} (insufficient budget) fails the invocation + Run; Executor emits invocation_failed itself", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx, { limitAmount: "0.00" });
+      const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
+      expect(outcome).toEqual({ status: "failed", runId });
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      expect(invocation?.status).toBe("failed");
+      const failedEvent = await tx.query.events.findFirst({
+        where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_failed")),
+      });
+      expect(failedEvent).toBeDefined();
+      expect(failedEvent?.producer).toBe("executor");
+
+      const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
+      expect(run?.status).toBe("failed");
+      expect(callAnthropicModel).not.toHaveBeenCalled();
+    });
+  });
+
+  it("a thrown callModel error fails the invocation + Run; Executor emits invocation_failed itself", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx);
+      vi.mocked(callAnthropicModel).mockRejectedValueOnce(new Error("provider boom"));
+      const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
+      expect(outcome).toEqual({ status: "failed", runId });
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      expect(invocation?.status).toBe("failed");
+      const failedEvent = await tx.query.events.findFirst({
+        where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_failed")),
+      });
+      expect(failedEvent).toBeDefined();
+      expect(failedEvent?.payload).toMatchObject({ reason: expect.stringContaining("provider boom") });
+    });
+  });
+
+  // Fix-round-1 (Important #1): the existing "thrown callModel error" test
+  // above only checked invocation status/event — it never asserted the
+  // budget_counters state, which is exactly why the reservation leak wasn't
+  // caught by the original green suite. `authorizeRoute` reserves budget and
+  // returns the handle on `route.reservationId`; before this fix, a thrown
+  // compileContext/provider error never released it, permanently inflating
+  // `reserved_amount` on the run's budget_counters row.
+  it("a thrown callModel error releases the reservation authorizeRoute made (Important #1 — reservation leak)", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx, { limitAmount: "10.00" });
+
+      const before = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      expect(Number(before!.reservedAmount)).toBe(0);
+
+      vi.mocked(callAnthropicModel).mockRejectedValueOnce(new Error("provider boom"));
+      const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
+      expect(outcome).toEqual({ status: "failed", runId });
+
+      const after = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      // Returned to the pre-call baseline — not left inflated by the leaked reservation.
+      expect(Number(after!.reservedAmount)).toBe(0);
+      expect(Number(after!.consumedAmount)).toBe(0);
+    });
+  });
+
+  // Same failure class as Important #2 (tool path), found while fixing
+  // Important #1 for consistency: once callModel returns successfully it has
+  // ALREADY reconciled route.reservationId (Unit 5's own success path).
+  // persistInvocationResultAsArtifact's JSON.stringify throws a plain
+  // TypeError (not a DB error — does not abort the transaction) on a result
+  // containing a BigInt, which happens AFTER that reconcile. Without the
+  // `reconciled` flag guard, the catch would call releaseReservation on an
+  // already-reconciled id, double-decrementing reserved_amount.
+  it("a post-reconcile failure (BigInt result, not JSON-serializable) does not double-release the already-reconciled reservation", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx, { limitAmount: "10.00" });
+
+      vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+        result: { bad: 10n },
+        usage: { tokensIn: 10, tokensOut: 5, costAmount: 0.02 },
+      });
+
+      const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
+      expect(outcome).toEqual({ status: "failed", runId });
+
+      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      // callModel's own reconcile already ran (released the estimate, recorded
+      // actual usage as consumed) before our JSON.stringify throw. reservedAmount
+      // must land at exactly 0 — a double release would drive it NEGATIVE.
+      expect(Number(counter!.reservedAmount)).toBe(0);
+      expect(Number(counter!.consumedAmount)).toBeCloseTo(0.02, 10);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      expect(invocation?.status).toBe("failed");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Resumability / idempotency on re-entry after full completion
+// ---------------------------------------------------------------------------
+
+describe("executeRun resumability", () => {
+  it("re-invoking after full completion is a no-op (never re-executes a completed invocation)", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx);
+      const execute = vi.fn(async () => ({ once: true }));
+      const spec = buildDeterministicSpec(execute);
+
+      const first = await executeRun(tx, runId, [spec]);
+      expect(first).toEqual({ status: "completed", runId });
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      const second = await executeRun(tx, runId, [spec]);
+      expect(second).toEqual({ status: "completed", runId });
+      expect(execute).toHaveBeenCalledTimes(1); // not called again
+    });
+  });
+
+  it("re-invoking after the Run has failed short-circuits to {status:'failed'} without re-processing specs", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, { withGrant: false });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+      await executeRun(tx, runId, [spec]);
+
+      const secondSpecExecute = vi.fn(async () => ({}));
+      const outcome = await executeRun(tx, runId, [spec, buildDeterministicSpec(secondSpecExecute)]);
+      expect(outcome).toEqual({ status: "failed", runId });
+      expect(secondSpecExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  it("skips an invocation already marked completed for its seqNo, without re-executing it, and proceeds to the next spec", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx);
+      const firstExecute = vi.fn(async () => ({ first: true }));
+      const secondExecute = vi.fn(async () => ({ second: true }));
+
+      // Pre-insert a completed invocation row for seqNo 1, simulating a prior
+      // successful executeRun call for spec 0 that already committed in an
+      // earlier transaction — Unit 6's actual resumability contract: a LATER
+      // call with the SAME specs array resumes from that exact point rather
+      // than restarting from index 0.
+      await tx.insert(schema.invocations).values({
+        runId,
+        seqNo: 1,
+        kind: "deterministic",
+        costClass: "deterministic",
+        status: "completed",
+        idempotencyKey: `run:${runId}:seq:1`,
+      });
+
+      const outcome = await executeRun(tx, runId, [
+        buildDeterministicSpec(firstExecute),
+        buildDeterministicSpec(secondExecute),
+      ]);
+
+      expect(outcome).toEqual({ status: "completed", runId });
+      expect(firstExecute).not.toHaveBeenCalled(); // already completed — never re-executed
+      expect(secondExecute).toHaveBeenCalledTimes(1); // processed fresh, continuing the loop
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. persistInvocationResultAsArtifact <-> compileContext integration
+// ---------------------------------------------------------------------------
+
+describe("persistInvocationResultAsArtifact integration with compileContext (Units 4 + 6)", () => {
+  it("creates a real artifacts row with producing_invocation_id set, and the returned artifactId resolves as a ContextCandidate.id", async () => {
+    await withRollback(async (tx) => {
+      const { runId, taskInstanceId } = await seedGenericRunFixture(tx);
+      const spec = buildDeterministicSpec(async () => ({ hello: "world" }));
+      await executeRun(tx, runId, [spec]);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const artifact = await tx.query.artifacts.findFirst({
+        where: eq(schema.artifacts.producingInvocationId, invocation!.id),
+      });
+      expect(artifact).toBeDefined();
+      expect(artifact?.producingInvocationId).toBe(invocation!.id);
+
+      const compiled = await compileContext(tx, {
+        intent: "summarize",
+        taskInstanceId,
+        candidateArtifactIds: [artifact!.id],
+        candidateToolCapabilityIds: [],
+        budget: {
+          maxInputTokens: 10_000,
+          maxArtifactTokens: 2_000,
+          maxRetrievedItems: 50,
+          maxToolSchemaTokens: 2_000,
+          compressionThreshold: 2_000,
+          freshnessRequirementSeconds: 0,
+          expectedOutputTokens: 100,
+        },
+      });
+
+      expect(compiled.provenance.included).toContainEqual({ id: artifact!.id, tier: 2 });
+      expect(compiled.layers.artifacts).toContain(JSON.stringify({ hello: "world" }));
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. Structural checks
+// ---------------------------------------------------------------------------
+
+describe("structural checks", () => {
+  it("no file under src/execution imports a provider SDK directly", () => {
+    const executionDir = fileURLToPath(new URL("../../src/execution", import.meta.url));
+    for (const entry of readdirSync(executionDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".ts")) continue;
+      const source = readFileSync(path.join(executionDir, entry.name), "utf8");
+      expect(source).not.toMatch(/from\s+["'](@anthropic-ai\/sdk|openai)["']/);
+    }
+  });
+
+  it("executor.ts never references createWorkflowTaskInstance (standalone-vs-workflow path separation)", () => {
+    const executorPath = fileURLToPath(new URL("../../src/execution/executor.ts", import.meta.url));
+    const source = readFileSync(executorPath, "utf8");
+    expect(source).not.toMatch(/createWorkflowTaskInstance/);
+  });
+});

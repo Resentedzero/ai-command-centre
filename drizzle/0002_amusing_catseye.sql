@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "budget_counters_scope_scope_ref_id_idx" ON "budget_counters" USING btree ("scope","scope_ref_id");

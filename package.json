@@ -13,7 +13,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "tsx src/db/migrate.ts",
+    "seed": "tsx src/definitions/runSeed.ts",
+    "dev:api": "tsx src/api/start.ts"
   },
   "repository": {
     "type": "git",
@@ -27,8 +29,11 @@
   },
   "homepage": "https://github.com/Resentedzero/ai-command-centre#readme",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
+    "fastify": "^5.12.4",
+    "openai": "^7.15.0",
     "pg": "^8.23.0"
   },
   "devDependencies": {

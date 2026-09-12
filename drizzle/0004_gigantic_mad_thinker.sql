@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "approvals_invocation_id_idx" ON "approvals" USING btree ("invocation_id");

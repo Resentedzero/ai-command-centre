@@ -28,6 +28,12 @@ out/
 .turbo/
 .cache/
 coverage/
+*.tsbuildinfo
+
+# Local Artifact storage (ARTIFACT_ROOT, .env) — includes Unit 9's
+# publish.report proof binding's real filesystem writes under
+# .artifacts/published/, produced by integration tests and local runs alike.
+.artifacts/
 
 # Logs
 *.log

@@ -1,0 +1,215 @@
+/**
+ * The ONLY module in this app allowed to talk to anything outside the
+ * browser. Every function here calls the Unit 10 API over HTTP — nothing in
+ * `web/` may import from `src/db/*`, `src/governance/*`, `src/router/*`,
+ * `src/execution/*`, or `src/workflow/*` (see task-11-brief.md's IMPORTANT
+ * constraints); if a feature seems to need one of those, it needs a new API
+ * route instead (see Unit 11's Ruling 1, `src/api/routes/agents.ts`, for the
+ * one precedent this unit itself added).
+ *
+ * ---------------------------------------------------------------------------
+ * API_BASE_URL (Ruling 7)
+ * ---------------------------------------------------------------------------
+ * `src/api/start.ts:19` binds the API on `Number(process.env.PORT ?? 3000)`,
+ * and this repo's `.env` sets no `PORT` — so the API's real local default is
+ * `http://localhost:3000`, NOT the `:3001` the brief used as a placeholder
+ * example. That default is used as the fallback here, overridable via
+ * `NEXT_PUBLIC_API_BASE_URL` (the `NEXT_PUBLIC_` prefix is required for a
+ * Next.js env var to be readable in browser-rendered code, which
+ * `subscribeToActivity`'s `EventSource` usage below needs).
+ *
+ * That also means Next's own literal default dev port (3000) COLLIDES with
+ * the API's default port — that's why `web/package.json`'s `dev` script
+ * explicitly binds Next to `:3100` instead (`next dev -p 3100`), and why
+ * `src/api/server.ts`'s CORS origin defaults to `http://localhost:3100` to
+ * match. Documented here once since it's the reason this constant and that
+ * script disagree with the brief's own port-number examples.
+ */
+const DEFAULT_API_BASE_URL = "http://localhost:3000";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors `src/api/routes/agents.ts`'s `ActiveAgentData` exactly (Unit 11's
+ * own new route — see that file's header for the join/status-vocabulary
+ * reasoning). No revenue stat: there is no revenue projection anywhere in
+ * this MVP (task-11-brief.md's "Out of scope"), so this type simply never
+ * has one to render.
+ */
+export type AgentCardData = {
+  agentDefinitionId: string | null;
+  agentName: string;
+  runId: string;
+  taskInstanceId: string;
+  taskStatus: string;
+  latestActivitySummary: string | null;
+};
+
+/**
+ * Mirrors `GET /approvals`'s actual, documented response shape exactly: raw
+ * `approvals` table rows (Unit 10's own accepted MVP simplification — see
+ * `src/api/routes/approvals.ts`), JSON-serialized. Drizzle's `timestamp`
+ * columns become ISO date strings over the wire, not `Date` objects — hence
+ * `string | null` here rather than `Date | null`.
+ */
+export type ApprovalData = {
+  id: string;
+  invocationId: string;
+  proposedActionSnapshot: Record<string, unknown>;
+  riskTier: string;
+  status: "pending" | "approved" | "rejected" | "expired";
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  ttl: string | null;
+};
+
+/**
+ * This UI's OWN display type (Ruling 5), derived from `src/events/types.ts`'s
+ * `EventEnvelope` but NOT importing it — `web/` is fully self-contained (no
+ * compile-time coupling to the backend's `src/` tree either), and this type
+ * only needs the handful of fields an activity feed actually renders.
+ * `summary` is derived from `eventType` + a best-effort rendering of any
+ * primitive-valued `payload` fields (see `summarizeEvent` below) — `payload`
+ * is documented as NOT a discriminated union (`src/events/types.ts`), so no
+ * field is guaranteed present across every `eventType`.
+ */
+export type EventDisplayItem = {
+  eventId: string;
+  eventType: string;
+  occurredAt: string;
+  sequenceNo: number;
+  summary: string;
+};
+
+/** The wire shape of one SSE message's `data:` payload — a JSON-serialized `EventEnvelope` (`src/events/types.ts`), independently declared per the note above. Only the fields `toEventDisplayItem` actually uses. */
+type RawEventEnvelope = {
+  eventId: string;
+  eventType: string;
+  occurredAt: string;
+  sequenceNo: number;
+  payload: Record<string, unknown>;
+};
+
+// ---------------------------------------------------------------------------
+// Fetch helpers
+// ---------------------------------------------------------------------------
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  if (!res.ok) {
+    throw new Error(`API request failed: ${init?.method ?? "GET"} ${path} -> ${res.status} ${res.statusText}`);
+  }
+  const text = await res.text();
+  return (text.length > 0 ? JSON.parse(text) : undefined) as T;
+}
+
+export async function listActiveAgents(): Promise<AgentCardData[]> {
+  const data = await apiFetch<{ agents: AgentCardData[] }>("/agents/active");
+  return data.agents;
+}
+
+export async function listPendingApprovals(): Promise<ApprovalData[]> {
+  const data = await apiFetch<{ approvals: ApprovalData[] }>("/approvals");
+  return data.approvals;
+}
+
+/** No client-side policy logic — just a pass-through POST, per the brief's constraints. */
+export async function approveApproval(id: string): Promise<void> {
+  await apiFetch<unknown>(`/approvals/${encodeURIComponent(id)}/approve`, { method: "POST" });
+}
+
+/** No client-side policy logic — just a pass-through POST, per the brief's constraints. */
+export async function rejectApproval(id: string): Promise<void> {
+  await apiFetch<unknown>(`/approvals/${encodeURIComponent(id)}/reject`, { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
+// subscribeToActivity (Ruling 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Best-effort, generically-safe summary: `eventType` always exists; a small
+ * number of primitive-valued `payload` fields are appended for extra
+ * context, when present, without assuming any particular field exists
+ * (mirrors `src/api/routes/agents.ts`'s own `eventType`-only reasoning, with
+ * this bit of extra detail being acceptable here since it's presentation
+ * only, not something anything downstream depends on being stable).
+ */
+function summarizeEvent(raw: RawEventEnvelope): string {
+  const payload = raw.payload ?? {};
+  const parts = Object.entries(payload)
+    .filter((entry): entry is [string, string | number | boolean] => {
+      const value = entry[1];
+      return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+    })
+    .slice(0, 3)
+    .map(([key, value]) => `${key}=${String(value)}`);
+  return parts.length > 0 ? `${raw.eventType} (${parts.join(", ")})` : raw.eventType;
+}
+
+function toEventDisplayItem(raw: RawEventEnvelope): EventDisplayItem {
+  return {
+    eventId: raw.eventId,
+    eventType: raw.eventType,
+    occurredAt: raw.occurredAt,
+    sequenceNo: raw.sequenceNo,
+    summary: summarizeEvent(raw),
+  };
+}
+
+/**
+ * Subscribes to `GET /events/stream`, matching Unit 10's replay-then-live
+ * contract exactly. Reconnect (Ruling 5) is handled ENTIRELY inside this
+ * function: the last-seen `sequenceNo` is tracked in a closure variable, and
+ * on the underlying `EventSource`'s `onerror` (connection dropped), that
+ * `EventSource` is explicitly closed and a brand NEW one is opened against
+ * `?sinceSequenceNo=<lastSeen>` — the browser's native same-URL
+ * auto-reconnect is never relied on, since this endpoint's reconnect
+ * contract is the query parameter, not `Last-Event-ID`.
+ *
+ * This means the interface's caller (e.g. `ActivityFeed`) calls this
+ * function exactly ONCE and keeps receiving events across any number of
+ * reconnects — the returned unsubscribe function is the only handle it
+ * needs. `onEvent`'s (sinceSequenceNo, onEvent) signature has no "connection
+ * dropped" callback, so there is no way for a CALLER to itself decide when
+ * to re-subscribe; ownership of reconnect has to live here.
+ */
+export function subscribeToActivity(sinceSequenceNo: number | null, onEvent: (e: EventDisplayItem) => void): () => void {
+  let closed = false;
+  let currentSource: EventSource | null = null;
+  let lastSeen = sinceSequenceNo ?? 0;
+
+  function connect(since: number): void {
+    if (closed) return;
+
+    const source = new EventSource(`${API_BASE_URL}/events/stream?sinceSequenceNo=${since}`);
+    currentSource = source;
+
+    source.onmessage = (message: MessageEvent<string>) => {
+      const raw = JSON.parse(message.data) as RawEventEnvelope;
+      lastSeen = raw.sequenceNo;
+      onEvent(toEventDisplayItem(raw));
+    };
+
+    source.onerror = () => {
+      source.close();
+      if (!closed) {
+        connect(lastSeen);
+      }
+    };
+  }
+
+  connect(lastSeen);
+
+  return () => {
+    closed = true;
+    currentSource?.close();
+  };
+}

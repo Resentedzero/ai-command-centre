@@ -121,6 +121,10 @@ export const capabilityGrants = pgTable("capability_grants", {
   maxTrustLevelRequired: integer("max_trust_level_required").notNull(),
   autonomyState: text("autonomy_state").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Unit 3 addition (pre-dispatch ruling): the concrete representation of
+  // "revocation status" — a grant with revokedAt !== null is revoked.
+  // `reauthorize` checks this immediately before execution (Phase 9.5).
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
 
 export const taskDefinitions = pgTable("task_definitions", {
@@ -213,6 +217,20 @@ export const invocations = pgTable("invocations", {
   idempotencyKey: text("idempotency_key").notNull().unique(),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  // Unit 3 additions (pre-dispatch ruling): which Capability/permission this
+  // invocation exercises. Both null for LLM/deterministic/retrieval
+  // invocations that never go through Policy at all. Together with
+  // `runs.agentDefinitionId`/`agentDefinitionVersion`, this is what lets
+  // `reauthorize(tx, invocationId)` find the governing Grant from just an
+  // invocationId, with no other input.
+  capabilityId: uuid("capability_id").references(() => capabilities.id),
+  permission: text("permission"),
+  // The CURRENT/mutable proposed action for this invocation — distinct from
+  // `approvals.proposedActionSnapshot`, which is the FROZEN snapshot taken at
+  // Approval-creation time and never changes after creation. `reauthorize`
+  // compares these two; a difference means the action was mutated after
+  // Approval creation (material-change invalidation, Phase 9.5).
+  proposedActionSnapshot: jsonb("proposed_action_snapshot").$type<Record<string, unknown>>(),
 });
 
 // ---------------------------------------------------------------------------
@@ -259,33 +277,57 @@ export const events = pgTable(
   ]
 );
 
-export const budgetCounters = pgTable("budget_counters", {
-  id: uuid("id").primaryKey().$defaultFn(genId),
-  scope: budgetCounterScope("scope").notNull(),
-  scopeRefId: text("scope_ref_id").notNull(),
-  limitAmount: numeric("limit_amount").notNull(),
-  reservedAmount: numeric("reserved_amount").notNull().default("0"),
-  consumedAmount: numeric("consumed_amount").notNull().default("0"),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const budgetCounters = pgTable(
+  "budget_counters",
+  {
+    id: uuid("id").primaryKey().$defaultFn(genId),
+    scope: budgetCounterScope("scope").notNull(),
+    scopeRefId: text("scope_ref_id").notNull(),
+    limitAmount: numeric("limit_amount").notNull(),
+    reservedAmount: numeric("reserved_amount").notNull().default("0"),
+    consumedAmount: numeric("consumed_amount").notNull().default("0"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Exactly one counter row per scope key (Unit 2 ruling). Without this,
+    // two concurrent reserveBudget calls that both find "no row yet" for a
+    // key could each attempt to work against/insert a distinct row for the
+    // same key, breaking the single-row-per-scope invariant reserveBudget's
+    // SELECT ... FOR UPDATE locking depends on for atomicity.
+    uniqueIndex("budget_counters_scope_scope_ref_id_idx").on(table.scope, table.scopeRefId),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // Governance
 // ---------------------------------------------------------------------------
 
-export const approvals = pgTable("approvals", {
-  id: uuid("id").primaryKey().$defaultFn(genId),
-  invocationId: uuid("invocation_id")
-    .notNull()
-    .references(() => invocations.id),
-  proposedActionSnapshot: jsonb("proposed_action_snapshot").$type<Record<string, unknown>>().notNull(),
-  riskTier: text("risk_tier").notNull(),
-  status: approvalStatus("status").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-  resolvedBy: text("resolved_by"),
-  ttl: timestamp("ttl", { withTimezone: true }),
-});
+export const approvals = pgTable(
+  "approvals",
+  {
+    id: uuid("id").primaryKey().$defaultFn(genId),
+    invocationId: uuid("invocation_id")
+      .notNull()
+      .references(() => invocations.id),
+    proposedActionSnapshot: jsonb("proposed_action_snapshot").$type<Record<string, unknown>>().notNull(),
+    riskTier: text("risk_tier").notNull(),
+    status: approvalStatus("status").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: text("resolved_by"),
+    ttl: timestamp("ttl", { withTimezone: true }),
+  },
+  (table) => [
+    // Unit 3 fix-round-1 addition: exactly one Approval per invocation. An
+    // Approval is bound to THE EXACT proposed-action snapshot for its
+    // invocation (immutable once created) — without this, a second Approval
+    // row for the same invocation would make reauthorize's lookup
+    // nondeterministic (findFirst would pick an arbitrary one of several
+    // matching rows). This makes "one Approval per invocation" a structural
+    // invariant rather than a convention.
+    uniqueIndex("approvals_invocation_id_idx").on(table.invocationId),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // Knowledge

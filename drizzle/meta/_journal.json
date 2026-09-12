@@ -15,6 +15,27 @@
       "when": 1789222322073,
       "tag": "0001_past_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789223807496,
+      "tag": "0002_amusing_catseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789225448229,
+      "tag": "0003_absent_night_nurse",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789226564442,
+      "tag": "0004_gigantic_mad_thinker",
+      "breakpoints": true
     }
   ]
 }

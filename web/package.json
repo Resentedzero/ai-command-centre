@@ -1,0 +1,29 @@
+{
+  "name": "ai-command-centre-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Command Centre — Unit 11 minimal UI (Overview, Activity Feed, Approvals Queue). A self-contained Next.js app; the ONLY way it may reach data is through the Unit 10 API (see web/lib/api.ts).",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "next": "^16.3.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "jsdom": "^30.0.1",
+    "typescript": "^7.0.2",
+    "vitest": "^2.1.9"
+  }
+}
