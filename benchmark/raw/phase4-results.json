@@ -1,0 +1,1811 @@
+{
+  "aborted": null,
+  "results": [
+    {
+      "id": "4A-opus-1kb",
+      "index": 0,
+      "concurrency": 1,
+      "model": "claude-opus-5",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 4,
+      "firstByteOffsetMs": 837,
+      "completionOffsetMs": 4282,
+      "wallClockMs": 4278,
+      "ttftMs": 833,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "4b50a79c-d16a-4aed-8857-c97674f17e61",
+          "session_id": "366c8ec5-9b5a-4c3e-9eb8-df0ae991862b"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1295,
+          "outputTokens": 12,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.0013549999999999999,
+          "costBasis": "list"
+        },
+        {
+          "model": "claude-opus-5",
+          "inputTokens": 2,
+          "outputTokens": 152,
+          "cacheCreationInputTokens": 3513,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.03894,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 2,
+      "accounting": {
+        "A_adapterTokens": 1461,
+        "B_cacheCreation": 3513,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 4974
+      },
+      "thinkingTokens": 0,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 2,
+        "output_tokens": 152,
+        "cache_creation_input_tokens": 3513,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 0,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.040295000000000004,
+      "structuredValid": true
+    },
+    {
+      "id": "4A-opus-10kb",
+      "index": 0,
+      "concurrency": 1,
+      "model": "claude-opus-5",
+      "stdinBytes": 10685,
+      "launchOffsetMs": 2,
+      "firstByteOffsetMs": 807,
+      "completionOffsetMs": 4220,
+      "wallClockMs": 4218,
+      "ttftMs": 805,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "522192a4-cb58-4b73-aebe-31caadb47a3d",
+          "session_id": "4bc87fe1-76f9-4609-aa5c-98a485a4d39c"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 3903,
+          "outputTokens": 12,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.0039629999999999995,
+          "costBasis": "list"
+        },
+        {
+          "model": "claude-opus-5",
+          "inputTokens": 2,
+          "outputTokens": 140,
+          "cacheCreationInputTokens": 6095,
+          "cacheReadInputTokens": 853,
+          "thinkingTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.0648865,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 2,
+      "accounting": {
+        "A_adapterTokens": 4057,
+        "B_cacheCreation": 6095,
+        "C_cacheRead": 853,
+        "D_totalFootprint": 11005
+      },
+      "thinkingTokens": 0,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 2,
+        "output_tokens": 140,
+        "cache_creation_input_tokens": 6095,
+        "cache_read_input_tokens": 853,
+        "thinking_tokens": 0,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.0688495,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N1",
+      "index": 0,
+      "concurrency": 1,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 3,
+      "firstByteOffsetMs": 818,
+      "completionOffsetMs": 5410,
+      "wallClockMs": 5407,
+      "ttftMs": 815,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "a97d0575-1b3b-4ddc-8009-c6b22b8cee73",
+          "session_id": "9d67a405-d8e8-4890-a6f4-57b2cef9c48d"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 340,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 239,
+          "webSearchRequests": 0,
+          "costUSD": 0.018285000000000003,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1645,
+        "B_cacheCreation": 7640,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9285
+      },
+      "thinkingTokens": 239,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 326,
+        "cache_creation_input_tokens": 7640,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 239,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018285000000000003,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N2",
+      "index": 0,
+      "concurrency": 2,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 4,
+      "firstByteOffsetMs": 821,
+      "completionOffsetMs": 5023,
+      "wallClockMs": 5019,
+      "ttftMs": 817,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "513ddb89-eba9-41c8-88af-171caa43ee5b",
+          "session_id": "fc379796-2433-47bf-aa59-d4fbda751547"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 306,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 210,
+          "webSearchRequests": 0,
+          "costUSD": 0.018111,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1611,
+        "B_cacheCreation": 7638,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9249
+      },
+      "thinkingTokens": 210,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 294,
+        "cache_creation_input_tokens": 7638,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 210,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018111,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N2",
+      "index": 1,
+      "concurrency": 2,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 9,
+      "firstByteOffsetMs": 847,
+      "completionOffsetMs": 9898,
+      "wallClockMs": 9889,
+      "ttftMs": 838,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "7d29ac1e-85e2-4255-9a6c-d7ddaf5e9189",
+          "session_id": "47fb5782-d99b-4ac8-af66-e5819ada9404"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1315,
+          "outputTokens": 821,
+          "cacheCreationInputTokens": 8162,
+          "cacheReadInputTokens": 7642,
+          "thinkingTokens": 644,
+          "webSearchRequests": 0,
+          "costUSD": 0.022508200000000006,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 2136,
+        "B_cacheCreation": 8162,
+        "C_cacheRead": 7642,
+        "D_totalFootprint": 17940
+      },
+      "thinkingTokens": 644,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 20,
+        "output_tokens": 805,
+        "cache_creation_input_tokens": 8162,
+        "cache_read_input_tokens": 7642,
+        "thinking_tokens": 644,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 3,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.022508200000000006,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N4",
+      "index": 0,
+      "concurrency": 4,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 12,
+      "firstByteOffsetMs": 960,
+      "completionOffsetMs": 5749,
+      "wallClockMs": 5737,
+      "ttftMs": 948,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "29cf8451-96ed-4263-b272-bb5009d04770",
+          "session_id": "a94dcd99-f627-4866-ab07-c95f69ebd71b"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 360,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 257,
+          "webSearchRequests": 0,
+          "costUSD": 0.018389,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1665,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9307
+      },
+      "thinkingTokens": 257,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 345,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 257,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018389,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N4",
+      "index": 1,
+      "concurrency": 4,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 27,
+      "firstByteOffsetMs": 922,
+      "completionOffsetMs": 4590,
+      "wallClockMs": 4563,
+      "ttftMs": 895,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "9683c2ab-9825-47bd-9196-38a19350980a",
+          "session_id": "f140194c-ae23-4bbf-b277-30b67bbcba64"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 416,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 307,
+          "webSearchRequests": 0,
+          "costUSD": 0.018669,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1721,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9363
+      },
+      "thinkingTokens": 307,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 400,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 307,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018669,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N4",
+      "index": 2,
+      "concurrency": 4,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 19,
+      "firstByteOffsetMs": 939,
+      "completionOffsetMs": 5174,
+      "wallClockMs": 5155,
+      "ttftMs": 920,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "1385ac86-8197-4c10-81a0-a38741824e09",
+          "session_id": "202bcba0-ba0d-4768-8c4b-695f237e68b3"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 388,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 284,
+          "webSearchRequests": 0,
+          "costUSD": 0.018525,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1693,
+        "B_cacheCreation": 7640,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9333
+      },
+      "thinkingTokens": 284,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 372,
+        "cache_creation_input_tokens": 7640,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 284,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018525,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N4",
+      "index": 3,
+      "concurrency": 4,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 34,
+      "firstByteOffsetMs": 923,
+      "completionOffsetMs": 7076,
+      "wallClockMs": 7042,
+      "ttftMs": 889,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "2b641b3c-eac6-4f9e-8cb1-5c8004058544",
+          "session_id": "87794b7f-6d65-446a-8815-a629fa983518"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 505,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 399,
+          "webSearchRequests": 0,
+          "costUSD": 0.019114000000000003,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1810,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9452
+      },
+      "thinkingTokens": 399,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 492,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 399,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.019114000000000003,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N8",
+      "index": 0,
+      "concurrency": 8,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 31,
+      "firstByteOffsetMs": 1207,
+      "completionOffsetMs": 5809,
+      "wallClockMs": 5778,
+      "ttftMs": 1176,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "f39095bd-0560-4324-83ce-178c67325ba3",
+          "session_id": "61b623e3-40a8-4cd9-8ed4-b51a5af98a14"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 379,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 272,
+          "webSearchRequests": 0,
+          "costUSD": 0.018484,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1684,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9326
+      },
+      "thinkingTokens": 272,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 363,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 272,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018484,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N8",
+      "index": 1,
+      "concurrency": 8,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 38,
+      "firstByteOffsetMs": 1290,
+      "completionOffsetMs": 9670,
+      "wallClockMs": 9632,
+      "ttftMs": 1252,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 3,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "5633d413-671c-4e3a-a25a-9280549030f2",
+          "session_id": "f44e53fd-5ff2-4c95-8e95-a053289f924b"
+        },
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.46,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "65e92b65-e287-4c5a-84d5-1500bdf9bdc9",
+          "session_id": "f44e53fd-5ff2-4c95-8e95-a053289f924b"
+        },
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "1090ea70-2864-44ba-8dfa-d2fc08db6274",
+          "session_id": "f44e53fd-5ff2-4c95-8e95-a053289f924b"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1315,
+          "outputTokens": 803,
+          "cacheCreationInputTokens": 8262,
+          "cacheReadInputTokens": 7640,
+          "thinkingTokens": 658,
+          "webSearchRequests": 0,
+          "costUSD": 0.022618000000000003,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 2118,
+        "B_cacheCreation": 8262,
+        "C_cacheRead": 7640,
+        "D_totalFootprint": 18020
+      },
+      "thinkingTokens": 658,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 20,
+        "output_tokens": 790,
+        "cache_creation_input_tokens": 8262,
+        "cache_read_input_tokens": 7640,
+        "thinking_tokens": 658,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 3,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.022618000000000003,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N8",
+      "index": 2,
+      "concurrency": 8,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 23,
+      "firstByteOffsetMs": 1221,
+      "completionOffsetMs": 5402,
+      "wallClockMs": 5379,
+      "ttftMs": 1198,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "250fa65c-834e-4d0f-940f-bd465d8af0d4",
+          "session_id": "43c9438a-3587-48f2-96c5-6bd0f781d128"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 320,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 226,
+          "webSearchRequests": 0,
+          "costUSD": 0.018189000000000004,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1625,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9267
+      },
+      "thinkingTokens": 226,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 306,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 226,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018189000000000004,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N8",
+      "index": 3,
+      "concurrency": 8,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 66,
+      "firstByteOffsetMs": 1328,
+      "completionOffsetMs": 5566,
+      "wallClockMs": 5500,
+      "ttftMs": 1262,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "7ce29535-8e97-4583-89b2-3173a66f7abd",
+          "session_id": "4907c8ab-1abe-4cf8-9e50-a1b8eddcd1b3"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 337,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 241,
+          "webSearchRequests": 0,
+          "costUSD": 0.018274000000000002,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1642,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9284
+      },
+      "thinkingTokens": 241,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 324,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 241,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018274000000000002,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N8",
+      "index": 4,
+      "concurrency": 8,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 57,
+      "firstByteOffsetMs": 1221,
+      "completionOffsetMs": 6326,
+      "wallClockMs": 6269,
+      "ttftMs": 1164,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "c3c845ee-27cb-492d-8837-f0d87a538ec2",
+          "session_id": "5b782ce1-3f30-4298-b829-16a31643ba46"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 420,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 302,
+          "webSearchRequests": 0,
+          "costUSD": 0.018685,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1725,
+        "B_cacheCreation": 7640,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9365
+      },
+      "thinkingTokens": 302,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 408,
+        "cache_creation_input_tokens": 7640,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 302,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018685,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N8",
+      "index": 5,
+      "concurrency": 8,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 48,
+      "firstByteOffsetMs": 1284,
+      "completionOffsetMs": 6119,
+      "wallClockMs": 6071,
+      "ttftMs": 1236,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "2ed09741-db7a-4526-8a03-f1903ed044b2",
+          "session_id": "c599b74f-5129-45dc-a69f-b0726d4952ec"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 446,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 357,
+          "webSearchRequests": 0,
+          "costUSD": 0.018819,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1751,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9393
+      },
+      "thinkingTokens": 357,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 434,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 357,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018819,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N8",
+      "index": 6,
+      "concurrency": 8,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 74,
+      "firstByteOffsetMs": 1311,
+      "completionOffsetMs": 5271,
+      "wallClockMs": 5197,
+      "ttftMs": 1237,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 2,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.45,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "a68f8103-319f-4d3f-b1e3-0550e828212e",
+          "session_id": "6dc35b27-cb59-46a3-835e-947f959277ea"
+        },
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.46,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "d4c7c682-0494-4bfd-ac91-dbda0032bbea",
+          "session_id": "6dc35b27-cb59-46a3-835e-947f959277ea"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 328,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 233,
+          "webSearchRequests": 0,
+          "costUSD": 0.018225,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1633,
+        "B_cacheCreation": 7640,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9273
+      },
+      "thinkingTokens": 233,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 313,
+        "cache_creation_input_tokens": 7640,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 233,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018225,
+      "structuredValid": true
+    },
+    {
+      "id": "4B-N8",
+      "index": 7,
+      "concurrency": 8,
+      "model": "claude-haiku-4-5-20251001",
+      "stdinBytes": 1479,
+      "launchOffsetMs": 84,
+      "firstByteOffsetMs": 1337,
+      "completionOffsetMs": 6844,
+      "wallClockMs": 6760,
+      "ttftMs": 1253,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "rateLimitEventCount": 1,
+      "rateLimitEvents": [
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1789331400,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "org_level_disabled",
+            "isUsingOverage": false,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.46,
+                "resetsAt": 1789331400
+              },
+              "seven_day": {
+                "utilization": 0.17,
+                "resetsAt": 1789448400
+              }
+            }
+          },
+          "uuid": "f96735bf-49c1-4bfc-bd1a-bf150dffc011",
+          "session_id": "0d602bc6-45da-4ed3-8ef0-8e80c3ee243a"
+        }
+      ],
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "stderr": "",
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 460,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 352,
+          "webSearchRequests": 0,
+          "costUSD": 0.018885000000000002,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1765,
+        "B_cacheCreation": 7640,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9405
+      },
+      "thinkingTokens": 352,
+      "webSearchRequests": 0,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 444,
+        "cache_creation_input_tokens": 7640,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 352,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018885000000000002,
+      "structuredValid": true
+    }
+  ]
+}

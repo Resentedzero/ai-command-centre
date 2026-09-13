@@ -1,0 +1,1646 @@
+{
+  "aborted": null,
+  "safetyCeiling": 0.8,
+  "bursts": [
+    {
+      "name": "R1-BurstA(2 sequential)",
+      "n": 2,
+      "successful": 2,
+      "before": {
+        "observedAt": 1789328289176,
+        "status": "allowed",
+        "overageStatus": "rejected",
+        "rateLimitType": "five_hour",
+        "fiveHourUtilization": 0.47,
+        "fiveHourResetsAt": 1789331400,
+        "sevenDayUtilization": 0.17,
+        "sevenDayResetsAt": 1789448400
+      },
+      "after": {
+        "observedAt": 1789328306832,
+        "status": "allowed",
+        "overageStatus": "rejected",
+        "rateLimitType": "five_hour",
+        "fiveHourUtilization": 0.47,
+        "fiveHourResetsAt": 1789331400,
+        "sevenDayUtilization": 0.17,
+        "sevenDayResetsAt": 1789448400
+      },
+      "deltaFiveHour": 0,
+      "deltaSevenDay": 0,
+      "fiveHourWindowResetDuringBurst": false,
+      "deltaFiveHourPerInvocation": 0,
+      "aggregate": {
+        "A": 3376,
+        "B": 15280,
+        "C": 0,
+        "D": 18656
+      },
+      "turns": [
+        2
+      ],
+      "medianLatencyMs": 5571,
+      "structuredValid": "2/2"
+    },
+    {
+      "name": "R1-BurstB(8 concurrent)",
+      "n": 8,
+      "successful": 8,
+      "before": {
+        "observedAt": 1789328306832,
+        "status": "allowed",
+        "overageStatus": "rejected",
+        "rateLimitType": "five_hour",
+        "fiveHourUtilization": 0.47,
+        "fiveHourResetsAt": 1789331400,
+        "sevenDayUtilization": 0.17,
+        "sevenDayResetsAt": 1789448400
+      },
+      "after": {
+        "observedAt": 1789328320947,
+        "status": "allowed",
+        "overageStatus": "rejected",
+        "rateLimitType": "five_hour",
+        "fiveHourUtilization": 0.47,
+        "fiveHourResetsAt": 1789331400,
+        "sevenDayUtilization": 0.17,
+        "sevenDayResetsAt": 1789448400
+      },
+      "deltaFiveHour": 0,
+      "deltaSevenDay": 0,
+      "fiveHourWindowResetDuringBurst": false,
+      "deltaFiveHourPerInvocation": 0,
+      "aggregate": {
+        "A": 14348,
+        "B": 61504,
+        "C": 7640,
+        "D": 83492
+      },
+      "turns": [
+        2,
+        3
+      ],
+      "medianLatencyMs": 6254,
+      "structuredValid": "8/8"
+    },
+    {
+      "name": "R2-BurstA(2 sequential)",
+      "n": 2,
+      "successful": 2,
+      "before": {
+        "observedAt": 1789328326593,
+        "status": "allowed",
+        "overageStatus": "rejected",
+        "rateLimitType": "five_hour",
+        "fiveHourUtilization": 0.47,
+        "fiveHourResetsAt": 1789331400,
+        "sevenDayUtilization": 0.17,
+        "sevenDayResetsAt": 1789448400
+      },
+      "after": {
+        "observedAt": 1789328349526,
+        "status": "allowed",
+        "overageStatus": "rejected",
+        "rateLimitType": "five_hour",
+        "fiveHourUtilization": 0.48,
+        "fiveHourResetsAt": 1789331400,
+        "sevenDayUtilization": 0.17,
+        "sevenDayResetsAt": 1789448400
+      },
+      "deltaFiveHour": 0.01,
+      "deltaSevenDay": 0,
+      "fiveHourWindowResetDuringBurst": false,
+      "deltaFiveHourPerInvocation": 0.005,
+      "aggregate": {
+        "A": 3957,
+        "B": 15976,
+        "C": 7638,
+        "D": 27571
+      },
+      "turns": [
+        2,
+        3
+      ],
+      "medianLatencyMs": 11815,
+      "structuredValid": "2/2"
+    },
+    {
+      "name": "R2-BurstB(8 concurrent)",
+      "n": 8,
+      "successful": 8,
+      "before": {
+        "observedAt": 1789328349526,
+        "status": "allowed",
+        "overageStatus": "rejected",
+        "rateLimitType": "five_hour",
+        "fiveHourUtilization": 0.48,
+        "fiveHourResetsAt": 1789331400,
+        "sevenDayUtilization": 0.17,
+        "sevenDayResetsAt": 1789448400
+      },
+      "after": {
+        "observedAt": 1789328362585,
+        "status": "allowed",
+        "overageStatus": "rejected",
+        "rateLimitType": "five_hour",
+        "fiveHourUtilization": 0.48,
+        "fiveHourResetsAt": 1789331400,
+        "sevenDayUtilization": 0.17,
+        "sevenDayResetsAt": 1789448400
+      },
+      "deltaFiveHour": 0,
+      "deltaSevenDay": 0,
+      "fiveHourWindowResetDuringBurst": false,
+      "deltaFiveHourPerInvocation": 0,
+      "aggregate": {
+        "A": 13743,
+        "B": 61108,
+        "C": 0,
+        "D": 74851
+      },
+      "turns": [
+        2
+      ],
+      "medianLatencyMs": 6147,
+      "structuredValid": "8/8"
+    }
+  ],
+  "runs": [
+    {
+      "label": "R1-probe0",
+      "index": 0,
+      "launchedAt": 1789328282447,
+      "completedAt": 1789328289175,
+      "wallClockMs": 6728,
+      "ttftMs": 868,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328289176,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1313,
+          "outputTokens": 465,
+          "cacheCreationInputTokens": 7960,
+          "cacheReadInputTokens": 7640,
+          "thinkingTokens": 311
+        }
+      ],
+      "accounting": {
+        "A": 1778,
+        "B": 7960,
+        "C": 7640,
+        "D": 17378
+      },
+      "turns": 3,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.020322000000000003,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstA",
+      "index": 0,
+      "launchedAt": 1789328289179,
+      "completedAt": 1789328294484,
+      "wallClockMs": 5305,
+      "ttftMs": 931,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328294485,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 406,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 238
+        }
+      ],
+      "accounting": {
+        "A": 1709,
+        "B": 7640,
+        "C": 0,
+        "D": 9349
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018613,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstA",
+      "index": 1,
+      "launchedAt": 1789328294487,
+      "completedAt": 1789328300058,
+      "wallClockMs": 5571,
+      "ttftMs": 887,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328300059,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 364,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 241
+        }
+      ],
+      "accounting": {
+        "A": 1667,
+        "B": 7640,
+        "C": 0,
+        "D": 9307
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018403000000000003,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-probe1",
+      "index": 0,
+      "launchedAt": 1789328300065,
+      "completedAt": 1789328306831,
+      "wallClockMs": 6766,
+      "ttftMs": 823,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328306832,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1313,
+          "outputTokens": 627,
+          "cacheCreationInputTokens": 8094,
+          "cacheReadInputTokens": 7636,
+          "thinkingTokens": 475
+        }
+      ],
+      "accounting": {
+        "A": 1940,
+        "B": 8094,
+        "C": 7636,
+        "D": 17670
+      },
+      "turns": 3,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.0213996,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstB",
+      "index": 0,
+      "launchedAt": 1789328306845,
+      "completedAt": 1789328315668,
+      "wallClockMs": 8823,
+      "ttftMs": 1174,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328315669,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 723,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 592
+        }
+      ],
+      "accounting": {
+        "A": 2026,
+        "B": 7638,
+        "C": 0,
+        "D": 9664
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.020194,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstB",
+      "index": 1,
+      "launchedAt": 1789328306859,
+      "completedAt": 1789328312831,
+      "wallClockMs": 5972,
+      "ttftMs": 1161,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328312833,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        },
+        {
+          "observedAt": 1789328312833,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 646,
+          "cacheCreationInputTokens": 7636,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 554
+        }
+      ],
+      "accounting": {
+        "A": 1949,
+        "B": 7636,
+        "C": 0,
+        "D": 9585
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.019805000000000003,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstB",
+      "index": 2,
+      "launchedAt": 1789328306851,
+      "completedAt": 1789328312563,
+      "wallClockMs": 5712,
+      "ttftMs": 1240,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328312564,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 338,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 238
+        }
+      ],
+      "accounting": {
+        "A": 1641,
+        "B": 7640,
+        "C": 0,
+        "D": 9281
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018273,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstB",
+      "index": 3,
+      "launchedAt": 1789328306876,
+      "completedAt": 1789328312874,
+      "wallClockMs": 5998,
+      "ttftMs": 1202,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328312875,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 410,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 311
+        }
+      ],
+      "accounting": {
+        "A": 1713,
+        "B": 7638,
+        "C": 0,
+        "D": 9351
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018629,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstB",
+      "index": 4,
+      "launchedAt": 1789328306871,
+      "completedAt": 1789328313344,
+      "wallClockMs": 6473,
+      "ttftMs": 1149,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328313345,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 417,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 311
+        }
+      ],
+      "accounting": {
+        "A": 1720,
+        "B": 7638,
+        "C": 0,
+        "D": 9358
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018664,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstB",
+      "index": 5,
+      "launchedAt": 1789328306865,
+      "completedAt": 1789328312794,
+      "wallClockMs": 5929,
+      "ttftMs": 1166,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328312795,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 413,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 265
+        }
+      ],
+      "accounting": {
+        "A": 1716,
+        "B": 7638,
+        "C": 0,
+        "D": 9354
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018644,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstB",
+      "index": 6,
+      "launchedAt": 1789328306883,
+      "completedAt": 1789328313137,
+      "wallClockMs": 6254,
+      "ttftMs": 1239,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328313138,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 377,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 270
+        }
+      ],
+      "accounting": {
+        "A": 1680,
+        "B": 7640,
+        "C": 0,
+        "D": 9320
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018468000000000002,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-burstB",
+      "index": 7,
+      "launchedAt": 1789328306891,
+      "completedAt": 1789328314722,
+      "wallClockMs": 7831,
+      "ttftMs": 1233,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328314723,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1313,
+          "outputTokens": 590,
+          "cacheCreationInputTokens": 8036,
+          "cacheReadInputTokens": 7640,
+          "thinkingTokens": 428
+        }
+      ],
+      "accounting": {
+        "A": 1903,
+        "B": 8036,
+        "C": 7640,
+        "D": 17579
+      },
+      "turns": 3,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.021099,
+      "structuredValid": true
+    },
+    {
+      "label": "R1-probe2",
+      "index": 0,
+      "launchedAt": 1789328315674,
+      "completedAt": 1789328320947,
+      "wallClockMs": 5273,
+      "ttftMs": 847,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328320947,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 345,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 252
+        }
+      ],
+      "accounting": {
+        "A": 1648,
+        "B": 7638,
+        "C": 0,
+        "D": 9286
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018304,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-probe0",
+      "index": 0,
+      "launchedAt": 1789328320950,
+      "completedAt": 1789328326591,
+      "wallClockMs": 5641,
+      "ttftMs": 851,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328326593,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 370,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 260
+        }
+      ],
+      "accounting": {
+        "A": 1673,
+        "B": 7638,
+        "C": 0,
+        "D": 9311
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018429,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstA",
+      "index": 0,
+      "launchedAt": 1789328326597,
+      "completedAt": 1789328331848,
+      "wallClockMs": 5251,
+      "ttftMs": 903,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328331849,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 405,
+          "cacheCreationInputTokens": 7636,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 306
+        }
+      ],
+      "accounting": {
+        "A": 1708,
+        "B": 7636,
+        "C": 0,
+        "D": 9344
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018600000000000002,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstA",
+      "index": 1,
+      "launchedAt": 1789328331852,
+      "completedAt": 1789328343667,
+      "wallClockMs": 11815,
+      "ttftMs": 831,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328343668,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1313,
+          "outputTokens": 936,
+          "cacheCreationInputTokens": 8340,
+          "cacheReadInputTokens": 7638,
+          "thinkingTokens": 763
+        }
+      ],
+      "accounting": {
+        "A": 2249,
+        "B": 8340,
+        "C": 7638,
+        "D": 18227
+      },
+      "turns": 3,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.0234368,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-probe1",
+      "index": 0,
+      "launchedAt": 1789328343670,
+      "completedAt": 1789328349525,
+      "wallClockMs": 5855,
+      "ttftMs": 897,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328349526,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.47,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        },
+        {
+          "observedAt": 1789328349526,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 367,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 266
+        }
+      ],
+      "accounting": {
+        "A": 1670,
+        "B": 7638,
+        "C": 0,
+        "D": 9308
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018414,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstB",
+      "index": 0,
+      "launchedAt": 1789328349561,
+      "completedAt": 1789328356192,
+      "wallClockMs": 6631,
+      "ttftMs": 1143,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328356192,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 465,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 362
+        }
+      ],
+      "accounting": {
+        "A": 1768,
+        "B": 7640,
+        "C": 0,
+        "D": 9408
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018908,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstB",
+      "index": 1,
+      "launchedAt": 1789328349551,
+      "completedAt": 1789328354912,
+      "wallClockMs": 5361,
+      "ttftMs": 1212,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328354913,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 387,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 286
+        }
+      ],
+      "accounting": {
+        "A": 1690,
+        "B": 7640,
+        "C": 0,
+        "D": 9330
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018518000000000003,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstB",
+      "index": 2,
+      "launchedAt": 1789328349569,
+      "completedAt": 1789328355834,
+      "wallClockMs": 6265,
+      "ttftMs": 1141,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328355835,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 405,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 307
+        }
+      ],
+      "accounting": {
+        "A": 1708,
+        "B": 7638,
+        "C": 0,
+        "D": 9346
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018604,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstB",
+      "index": 3,
+      "launchedAt": 1789328349584,
+      "completedAt": 1789328354334,
+      "wallClockMs": 4750,
+      "ttftMs": 1277,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328354335,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 305,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 204
+        }
+      ],
+      "accounting": {
+        "A": 1608,
+        "B": 7638,
+        "C": 0,
+        "D": 9246
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018104,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstB",
+      "index": 4,
+      "launchedAt": 1789328349576,
+      "completedAt": 1789328354647,
+      "wallClockMs": 5071,
+      "ttftMs": 1167,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328354648,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 365,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 273
+        }
+      ],
+      "accounting": {
+        "A": 1668,
+        "B": 7638,
+        "C": 0,
+        "D": 9306
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018404,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstB",
+      "index": 5,
+      "launchedAt": 1789328349592,
+      "completedAt": 1789328355739,
+      "wallClockMs": 6147,
+      "ttftMs": 1183,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328355739,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 393,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 292
+        }
+      ],
+      "accounting": {
+        "A": 1696,
+        "B": 7638,
+        "C": 0,
+        "D": 9334
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018543999999999998,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstB",
+      "index": 6,
+      "launchedAt": 1789328349601,
+      "completedAt": 1789328357390,
+      "wallClockMs": 7789,
+      "ttftMs": 1173,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328357391,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 480,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 374
+        }
+      ],
+      "accounting": {
+        "A": 1783,
+        "B": 7638,
+        "C": 0,
+        "D": 9421
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018979000000000003,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-burstB",
+      "index": 7,
+      "launchedAt": 1789328349608,
+      "completedAt": 1789328355633,
+      "wallClockMs": 6025,
+      "ttftMs": 1214,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328355634,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 519,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 415
+        }
+      ],
+      "accounting": {
+        "A": 1822,
+        "B": 7638,
+        "C": 0,
+        "D": 9460
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.019174,
+      "structuredValid": true
+    },
+    {
+      "label": "R2-probe2",
+      "index": 0,
+      "launchedAt": 1789328357393,
+      "completedAt": 1789328362584,
+      "wallClockMs": 5191,
+      "ttftMs": 841,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false
+      },
+      "cwdEmptyAfter": true,
+      "utilObservations": [
+        {
+          "observedAt": 1789328362585,
+          "status": "allowed",
+          "overageStatus": "rejected",
+          "rateLimitType": "five_hour",
+          "fiveHourUtilization": 0.48,
+          "fiveHourResetsAt": 1789331400,
+          "sevenDayUtilization": 0.17,
+          "sevenDayResetsAt": 1789448400
+        }
+      ],
+      "initToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": []
+      },
+      "success": true,
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1303,
+          "outputTokens": 345,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 237
+        }
+      ],
+      "accounting": {
+        "A": 1648,
+        "B": 7642,
+        "C": 0,
+        "D": 9290
+      },
+      "turns": 2,
+      "stopReason": "tool_use",
+      "costUSDDiagnostic": 0.018312,
+      "structuredValid": true
+    }
+  ]
+}

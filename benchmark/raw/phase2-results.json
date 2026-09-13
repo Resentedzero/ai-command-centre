@@ -1,0 +1,2063 @@
+{
+  "haltedEarly": false,
+  "results": [
+    {
+      "workloadId": "W1-small-synthesis",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 1,
+      "cold": true,
+      "stdinBytes": 1072,
+      "wallClockMs": 10348,
+      "timeToFirstByteMs": 9806,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1170,
+          "tokensOut": 981
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1170,
+          "outputTokens": 981,
+          "cacheCreationInputTokens": 7568,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 566,
+          "webSearchRequests": 0,
+          "costUSD": 0.021210999999999997,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 2151,
+        "B_cacheCreationInputTokens": 7568,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 9719,
+        "inputTokens": 1170,
+        "outputTokens": 981,
+        "thinkingTokens": 566,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 7568,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 967,
+        "output_tokens_details": {
+          "thinking_tokens": 566
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7568,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 967,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 7568,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 7568
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "Quantum computing systems face architectural constraints beyond qubit count: decoder latency limits logical operation speed, error correction efficiency plateaus at moderate code distances with current physical error rates, and cryogenic control infrastructure becomes a packaging bottleneck at scale.",
+        "key_findings": [
+          "Decoder latency, not physical qubit count, is the binding constraint on logical cycle time.",
+          "Surface-code distances beyond 7 show diminishing returns at present physical error rates.",
+          "Below-threshold operation has been reported on small logical qubits by several groups.",
+          "Cryogenic control wiring density is emerging as a packaging bottleneck above 1000 qubits."
+        ],
+        "risks": [
+          "Decoder performance optimization may require classical infrastructure scaling that does not keep pace with physical qubit counts, creating a new bottleneck in the system pipeline.",
+          "Control wiring density constraints could prevent scaling beyond 1000 physical qubits without fundamental innovations in cryogenic packaging, limiting near-term system expansion.",
+          "Diminishing returns on surface code distance at present error rates suggests that architectural improvements to physical error reduction are as critical as error correction code optimization."
+        ],
+        "recommendation": "Prioritize engineering efforts on three concurrent tracks: accelerate decoder implementations to reduce latency overhead, develop dense control wiring solutions for cryogenic environments, and focus physical error mitigation research to enable efficient below-threshold operation at surface code distances of 5–7 rather than pursuing higher distances with current hardware."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 8889,
+      "durationApiMs": 10174,
+      "ttftMs": 5865,
+      "totalCostUsdDiagnostic": 0.021210999999999997,
+      "sessionId": "3eb7fad7-712c-4dfa-85a0-bf1f0b5c9b1e",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W1-small-synthesis",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 2,
+      "cold": false,
+      "stdinBytes": 1072,
+      "wallClockMs": 12368,
+      "timeToFirstByteMs": 11822,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1170,
+          "tokensOut": 1003
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1170,
+          "outputTokens": 1003,
+          "cacheCreationInputTokens": 7570,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 590,
+          "webSearchRequests": 0,
+          "costUSD": 0.021325,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 2173,
+        "B_cacheCreationInputTokens": 7570,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 9743,
+        "inputTokens": 1170,
+        "outputTokens": 1003,
+        "thinkingTokens": 590,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 7570,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 989,
+        "output_tokens_details": {
+          "thinking_tokens": 590
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7570,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 989,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 7570,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 7570
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "Quantum system scaling is transitioning from a qubit-count limitation to a systems-integration problem, where decoder latency, error-correcting code optimization, and cryogenic packaging constraints emerge as the primary limiting factors for achieving practical logical operations.",
+        "key_findings": [
+          "Decoder latency, not physical qubit count, is the binding constraint on logical cycle time.",
+          "Surface-code distances beyond 7 show diminishing returns at present physical error rates.",
+          "Below-threshold operation has been reported on small logical qubits by several groups.",
+          "Cryogenic control wiring density is emerging as a packaging bottleneck above 1000 qubits."
+        ],
+        "risks": [
+          "Overemphasis on qubit scaling without optimizing decoder performance could misdirect resources toward additions that do not improve logical cycle time.",
+          "Diminishing returns on code distance optimization suggest that reaching practical quantum advantage may require physical error rate improvements rather than algorithmic tuning alone.",
+          "Cryogenic wiring density constraints may impose a practical upper limit on system size below theoretical projections, creating an unforeseen scaling ceiling."
+        ],
+        "recommendation": "Prioritize decoder latency reduction and error rate improvement as near-term development focuses, while simultaneously investing in innovative control architectures and packaging solutions to overcome wiring density bottlenecks for systems scaling beyond 1000 qubits."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 11035,
+      "durationApiMs": 11981,
+      "ttftMs": 7882,
+      "totalCostUsdDiagnostic": 0.021325,
+      "sessionId": "80bc3e50-acba-4d08-8be1-30bf2f8b075e",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W1-small-synthesis",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 3,
+      "cold": false,
+      "stdinBytes": 1072,
+      "wallClockMs": 11125,
+      "timeToFirstByteMs": 10570,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1180,
+          "tokensOut": 1281
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1180,
+          "outputTokens": 1281,
+          "cacheCreationInputTokens": 8383,
+          "cacheReadInputTokens": 7570,
+          "thinkingTokens": 563,
+          "webSearchRequests": 0,
+          "costUSD": 0.025108,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 2461,
+        "B_cacheCreationInputTokens": 8383,
+        "C_cacheReadInputTokens": 7570,
+        "D_totalReportedFootprint": 18414,
+        "inputTokens": 1180,
+        "outputTokens": 1281,
+        "thinkingTokens": 563,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 20,
+        "cache_creation_input_tokens": 8383,
+        "cache_read_input_tokens": 7570,
+        "output_tokens": 1267,
+        "output_tokens_details": {
+          "thinking_tokens": 563
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8383,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 491,
+            "cache_read_input_tokens": 7570,
+            "cache_creation_input_tokens": 813,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 813
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "Current quantum systems face interconnected constraints: decoder latency dominates performance more than qubit count, physical error rates limit the utility of error correction codes beyond modest distances, early logical qubit demonstrations show promise, and cryogenic infrastructure becomes a practical bottleneck as systems scale beyond 1000 qubits.",
+        "key_findings": [
+          "Decoder latency, not physical qubit count, is the primary binding constraint on logical cycle time.",
+          "Surface-code error correction shows diminishing returns beyond distance 7 given current physical error rates.",
+          "Below-threshold logical qubit operation has been experimentally demonstrated by multiple research groups.",
+          "Cryogenic control wiring density emerges as a critical packaging constraint above 1000 physical qubits."
+        ],
+        "risks": [
+          "Decoder latency bottleneck may fundamentally limit the achievable logical computation rate independent of qubit scaling.",
+          "Physical error rates must improve substantially for larger error-correction codes to provide meaningful advantage over current approaches.",
+          "Cryogenic control infrastructure poses a hard practical limit on near-term system scale-up and qubit density."
+        ],
+        "recommendation": "Prioritize parallel advances in decoder efficiency optimization, physical error rate reduction through improved qubit fabrication and isolation, and novel cryogenic control architectures that reduce wiring density requirements."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 3,
+      "subtype": "success",
+      "durationMs": 9633,
+      "durationApiMs": 10555,
+      "ttftMs": 3925,
+      "totalCostUsdDiagnostic": 0.025108,
+      "sessionId": "7fd089ca-9581-403c-bcd6-834b3868d3cb",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W2-medium-synthesis",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 1,
+      "cold": false,
+      "stdinBytes": 9163,
+      "wallClockMs": 43333,
+      "timeToFirstByteMs": 43044,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 3068,
+          "tokensOut": 4303
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 3068,
+          "outputTokens": 4303,
+          "cacheCreationInputTokens": 13144,
+          "cacheReadInputTokens": 9456,
+          "thinkingTokens": 3271,
+          "webSearchRequests": 0,
+          "costUSD": 0.0518166,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 7371,
+        "B_cacheCreationInputTokens": 13144,
+        "C_cacheReadInputTokens": 9456,
+        "D_totalReportedFootprint": 29971,
+        "inputTokens": 3068,
+        "outputTokens": 4303,
+        "thinkingTokens": 3271,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 20,
+        "cache_creation_input_tokens": 13144,
+        "cache_read_input_tokens": 9456,
+        "output_tokens": 4290,
+        "output_tokens_details": {
+          "thinking_tokens": 3271
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 13144,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 639,
+            "cache_read_input_tokens": 9456,
+            "cache_creation_input_tokens": 3688,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 3688
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "The corpus reports multiple competing constraints limiting quantum error-correction scalability: architectural bottlenecks (cryogenic wiring density above 1000 qubits, decoder latency, and real-time classical throughput), error-correction overhead dominating qubit ratios, leakage errors degrading performance, and measurement reliability concerns from under-reported calibration drift. These constraints are measured consistently across different apparatus configurations with increasing variance, suggesting systematic effects larger than acknowledged.",
+        "key_findings": [
+          "Cryogenic wiring density, decoder latency, and sustained classical throughput for real-time decoding represent competing architectural bottlenecks limiting quantum system scaling.",
+          "Error-correction overhead currently dominates the physical-to-logical qubit ratio and is the primary constraint on scaling across all reported implementations.",
+          "Below-threshold operation has been demonstrated on small logical qubits, but surface-code distances beyond 7 show diminishing returns at present physical error rates.",
+          "Leakage errors degrade code performance disproportionately and require continued mitigation as systems scale."
+        ],
+        "risks": [
+          "Decoder latency is claimed as the binding constraint but receives significantly less emphasis than classical throughput and wiring density in reported evidence, suggesting inconsistency in priority assessment.",
+          "Measurement variance increases dramatically across configurations (1% to 9%) despite configurations differing only in readout integration time, indicating this parameter's effects on system stability are under-characterized.",
+          "Calibration drift over multi-hour experimental runs is under-reported in published benchmarks, potentially masking systematic errors and inflating reliability claims for long-duration operations.",
+          "The practical scalability path remains ambiguous given the tension between demonstrated below-threshold operation on small qubits and the finding that larger surface-code distances yield diminishing returns."
+        ],
+        "recommendation": "Prioritize addressing error-correction overhead as the primary scaling constraint while developing parallel architectural solutions for wiring density and decoder latency; establish standardized multi-hour calibration and measurement protocols with full transparency on variance and drift to ensure future benchmarks reliably reflect realistic system performance."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 3,
+      "subtype": "success",
+      "durationMs": 42152,
+      "durationApiMs": 43078,
+      "ttftMs": 32777,
+      "totalCostUsdDiagnostic": 0.0518166,
+      "sessionId": "151a9a6e-1d91-4544-bc3b-198f1662c496",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W2-medium-synthesis",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 2,
+      "cold": false,
+      "stdinBytes": 9163,
+      "wallClockMs": 25134,
+      "timeToFirstByteMs": 24858,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 3068,
+          "tokensOut": 2489
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 3068,
+          "outputTokens": 2489,
+          "cacheCreationInputTokens": 11403,
+          "cacheReadInputTokens": 9454,
+          "thinkingTokens": 1526,
+          "webSearchRequests": 0,
+          "costUSD": 0.039264400000000005,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 5557,
+        "B_cacheCreationInputTokens": 11403,
+        "C_cacheReadInputTokens": 9454,
+        "D_totalReportedFootprint": 26414,
+        "inputTokens": 3068,
+        "outputTokens": 2489,
+        "thinkingTokens": 1526,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 20,
+        "cache_creation_input_tokens": 11403,
+        "cache_read_input_tokens": 9454,
+        "output_tokens": 2476,
+        "output_tokens_details": {
+          "thinking_tokens": 1526
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11403,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 564,
+            "cache_read_input_tokens": 9454,
+            "cache_creation_input_tokens": 1949,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 1949
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "The corpus identifies critical constraints on quantum error correction at scale, shifting focus from qubit count to control-plane bottlenecks including decoder latency and classical throughput requirements. While below-threshold operation has been demonstrated, practical scaling is constrained by error-correction overhead dominance, leakage errors, and under-characterized calibration drift.",
+        "key_findings": [
+          "Decoder latency and real-time classical throughput (measured in Gb/s per logical qubit) emerge as binding constraints on logical cycle time, not physical qubit count.",
+          "Surface-code distances beyond 7 show diminishing returns at current physical error rates, suggesting code distance scaling has limited benefit.",
+          "Error-correction overhead currently dominates the physical-to-logical qubit ratio, indicating scaling efficiency is limited by code overhead rather than qubit availability.",
+          "Below-threshold operation has been reported by multiple groups on small logical qubits, confirming quantum error correction feasibility.",
+          "Cryogenic control wiring density becomes a packaging bottleneck above 1000 qubits, requiring architectural changes beyond qubit engineering."
+        ],
+        "risks": [
+          "Measurement variance increases systematically across experiments (1–9%), suggesting later measurements may reflect increasingly complex conditions with reduced reliability.",
+          "Calibration drift over multi-hour runs is under-reported in published benchmarks, creating uncertainty about the true long-term stability of demonstrated error correction.",
+          "The gap between demonstrated below-threshold operation on small systems and practical scaling limits (leakage errors, overhead, wiring constraints) leaves the path to useful scale unresolved."
+        ],
+        "recommendation": "Prioritize standardized experimental validation of decoder latency and classical control throughput as the dominant scaling factors, and establish mandatory long-run calibration-drift characterization protocols to clarify which constraints (leakage, calibration, control wiring, or code overhead) will ultimately limit near-term quantum error correction systems."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 3,
+      "subtype": "success",
+      "durationMs": 24028,
+      "durationApiMs": 25045,
+      "ttftMs": 15370,
+      "totalCostUsdDiagnostic": 0.039264400000000005,
+      "sessionId": "816cbc38-7ebb-4e27-a40b-878ab193b6c9",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W2-medium-synthesis",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 3,
+      "cold": false,
+      "stdinBytes": 9163,
+      "wallClockMs": 29027,
+      "timeToFirstByteMs": 28717,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 3068,
+          "tokensOut": 4192
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 3068,
+          "outputTokens": 4192,
+          "cacheCreationInputTokens": 13106,
+          "cacheReadInputTokens": 9456,
+          "thinkingTokens": 3188,
+          "webSearchRequests": 0,
+          "costUSD": 0.0511856,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 7260,
+        "B_cacheCreationInputTokens": 13106,
+        "C_cacheReadInputTokens": 9456,
+        "D_totalReportedFootprint": 29822,
+        "inputTokens": 3068,
+        "outputTokens": 4192,
+        "thinkingTokens": 3188,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 20,
+        "cache_creation_input_tokens": 13106,
+        "cache_read_input_tokens": 9456,
+        "output_tokens": 4178,
+        "output_tokens_details": {
+          "thinking_tokens": 3188
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 13106,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 565,
+            "cache_read_input_tokens": 9456,
+            "cache_creation_input_tokens": 3650,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 3650
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "The documents identify multiple scaling constraints for quantum error correction through heavy repetition of eight distinct technical claims. Decoder latency, classical throughput requirements, and error-correction overhead emerge as dominant cost factors, while cryogenic wiring and leakage errors present physical bottlenecks. Measurement variance increases significantly (1–9%) across configurations despite identical reported methodology, and claims are duplicated across documents with varying run counts, raising data independence concerns.",
+        "key_findings": [
+          "Decoder latency, not physical qubit count, is the binding constraint on logical cycle time.",
+          "Classical throughput for real-time decoding and error-correction overhead together dominate scaling costs beyond 1,000 qubits.",
+          "Cryogenic control wiring density is an architectural packaging bottleneck above 1,000 qubits.",
+          "Leakage errors degrade quantum-code performance disproportionately and calibration drift over extended runs is systematically under-reported in benchmarks.",
+          "Below-threshold operation is demonstrated on small logical qubits but surface-code distances beyond 7 show diminishing returns at present physical error rates."
+        ],
+        "risks": [
+          "Measurement variance escalates from 1% to 9% across apparatus configurations despite identical experimental methodology, indicating either non-independent data, undocumented systematic differences, or measurement-reliability degradation.",
+          "Identical substantive claims appear in multiple documents with different run counts and variance levels, suggesting potential data correlation or derivative sourcing rather than independent experimental validation.",
+          "No contradictions detected across documents could indicate overlapping source data or insufficiently diverse experimental conditions—consensus may reflect limited data independence rather than robust validation."
+        ],
+        "recommendation": "Prioritize near-term engineering effort on classical decoding throughput architecture and error-correction efficiency before pursuing scaling to 1,000+ qubits; commission truly independent experimental validation with explicitly documented apparatus differences to resolve variance anomalies and confirm whether findings generalize across independent platforms."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 3,
+      "subtype": "success",
+      "durationMs": 27864,
+      "durationApiMs": 28880,
+      "ttftMs": 22075,
+      "totalCostUsdDiagnostic": 0.0511856,
+      "sessionId": "20d06577-6410-4a15-a4ce-51c05fafc19e",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W3-large-synthesis",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 1,
+      "cold": false,
+      "stdinBytes": 96345,
+      "wallClockMs": 21635,
+      "timeToFirstByteMs": 21336,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 23044,
+          "tokensOut": 2044
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 23044,
+          "outputTokens": 2044,
+          "cacheCreationInputTokens": 29442,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 794,
+          "webSearchRequests": 0,
+          "costUSD": 0.09214800000000001,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 25088,
+        "B_cacheCreationInputTokens": 29442,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 54530,
+        "inputTokens": 23044,
+        "outputTokens": 2044,
+        "thinkingTokens": 794,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 29442,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 2029,
+        "output_tokens_details": {
+          "thinking_tokens": 794
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 29442,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 2029,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 29442,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 29442
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "Across 28 documents and 288 measurement configurations, eight core technical findings about quantum error correction systems are consistently reported with high reproducibility. The corpus reveals a quantum system approaching multiple simultaneous constraints—decoder latency, cryogenic wiring density limits, error-correction overhead, and classical throughput requirements—rather than a single bottleneck. Calibration drift emerges as a systematic reporting gap despite being acknowledged as present in multi-hour runs.",
+        "key_findings": [
+          "Decoder latency, not physical qubit count, is the binding constraint on logical cycle time across all tested configurations.",
+          "Error-correction overhead currently dominates the physical-to-logical qubit ratio, and cryogenic control wiring density emerges as a packaging bottleneck above 1000 qubits, indicating dual scaling limits.",
+          "Surface-code distances beyond 7 show diminishing returns at present physical error rates, suggesting current code parameters are near-optimal for today's hardware.",
+          "Real-time decoding requires sustained classical throughput measured in Gb/s per logical qubit, placing non-trivial demands on the classical control pipeline.",
+          "Calibration drift over multi-hour runs is under-reported in published benchmarks, representing a systematic gap in measurement transparency and long-run reliability characterization."
+        ],
+        "risks": [
+          "Multiple simultaneous constraints (latency, wiring, overhead, throughput) create a complex optimization landscape where improvements in one area may not yield proportional system-level gains.",
+          "Under-reporting of calibration drift masks the true performance variability and stability of systems in extended operation, potentially understating maintenance and recalibration costs.",
+          "Diminishing returns beyond surface-code distance 7 suggest limited headroom for improving error rates through code parameters alone without hardware improvements.",
+          "Classical throughput requirement scales with logical qubit count, potentially creating a resource bottleneck that hardware scaling alone cannot resolve.",
+          "Increasing run counts (up to 308 in latest documents) suggest either declining per-run success rates or high statistical variability, warranting investigation into root causes."
+        ],
+        "recommendation": "Prioritize addressing decoder latency and classical control pipeline throughput as the most fundamental constraints, since these directly limit logical cycle time and are not primarily hardware-density-limited. In parallel, establish standardized calibration drift measurement and reporting protocols—quantifying drift as a function of run duration and establishing acceptance thresholds. This will both improve benchmark transparency and identify whether drift is primarily a metrological artifact or a genuine performance degradation, informing whether solutions should focus on measurement fidelity or system stability."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 20510,
+      "durationApiMs": 21757,
+      "ttftMs": 9634,
+      "totalCostUsdDiagnostic": 0.09214800000000001,
+      "sessionId": "c4bc10ca-4096-4699-b747-5f2c57e1fdeb",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W3-large-synthesis",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 2,
+      "cold": false,
+      "stdinBytes": 96345,
+      "wallClockMs": 22057,
+      "timeToFirstByteMs": 21769,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 23054,
+          "tokensOut": 2068
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 23054,
+          "outputTokens": 2068,
+          "cacheCreationInputTokens": 30860,
+          "cacheReadInputTokens": 29444,
+          "thinkingTokens": 901,
+          "webSearchRequests": 0,
+          "costUSD": 0.0980584,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 25122,
+        "B_cacheCreationInputTokens": 30860,
+        "C_cacheReadInputTokens": 29444,
+        "D_totalReportedFootprint": 85426,
+        "inputTokens": 23054,
+        "outputTokens": 2068,
+        "thinkingTokens": 901,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 20,
+        "cache_creation_input_tokens": 30860,
+        "cache_read_input_tokens": 29444,
+        "output_tokens": 2055,
+        "output_tokens_details": {
+          "thinking_tokens": 901
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 30860,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 676,
+            "cache_read_input_tokens": 29444,
+            "cache_creation_input_tokens": 1416,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 1416
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "Analysis of 28 documents reveals 8 consistent technical findings across quantum error-correction systems: decoder latency is the primary performance bottleneck, surface-code distances beyond 7 show diminishing returns, error-correction overhead dominates the physical-to-logical qubit ratio, and multiple secondary constraints emerge including calibration drift, leakage errors, cryogenic wiring density, and real-time decoding throughput requirements. All findings appear consistently across different apparatus configurations and measurement sets (2–308 runs), though measurement variance ranges from 1–9%, indicating variable robustness.",
+        "key_findings": [
+          "Decoder latency, not physical qubit count, is the binding constraint on logical cycle time across all tested configurations.",
+          "Error-correction overhead currently dominates the physical-to-logical qubit ratio, forming a major limitation on system scalability.",
+          "Cryogenic control wiring density emerges as a packaging bottleneck specifically for systems above 1000 qubits.",
+          "Calibration drift over multi-hour runs is significantly under-reported in published benchmarks, suggesting measurement quality and reproducibility issues.",
+          "Surface-code distances beyond 7 show diminishing returns at present physical error rates, indicating sub-optimal benefit from further distance scaling."
+        ],
+        "risks": [
+          "Measurement variance up to 9% in some findings reduces confidence in performance predictions and optimization guidance.",
+          "Over-focus on decoder latency as sole bottleneck may delay recognition of multi-factor optimization opportunities.",
+          "Under-reporting of calibration drift masks a potentially critical source of logical error that degrades code performance over time.",
+          "Leakage errors and their interaction with error-correction overhead are under-characterized and may limit scaling beyond present demonstrations.",
+          "Real-time classical throughput requirements (Gb/s per logical qubit) may become the limiting factor as qubit counts approach 1000+ scales."
+        ],
+        "recommendation": "Prioritize decoder optimization and classical throughput architecture to address the primary bottleneck; simultaneously engineer solutions for cryogenic wiring density and thermal constraints for systems >1000 qubits. Establish rigorous, continuous calibration monitoring and drift characterization protocols across multi-hour experimental runs. Conduct targeted studies on leakage-error interaction with error-correction codes at distances 5–10 to clarify the trade-off between distance and diminishing returns."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 3,
+      "subtype": "success",
+      "durationMs": 20977,
+      "durationApiMs": 22019,
+      "ttftMs": 9961,
+      "totalCostUsdDiagnostic": 0.0980584,
+      "sessionId": "5a45a41b-363b-44f6-90ac-8c208df79f4e",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W3-large-synthesis",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 3,
+      "cold": false,
+      "stdinBytes": 96345,
+      "wallClockMs": 15980,
+      "timeToFirstByteMs": 15589,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 23044,
+          "tokensOut": 1541
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 23044,
+          "outputTokens": 1541,
+          "cacheCreationInputTokens": 29444,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 899,
+          "webSearchRequests": 0,
+          "costUSD": 0.089637,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 24585,
+        "B_cacheCreationInputTokens": 29444,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 54029,
+        "inputTokens": 23044,
+        "outputTokens": 1541,
+        "thinkingTokens": 899,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 29444,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1528,
+        "output_tokens_details": {
+          "thinking_tokens": 899
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 29444,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 1528,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 29444,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 29444
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "This corpus contains 28 documents spanning quantum error correction research, with 8 unique technical findings repeated across different apparatus configurations (0-0 through 27-9). After deduplication, the findings cluster around latency constraints, code-distance scaling limits, hardware bottlenecks, and measurement practices. The corpus exhibits concerning uniformity: identical claims appear across 28 configurations that differ only in readout integration time, with no evolution or refinement of findings. This suggests either synthetic data or measurement artifacts rather than genuine empirical variation.",
+        "key_findings": [
+          "Decoder latency, not physical qubit count, is the binding constraint on logical cycle time across all measured configurations.",
+          "Surface-code distances beyond 7 show diminishing returns at present physical error rates, suggesting current scaling approaches face fundamental limits.",
+          "Cryogenic control wiring density emerges as a hardware packaging bottleneck above 1000 qubits, constraining near-term scaling.",
+          "Real-time decoding requires sustained classical throughput of Gb/s per logical qubit, creating a classical-quantum resource coupling.",
+          "Calibration drift over multi-hour runs remains systematically under-reported in published benchmarks, masking practical performance degradation."
+        ],
+        "risks": [
+          "Massive corpus duplication (8 findings repeated 28 times across configurations) with zero variation suggests synthetic data generation rather than empirical observation.",
+          "Identical findings across 28 configurations differing only in readout integration time strains credibility—realistic experiments should show configuration-dependent variation.",
+          "Reported measurement variance (1–9%) appears arbitrary and ungrounded in physical noise models; no justification provided for variance patterns.",
+          "Lack of finding evolution across the corpus indicates no learning or refinement, inconsistent with iterative experimental research.",
+          "Corpus structure indicates potential data fabrication for testing/benchmarking, undermining reliability for evidence-based system design."
+        ],
+        "recommendation": "Treat this corpus as a synthetic benchmark rather than empirical evidence. If this represents real data, request the underlying raw measurements and error analysis; the uniformity warrants independent replication. For system design, prioritize the three most concrete bottlenecks (decoder latency, cryogenic wiring, classical throughput per qubit) while investigating whether surface-code distance limits are fundamental or artifacts of current error rates. Do not use this corpus as primary evidence for architectural decisions without external validation."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 14756,
+      "durationApiMs": 15758,
+      "ttftMs": 9755,
+      "totalCostUsdDiagnostic": 0.089637,
+      "sessionId": "67150034-0511-4c53-8f83-72401f531d32",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W4-transformation",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 1,
+      "cold": false,
+      "stdinBytes": 1247,
+      "wallClockMs": 5313,
+      "timeToFirstByteMs": 4808,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1266,
+          "tokensOut": 789
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1266,
+          "outputTokens": 789,
+          "cacheCreationInputTokens": 7710,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 468,
+          "webSearchRequests": 0,
+          "costUSD": 0.020631,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 2055,
+        "B_cacheCreationInputTokens": 7710,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 9765,
+        "inputTokens": 1266,
+        "outputTokens": 789,
+        "thinkingTokens": 468,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 7710,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 775,
+        "output_tokens_details": {
+          "thinking_tokens": 468
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7710,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 775,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 7710,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 7710
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "records": [
+          {
+            "id": "r-001",
+            "name": "Jane Okafor",
+            "department": "Engineering",
+            "start_date": "2024-03-11",
+            "active": true
+          },
+          {
+            "id": "r-002",
+            "name": "Luis Martins",
+            "department": "Research",
+            "start_date": "2023-11-02",
+            "active": false
+          },
+          {
+            "id": "r-003",
+            "name": "Priya Raman",
+            "department": "Engineering",
+            "start_date": "2025-01-27",
+            "active": true
+          },
+          {
+            "id": "r-004",
+            "name": "Tomas Novak",
+            "department": "Operations",
+            "start_date": "2022-07-19",
+            "active": true
+          }
+        ],
+        "active_count": 3
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 3968,
+      "durationApiMs": 4930,
+      "ttftMs": 3027,
+      "totalCostUsdDiagnostic": 0.020631,
+      "sessionId": "47ddce47-b171-4520-ac60-a149e96567e6",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W4-transformation",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 2,
+      "cold": false,
+      "stdinBytes": 1247,
+      "wallClockMs": 7981,
+      "timeToFirstByteMs": 7475,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1266,
+          "tokensOut": 832
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1266,
+          "outputTokens": 832,
+          "cacheCreationInputTokens": 7712,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 511,
+          "webSearchRequests": 0,
+          "costUSD": 0.02085,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 2098,
+        "B_cacheCreationInputTokens": 7712,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 9810,
+        "inputTokens": 1266,
+        "outputTokens": 832,
+        "thinkingTokens": 511,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 7712,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 818,
+        "output_tokens_details": {
+          "thinking_tokens": 511
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7712,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 818,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 7712,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 7712
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "records": [
+          {
+            "id": "r-001",
+            "name": "Jane Okafor",
+            "department": "Engineering",
+            "start_date": "2024-03-11",
+            "active": true
+          },
+          {
+            "id": "r-002",
+            "name": "Luis Martins",
+            "department": "Research",
+            "start_date": "2023-11-02",
+            "active": false
+          },
+          {
+            "id": "r-003",
+            "name": "Priya Raman",
+            "department": "Engineering",
+            "start_date": "2025-01-27",
+            "active": true
+          },
+          {
+            "id": "r-004",
+            "name": "Tomas Novak",
+            "department": "Operations",
+            "start_date": "2022-07-19",
+            "active": true
+          }
+        ],
+        "active_count": 3
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 6699,
+      "durationApiMs": 7542,
+      "ttftMs": 4785,
+      "totalCostUsdDiagnostic": 0.02085,
+      "sessionId": "a17d2947-dd56-4730-94ae-7922d04f1881",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W4-transformation",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 3,
+      "cold": false,
+      "stdinBytes": 1247,
+      "wallClockMs": 7777,
+      "timeToFirstByteMs": 7237,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1266,
+          "tokensOut": 797
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1266,
+          "outputTokens": 797,
+          "cacheCreationInputTokens": 7712,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 476,
+          "webSearchRequests": 0,
+          "costUSD": 0.020675,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 2063,
+        "B_cacheCreationInputTokens": 7712,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 9775,
+        "inputTokens": 1266,
+        "outputTokens": 797,
+        "thinkingTokens": 476,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 7712,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 783,
+        "output_tokens_details": {
+          "thinking_tokens": 476
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7712,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 783,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 7712,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 7712
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "records": [
+          {
+            "id": "r-001",
+            "name": "Jane Okafor",
+            "department": "Engineering",
+            "start_date": "2024-03-11",
+            "active": true
+          },
+          {
+            "id": "r-002",
+            "name": "Luis Martins",
+            "department": "Research",
+            "start_date": "2023-11-02",
+            "active": false
+          },
+          {
+            "id": "r-003",
+            "name": "Priya Raman",
+            "department": "Engineering",
+            "start_date": "2025-01-27",
+            "active": true
+          },
+          {
+            "id": "r-004",
+            "name": "Tomas Novak",
+            "department": "Operations",
+            "start_date": "2022-07-19",
+            "active": true
+          }
+        ],
+        "active_count": 3
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 6451,
+      "durationApiMs": 7402,
+      "ttftMs": 4514,
+      "totalCostUsdDiagnostic": 0.020675,
+      "sessionId": "381f27bd-1dde-41c2-a208-efc74d563ef4",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W5-bounded-reasoning",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 1,
+      "cold": false,
+      "stdinBytes": 1026,
+      "wallClockMs": 11927,
+      "timeToFirstByteMs": 11383,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1193,
+          "tokensOut": 1783
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1193,
+          "outputTokens": 1783,
+          "cacheCreationInputTokens": 7607,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 1394,
+          "webSearchRequests": 0,
+          "costUSD": 0.025322,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 2976,
+        "B_cacheCreationInputTokens": 7607,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 10583,
+        "inputTokens": 1193,
+        "outputTokens": 1783,
+        "thinkingTokens": 1394,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 7607,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1771,
+        "output_tokens_details": {
+          "thinking_tokens": 1394
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7607,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 1771,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 7607,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 7607
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "ordered_steps": [
+          "T1",
+          "T6",
+          "T2",
+          "T3",
+          "T4",
+          "T7",
+          "T5",
+          "T8"
+        ],
+        "blocked_by": [
+          "T2",
+          "T3",
+          "T4",
+          "T5",
+          "T7",
+          "T8"
+        ],
+        "critical_path_length": 5,
+        "rationale": "T1 and T6 are the only tasks with no dependencies and can execute immediately. All other tasks (T2, T3, T4, T5, T7, T8) have unmet dependencies at the start, so they are blocked. The topological order respects all constraints: T1 must complete before T2 and T3; T2 and T3 must complete before T4; T4 before T5; T6 before T7; and both T5 and T7 must complete before T8. The critical path T1→T2→T4→T5→T8 (or equivalently T1→T3→T4→T5→T8) contains 5 tasks and determines the minimum execution time."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 10588,
+      "durationApiMs": 11512,
+      "ttftMs": 8504,
+      "totalCostUsdDiagnostic": 0.025322,
+      "sessionId": "7c59aea7-e4bc-439b-9034-fe76ff6fe6c7",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W5-bounded-reasoning",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 2,
+      "cold": false,
+      "stdinBytes": 1026,
+      "wallClockMs": 17962,
+      "timeToFirstByteMs": 17692,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1193,
+          "tokensOut": 1961
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1193,
+          "outputTokens": 1961,
+          "cacheCreationInputTokens": 7607,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 1437,
+          "webSearchRequests": 0,
+          "costUSD": 0.026212,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 3154,
+        "B_cacheCreationInputTokens": 7607,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 10761,
+        "inputTokens": 1193,
+        "outputTokens": 1961,
+        "thinkingTokens": 1437,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 7607,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1944,
+        "output_tokens_details": {
+          "thinking_tokens": 1437
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7607,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 1944,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 7607,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 7607
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "ordered_steps": [
+          "T1",
+          "T6",
+          "T2",
+          "T3",
+          "T7",
+          "T4",
+          "T5",
+          "T8"
+        ],
+        "blocked_by": [
+          "T2",
+          "T3",
+          "T4",
+          "T5",
+          "T7",
+          "T8"
+        ],
+        "critical_path_length": 5,
+        "rationale": "T1 and T6 have no dependencies and execute first. T2 and T3 both depend on T1; T7 depends on T6. T4 requires both T2 and T3 to complete. T5 depends on T4. T8 requires both T5 and T7. The critical path is T1→T2→T4→T5→T8 (or alternatively T1→T3→T4→T5→T8), with a chain length of 5 tasks. Tasks T2-T8 are blocked initially due to unmet upstream dependencies."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 16880,
+      "durationApiMs": 17808,
+      "ttftMs": 12828,
+      "totalCostUsdDiagnostic": 0.026212,
+      "sessionId": "84dcf2f4-6e74-4d88-a23b-3d6671927acc",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W5-bounded-reasoning",
+      "tier": "CHEAP",
+      "requestedModel": "claude-haiku-4-5-20251001",
+      "repIndex": 3,
+      "cold": false,
+      "stdinBytes": 1026,
+      "wallClockMs": 11330,
+      "timeToFirstByteMs": 10779,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1193,
+          "tokensOut": 1570
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1193,
+          "outputTokens": 1570,
+          "cacheCreationInputTokens": 7603,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 1077,
+          "webSearchRequests": 0,
+          "costUSD": 0.024249,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 2763,
+        "B_cacheCreationInputTokens": 7603,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 10366,
+        "inputTokens": 1193,
+        "outputTokens": 1570,
+        "thinkingTokens": 1077,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 7603,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1554,
+        "output_tokens_details": {
+          "thinking_tokens": 1077
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7603,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 1554,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 7603,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 7603
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "ordered_steps": [
+          "T1",
+          "T6",
+          "T2",
+          "T3",
+          "T4",
+          "T5",
+          "T7",
+          "T8"
+        ],
+        "blocked_by": [
+          "T2",
+          "T3",
+          "T4",
+          "T5",
+          "T7",
+          "T8"
+        ],
+        "critical_path_length": 5,
+        "rationale": "T1 and T6 have no dependencies and can execute immediately. All other tasks are blocked: T2 and T3 await T1, T4 awaits both T2 and T3, T5 awaits T4, T7 awaits T6, and T8 awaits both T5 and T7. The critical path runs through either T1→T2→T4→T5→T8 or T1→T3→T4→T5→T8, both with length 5, which is longer than the independent T6→T7→T8 chain (length 3)."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 9666,
+      "durationApiMs": 10688,
+      "ttftMs": 7167,
+      "totalCostUsdDiagnostic": 0.024249,
+      "sessionId": "1a5434e1-77e1-44e4-8698-292692c2a593",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    },
+    {
+      "workloadId": "W1-small-synthesis",
+      "tier": "STRONG",
+      "requestedModel": "claude-opus-5",
+      "repIndex": 1,
+      "cold": false,
+      "stdinBytes": 1072,
+      "wallClockMs": 10017,
+      "timeToFirstByteMs": 9466,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsDisabled": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "noFallbackModel": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "stderr": "",
+      "success": true,
+      "adapterError": null,
+      "adapterEntries": [
+        {
+          "modelId": "claude-haiku-4-5-20251001",
+          "tokensIn": 1160,
+          "tokensOut": 14
+        },
+        {
+          "modelId": "claude-opus-5",
+          "tokensIn": 2,
+          "tokensOut": 578
+        }
+      ],
+      "modelUsageEntryCount": 2,
+      "modelUsageDetail": [
+        {
+          "key": "claude-haiku-4-5-20251001",
+          "modelId": "claude-haiku-4-5-20251001",
+          "canonicalModel": "claude-haiku-4-5",
+          "provider": "firstParty",
+          "inputTokens": 1160,
+          "outputTokens": 14,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.00123,
+          "costBasis": "list"
+        },
+        {
+          "key": "claude-opus-5",
+          "modelId": "claude-opus-5",
+          "canonicalModel": "claude-opus-5",
+          "provider": "firstParty",
+          "inputTokens": 2,
+          "outputTokens": 578,
+          "cacheCreationInputTokens": 3451,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 59,
+          "webSearchRequests": 0,
+          "costUSD": 0.04897,
+          "costBasis": "list"
+        }
+      ],
+      "reported": {
+        "A_adapterAccounting_inPlusOut": 1754,
+        "B_cacheCreationInputTokens": 3451,
+        "C_cacheReadInputTokens": 0,
+        "D_totalReportedFootprint": 5205,
+        "inputTokens": 1162,
+        "outputTokens": 592,
+        "thinkingTokens": 59,
+        "webSearchRequests": 0
+      },
+      "topLevelUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 3451,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 578,
+        "output_tokens_details": {
+          "thinking_tokens": 59
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 3451,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 578,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 3451,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 3451
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      },
+      "structuredOutputValid": true,
+      "structuredOutputErrors": [],
+      "structuredOutput": {
+        "summary": "Fault-tolerant quantum computing is now held back more by classical and engineering limits than by qubit counts: decoder latency, cryogenic wiring density, and diminishing returns at higher code distances matter most, even though several groups have reported below-threshold operation on small logical qubits.",
+        "key_findings": [
+          "Decoder latency, not physical qubit count, is the main limit on logical cycle time.",
+          "Surface-code distances above 7 give diminishing returns at current physical error rates.",
+          "Several groups have reported below-threshold operation on small logical qubits.",
+          "Cryogenic control wiring density is becoming a packaging bottleneck above about 1000 qubits."
+        ],
+        "risks": [
+          "If real-time decoding doesn't get faster, logical cycle times may stay too slow for useful fault-tolerant algorithms however many qubits are added.",
+          "Adding qubits to reach larger code distances may waste resources unless physical error rates improve first.",
+          "Wiring and packaging limits could stall scaling past about 1000 qubits before logical-qubit gains show up at scale."
+        ],
+        "recommendation": "Put investment first into low-latency decoder hardware and into lowering physical error rates, and develop scalable cryogenic control integration alongside them, rather than chasing raw qubit count or code distances above 7."
+      },
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "subtype": "success",
+      "durationMs": 8577,
+      "durationApiMs": 9403,
+      "ttftMs": 3101,
+      "totalCostUsdDiagnostic": 0.0502,
+      "sessionId": "720b506d-95f5-4c86-bf02-5209a5248b45",
+      "permissionDenials": [],
+      "apiErrorStatus": null
+    }
+  ]
+}

@@ -1,0 +1,1642 @@
+{
+  "results": [
+    {
+      "id": "A-minimal",
+      "rep": 1,
+      "stdinBytes": 344,
+      "wallClockMs": 5286,
+      "timeToFirstByteMs": 4731,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 311,
+        "cache_creation_input_tokens": 7320,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 242,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 983,
+          "outputTokens": 322,
+          "cacheCreationInputTokens": 7320,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 242,
+          "webSearchRequests": 0,
+          "costUSD": 0.017233000000000002,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1305,
+        "B_cacheCreation": 7320,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 8625
+      },
+      "thinkingTokens": 242,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.017233000000000002,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 85,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "A-minimal",
+      "rep": 2,
+      "stdinBytes": 344,
+      "wallClockMs": 6284,
+      "timeToFirstByteMs": 5745,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 418,
+        "cache_creation_input_tokens": 7318,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 315,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 983,
+          "outputTokens": 430,
+          "cacheCreationInputTokens": 7318,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 315,
+          "webSearchRequests": 0,
+          "costUSD": 0.017769,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1413,
+        "B_cacheCreation": 7318,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 8731
+      },
+      "thinkingTokens": 315,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.017769,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 93,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "A-minimal",
+      "rep": 3,
+      "stdinBytes": 344,
+      "wallClockMs": 12146,
+      "timeToFirstByteMs": 11600,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 20,
+        "output_tokens": 975,
+        "cache_creation_input_tokens": 8177,
+        "cache_read_input_tokens": 7318,
+        "thinking_tokens": 864,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 993,
+          "outputTokens": 987,
+          "cacheCreationInputTokens": 8177,
+          "cacheReadInputTokens": 7318,
+          "thinkingTokens": 864,
+          "webSearchRequests": 0,
+          "costUSD": 0.023013799999999997,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1980,
+        "B_cacheCreation": 8177,
+        "C_cacheRead": 7318,
+        "D_totalFootprint": 17475
+      },
+      "thinkingTokens": 864,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 3,
+      "costUSDDiagnostic": 0.023013799999999997,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 106,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "B-tiny-1kb",
+      "rep": 1,
+      "stdinBytes": 1479,
+      "wallClockMs": 4629,
+      "timeToFirstByteMs": 4162,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 355,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 265,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 370,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 265,
+          "webSearchRequests": 0,
+          "costUSD": 0.018439,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1675,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9317
+      },
+      "thinkingTokens": 265,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.018439,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 166,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "B-tiny-1kb",
+      "rep": 2,
+      "stdinBytes": 1479,
+      "wallClockMs": 5411,
+      "timeToFirstByteMs": 4875,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 339,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 248,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 355,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 248,
+          "webSearchRequests": 0,
+          "costUSD": 0.018364000000000002,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1660,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9302
+      },
+      "thinkingTokens": 248,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.018364000000000002,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 169,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "B-tiny-1kb",
+      "rep": 3,
+      "stdinBytes": 1479,
+      "wallClockMs": 6818,
+      "timeToFirstByteMs": 6267,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 498,
+        "cache_creation_input_tokens": 7638,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 412,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 514,
+          "cacheCreationInputTokens": 7638,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 412,
+          "webSearchRequests": 0,
+          "costUSD": 0.019151,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1819,
+        "B_cacheCreation": 7638,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9457
+      },
+      "thinkingTokens": 412,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.019151,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 186,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "C-medium-9kb",
+      "rep": 1,
+      "stdinBytes": 9669,
+      "wallClockMs": 5767,
+      "timeToFirstByteMs": 5216,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 326,
+        "cache_creation_input_tokens": 9962,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 241,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 3627,
+          "outputTokens": 342,
+          "cacheCreationInputTokens": 9962,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 241,
+          "webSearchRequests": 0,
+          "costUSD": 0.025261,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 3969,
+        "B_cacheCreation": 9962,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 13931
+      },
+      "thinkingTokens": 241,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.025261,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 151,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "C-medium-9kb",
+      "rep": 2,
+      "stdinBytes": 9669,
+      "wallClockMs": 7944,
+      "timeToFirstByteMs": 7395,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 617,
+        "cache_creation_input_tokens": 9964,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 532,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 3627,
+          "outputTokens": 630,
+          "cacheCreationInputTokens": 9964,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 532,
+          "webSearchRequests": 0,
+          "costUSD": 0.026705000000000003,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 4257,
+        "B_cacheCreation": 9964,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 14221
+      },
+      "thinkingTokens": 532,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.026705000000000003,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 157,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "C-medium-9kb",
+      "rep": 3,
+      "stdinBytes": 9669,
+      "wallClockMs": 5461,
+      "timeToFirstByteMs": 4909,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 362,
+        "cache_creation_input_tokens": 9962,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 271,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 3627,
+          "outputTokens": 378,
+          "cacheCreationInputTokens": 9962,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 271,
+          "webSearchRequests": 0,
+          "costUSD": 0.025441,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 4005,
+        "B_cacheCreation": 9962,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 13967
+      },
+      "thinkingTokens": 271,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.025441,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 188,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "D-large-95kb",
+      "rep": 1,
+      "stdinBytes": 97654,
+      "wallClockMs": 5800,
+      "timeToFirstByteMs": 5260,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 380,
+        "cache_creation_input_tokens": 34700,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 284,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 28363,
+          "outputTokens": 395,
+          "cacheCreationInputTokens": 34700,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 284,
+          "webSearchRequests": 0,
+          "costUSD": 0.099738,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 28758,
+        "B_cacheCreation": 34700,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 63458
+      },
+      "thinkingTokens": 284,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.099738,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 211,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "D-large-95kb",
+      "rep": 2,
+      "stdinBytes": 97654,
+      "wallClockMs": 6379,
+      "timeToFirstByteMs": 5904,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 424,
+        "cache_creation_input_tokens": 34700,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 308,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 28363,
+          "outputTokens": 439,
+          "cacheCreationInputTokens": 34700,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 308,
+          "webSearchRequests": 0,
+          "costUSD": 0.099958,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 28802,
+        "B_cacheCreation": 34700,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 63502
+      },
+      "thinkingTokens": 308,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.099958,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 286,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "D-large-95kb",
+      "rep": 3,
+      "stdinBytes": 97654,
+      "wallClockMs": 6475,
+      "timeToFirstByteMs": 5976,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 493,
+        "cache_creation_input_tokens": 34698,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 401,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 28363,
+          "outputTokens": 508,
+          "cacheCreationInputTokens": 34698,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 401,
+          "webSearchRequests": 0,
+          "costUSD": 0.100299,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 28871,
+        "B_cacheCreation": 34698,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 63569
+      },
+      "thinkingTokens": 401,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.100299,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 204,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "E-repeat",
+      "rep": 1,
+      "stdinBytes": 1479,
+      "wallClockMs": 5411,
+      "timeToFirstByteMs": 4862,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 327,
+        "cache_creation_input_tokens": 7640,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 246,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 342,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 246,
+          "webSearchRequests": 0,
+          "costUSD": 0.018295,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1647,
+        "B_cacheCreation": 7640,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9287
+      },
+      "thinkingTokens": 246,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.018295,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 137,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "E-repeat",
+      "rep": 2,
+      "stdinBytes": 1479,
+      "wallClockMs": 5576,
+      "timeToFirstByteMs": 5033,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 335,
+        "cache_creation_input_tokens": 7636,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 245,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 351,
+          "cacheCreationInputTokens": 7636,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 245,
+          "webSearchRequests": 0,
+          "costUSD": 0.018332,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1656,
+        "B_cacheCreation": 7636,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9292
+      },
+      "thinkingTokens": 245,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.018332,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 208,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "E-repeat",
+      "rep": 3,
+      "stdinBytes": 1479,
+      "wallClockMs": 5105,
+      "timeToFirstByteMs": 4571,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 369,
+        "cache_creation_input_tokens": 7642,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 285,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 385,
+          "cacheCreationInputTokens": 7642,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 285,
+          "webSearchRequests": 0,
+          "costUSD": 0.018514000000000003,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1690,
+        "B_cacheCreation": 7642,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9332
+      },
+      "thinkingTokens": 285,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.018514000000000003,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 165,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "F-structured",
+      "rep": 1,
+      "stdinBytes": 1479,
+      "wallClockMs": 4677,
+      "timeToFirstByteMs": 4132,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 279,
+        "cache_creation_input_tokens": 7640,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 192,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 292,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 192,
+          "webSearchRequests": 0,
+          "costUSD": 0.018045,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1597,
+        "B_cacheCreation": 7640,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9237
+      },
+      "thinkingTokens": 192,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.018045,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 168,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "F-structured",
+      "rep": 2,
+      "stdinBytes": 1479,
+      "wallClockMs": 6781,
+      "timeToFirstByteMs": 6239,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 20,
+        "output_tokens": 496,
+        "cache_creation_input_tokens": 7992,
+        "cache_read_input_tokens": 7638,
+        "thinking_tokens": 357,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1315,
+          "outputTokens": 508,
+          "cacheCreationInputTokens": 7992,
+          "cacheReadInputTokens": 7638,
+          "thinkingTokens": 357,
+          "webSearchRequests": 0,
+          "costUSD": 0.020602799999999998,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1823,
+        "B_cacheCreation": 7992,
+        "C_cacheRead": 7638,
+        "D_totalFootprint": 17453
+      },
+      "thinkingTokens": 357,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 3,
+      "costUSDDiagnostic": 0.020602799999999998,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 173,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "F-structured",
+      "rep": 3,
+      "stdinBytes": 1479,
+      "wallClockMs": 6193,
+      "timeToFirstByteMs": 5686,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 454,
+        "cache_creation_input_tokens": 7640,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 308,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1305,
+          "outputTokens": 466,
+          "cacheCreationInputTokens": 7640,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 308,
+          "webSearchRequests": 0,
+          "costUSD": 0.018914999999999998,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1771,
+        "B_cacheCreation": 7640,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 9411
+      },
+      "thinkingTokens": 308,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.018914999999999998,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 213,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "F-plain",
+      "rep": 1,
+      "stdinBytes": 1371,
+      "wallClockMs": 6344,
+      "timeToFirstByteMs": 5802,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": false,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 488,
+        "cache_creation_input_tokens": 6880,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 430,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1277,
+          "outputTokens": 504,
+          "cacheCreationInputTokens": 6880,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 430,
+          "webSearchRequests": 0,
+          "costUSD": 0.017557,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1781,
+        "B_cacheCreation": 6880,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 8661
+      },
+      "thinkingTokens": 430,
+      "webSearchRequests": 0,
+      "stopReason": "end_turn",
+      "numTurns": 1,
+      "costUSDDiagnostic": 0.017557,
+      "structuredOutputPresent": false,
+      "structuredOutputValid": false,
+      "resultTextLen": 204,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "F-plain",
+      "rep": 2,
+      "stdinBytes": 1371,
+      "wallClockMs": 7234,
+      "timeToFirstByteMs": 6694,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": false,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 467,
+        "cache_creation_input_tokens": 6876,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 387,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1277,
+          "outputTokens": 481,
+          "cacheCreationInputTokens": 6876,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 387,
+          "webSearchRequests": 0,
+          "costUSD": 0.017434,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1758,
+        "B_cacheCreation": 6876,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 8634
+      },
+      "thinkingTokens": 387,
+      "webSearchRequests": 0,
+      "stopReason": "end_turn",
+      "numTurns": 1,
+      "costUSDDiagnostic": 0.017434,
+      "structuredOutputPresent": false,
+      "structuredOutputValid": false,
+      "resultTextLen": 356,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "F-plain",
+      "rep": 3,
+      "stdinBytes": 1371,
+      "wallClockMs": 5903,
+      "timeToFirstByteMs": 5356,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": false,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 425,
+        "cache_creation_input_tokens": 6880,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 345,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 1277,
+          "outputTokens": 438,
+          "cacheCreationInputTokens": 6880,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 345,
+          "webSearchRequests": 0,
+          "costUSD": 0.017227,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1715,
+        "B_cacheCreation": 6880,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 8595
+      },
+      "thinkingTokens": 345,
+      "webSearchRequests": 0,
+      "stopReason": "end_turn",
+      "numTurns": 1,
+      "costUSDDiagnostic": 0.017227,
+      "structuredOutputPresent": false,
+      "structuredOutputValid": false,
+      "resultTextLen": 340,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "G1-init-surface",
+      "rep": 1,
+      "stdinBytes": 344,
+      "wallClockMs": 5893,
+      "timeToFirstByteMs": 984,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 389,
+        "cache_creation_input_tokens": 7320,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 321,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 983,
+          "outputTokens": 401,
+          "cacheCreationInputTokens": 7320,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 321,
+          "webSearchRequests": 0,
+          "costUSD": 0.017627999999999998,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1384,
+        "B_cacheCreation": 7320,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 8704
+      },
+      "thinkingTokens": 321,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.017627999999999998,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 85,
+      "initEventToolSurface": {
+        "tools": [
+          "StructuredOutput"
+        ],
+        "mcp_servers": [],
+        "slash_commands": 53
+      },
+      "streamEventTypes": [
+        "system/init",
+        "rate_limit_event/",
+        "system/thinking_tokens",
+        "assistant/",
+        "user/",
+        "result/success"
+      ]
+    },
+    {
+      "id": "G2-web-attempt",
+      "rep": 1,
+      "stdinBytes": 353,
+      "wallClockMs": 5365,
+      "timeToFirstByteMs": 4821,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 396,
+        "cache_creation_input_tokens": 7321,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 169,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 986,
+          "outputTokens": 410,
+          "cacheCreationInputTokens": 7321,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 169,
+          "webSearchRequests": 0,
+          "costUSD": 0.017678,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1396,
+        "B_cacheCreation": 7321,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 8717
+      },
+      "thinkingTokens": 169,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.017678,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 273,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "G2-web-attempt",
+      "rep": 2,
+      "stdinBytes": 353,
+      "wallClockMs": 4516,
+      "timeToFirstByteMs": 3963,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 318,
+        "cache_creation_input_tokens": 7321,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 140,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 986,
+          "outputTokens": 329,
+          "cacheCreationInputTokens": 7321,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 140,
+          "webSearchRequests": 0,
+          "costUSD": 0.017273,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1315,
+        "B_cacheCreation": 7321,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 8636
+      },
+      "thinkingTokens": 140,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.017273,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 199,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    },
+    {
+      "id": "G2-web-attempt",
+      "rep": 3,
+      "stdinBytes": 353,
+      "wallClockMs": 5462,
+      "timeToFirstByteMs": 5006,
+      "exitCode": 0,
+      "timedOut": false,
+      "isolation": {
+        "cwdOutsideRepo": true,
+        "cwdEmptyBefore": true,
+        "forbiddenEnvPresent": [],
+        "childHasApiKey": false,
+        "toolsEmpty": true,
+        "strictMcp": true,
+        "settingSourcesEmpty": true,
+        "noBare": true,
+        "shell": false
+      },
+      "cwdEmptyAfter": true,
+      "argvHasJsonSchema": true,
+      "success": true,
+      "topLevel": {
+        "input_tokens": 10,
+        "output_tokens": 372,
+        "cache_creation_input_tokens": 7321,
+        "cache_read_input_tokens": 0,
+        "thinking_tokens": 158,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "modelUsageEntries": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "inputTokens": 986,
+          "outputTokens": 383,
+          "cacheCreationInputTokens": 7321,
+          "cacheReadInputTokens": 0,
+          "thinkingTokens": 158,
+          "webSearchRequests": 0,
+          "costUSD": 0.017543,
+          "costBasis": "list"
+        }
+      ],
+      "modelUsageEntryCount": 1,
+      "accounting": {
+        "A_adapterTokens": 1369,
+        "B_cacheCreation": 7321,
+        "C_cacheRead": 0,
+        "D_totalFootprint": 8690
+      },
+      "thinkingTokens": 158,
+      "webSearchRequests": 0,
+      "stopReason": "tool_use",
+      "numTurns": 2,
+      "costUSDDiagnostic": 0.017543,
+      "structuredOutputPresent": true,
+      "structuredOutputValid": true,
+      "resultTextLen": 178,
+      "initEventToolSurface": null,
+      "streamEventTypes": null
+    }
+  ]
+}

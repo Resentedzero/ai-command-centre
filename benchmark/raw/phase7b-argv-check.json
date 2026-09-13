@@ -1,0 +1,90 @@
+{
+  "phase": "7B closure check",
+  "at": "2026-09-13T20:50:12.718Z",
+  "invocations": 1,
+  "preflight": {
+    "argv": [
+      "-p",
+      "--tools",
+      "",
+      "--strict-mcp-config",
+      "--setting-sources",
+      "",
+      "--permission-mode",
+      "manual",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--no-session-persistence",
+      "--json-schema",
+      "{\"type\":\"object\",\"properties\":{\"sum\":{\"type\":\"number\"},\"word_count\":{\"type\":\"number\"}},\"required\":[\"sum\",\"word_count\"],\"additionalProperties\":false}",
+      "--model",
+      "claude-haiku-4-5-20251001"
+    ],
+    "outputFormat": "stream-json",
+    "verbosePresent": true,
+    "verboseIndex": 12,
+    "outputFormatIndex": 10,
+    "shellFalse": true,
+    "childHasApiKey": false,
+    "forbiddenEnvPresent": [],
+    "parentHasApiKey": false,
+    "stdinContainsKeyPattern": false,
+    "cwdOutsideRepo": true,
+    "model": "claude-haiku-4-5-20251001",
+    "noBare": true,
+    "noFallbackModel": true
+  },
+  "exitCode": 0,
+  "wallClockMs": 3865,
+  "stderrEmpty": true,
+  "streamEventTypes": [
+    "system",
+    "rate_limit_event",
+    "assistant",
+    "user",
+    "result"
+  ],
+  "unparsableLines": 0,
+  "initSurface": {
+    "tools": [
+      "StructuredOutput"
+    ],
+    "mcpServers": []
+  },
+  "structuredOutput": {
+    "sum": 50,
+    "word_count": 5
+  },
+  "structuredOutputCorrect": true,
+  "usage": {
+    "entries": [
+      {
+        "modelId": "claude-haiku-4-5-20251001",
+        "tokensIn": 1026,
+        "tokensOut": 222
+      }
+    ],
+    "totalTokens": 1248
+  },
+  "rateLimitReadings": 1,
+  "quotaObservation": {
+    "provider": "claude_subscription",
+    "observedAt": "2026-09-13T20:50:10.751Z",
+    "status": "allowed",
+    "overageStatus": "rejected",
+    "source": "rate_limit_event",
+    "fiveHour": {
+      "utilization": 0.03,
+      "resetsAt": "2026-09-14T01:30:00.000Z"
+    },
+    "sevenDay": {
+      "utilization": 0.18,
+      "resetsAt": "2026-09-15T05:00:00.000Z"
+    },
+    "observationCount": 1,
+    "msBeforeClose": 1965
+  }
+}
