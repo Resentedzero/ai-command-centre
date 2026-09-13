@@ -42,7 +42,9 @@ vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
   callClaudeSubscriptionModel: vi.fn(),
 }));
 
-import { executeRun } from "../../src/execution/executor.js";
+// Phase 9: executeRun yields at each LLM Invocation; this drives it to the next
+// real boundary exactly as the production driver does. See the helper's header.
+import { executeRunToBoundary as executeRun } from "../helpers/driveToBoundary.js";
 import { createStandaloneTaskInstance } from "../../src/execution/taskInstance.js";
 import { persistReportArtifact } from "../../src/execution/reportArtifact.js";
 import { seedResearchWorkflow, DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET } from "../../src/definitions/seed.js";

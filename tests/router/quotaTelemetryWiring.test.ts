@@ -27,7 +27,9 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: 
 vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
 vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeSubscriptionModel: vi.fn() }));
 
-import { executeRun } from "../../src/execution/executor.js";
+// Phase 9: executeRun yields at each LLM Invocation; this drives it to the next
+// real boundary exactly as the production driver does. See the helper's header.
+import { executeRunToBoundary as executeRun } from "../helpers/driveToBoundary.js";
 import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
 import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
 import { quotaGuardrailConfig } from "../../src/governance/quotaGuardrail.js";
@@ -260,8 +262,11 @@ describe("failure path", () => {
   it("records telemetry carried by a provider failure, then fails the invocation and releases the hold", async () => {
     await withRollback(async (tx) => {
       const runId = await seedRun(tx);
+      // A quota refusal: the service refused the request, so it consumed nothing
+      // and the hold is released (Phase 9 settlement — see providerConsumptionFrom).
       const failure = Object.assign(new Error("usage limit reached"), {
         quotaObservation: observation({ fiveHour: { utilization: 1, resetsAt: null } }),
+        consumption: "none" as const,
       });
       vi.mocked(callClaudeSubscriptionModel).mockRejectedValueOnce(failure);
 
@@ -314,10 +319,13 @@ describe("resource-unit guard", () => {
 
       expect((await executeRun(tx, runId, [llmSpec()])).status).toBe("failed");
 
-      // Neither counter absorbed the mislabelled amount.
+      // The mislabelled amount is never reconciled. But the provider DID the
+      // work, in an amount unknown in the reserved unit, so the subscription
+      // hold is charged at its estimate (Phase 9) rather than released — and
+      // the usd counter is never touched.
       const tokens = await counter(tx, runId, "subscription_tokens");
-      expect(Number(tokens!.consumedAmount)).toBe(0);
       expect(Number(tokens!.reservedAmount)).toBe(0);
+      expect(Number(tokens!.consumedAmount)).toBe(1_050);
       expect(Number((await counter(tx, runId, "usd"))!.consumedAmount)).toBe(0);
     });
   });

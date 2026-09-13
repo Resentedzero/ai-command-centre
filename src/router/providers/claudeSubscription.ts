@@ -83,7 +83,27 @@ export class ClaudeSubscriptionError extends Error {
     super(message);
     this.name = "ClaudeSubscriptionError";
   }
+
+  /**
+   * Whether this failure provably consumed nothing (Phase 9 — read by the
+   * Router via `providerConsumptionFrom`). `none` only for failures that
+   * happen before the CLI sends a request, or where the service refused it
+   * outright; every other code — notably `timeout`, a killed child — is
+   * `unknown`, so its reservation is charged rather than released. A code added
+   * later defaults to `unknown` until shown otherwise.
+   */
+  get consumption(): "none" | "unknown" {
+    return NO_CONSUMPTION_CODES.has(this.code) ? "none" : "unknown";
+  }
 }
+
+const NO_CONSUMPTION_CODES: ReadonlySet<SubscriptionFailureCode> = new Set<SubscriptionFailureCode>([
+  "cli_unavailable",
+  "misconfigured",
+  "input_too_large",
+  "auth_expired",
+  "quota_exhausted",
+]);
 
 /**
  * Conservative stdin ceiling. The CLI documents a 10 MB cap; this adapter

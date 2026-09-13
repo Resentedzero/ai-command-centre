@@ -19,7 +19,8 @@
 import type { CostClass } from "../governance/costClass.js";
 import type { CapabilityPermission } from "../governance/policy.js";
 import type { RiskTier } from "../governance/risk.js";
-import type { ContextBudget } from "../context/types.js";
+import type { CompiledContext, ContextBudget } from "../context/types.js";
+import type { RouteResult } from "../router/types.js";
 
 export type InvocationKind = "llm" | "tool" | "retrieval" | "deterministic";
 
@@ -138,4 +139,30 @@ export type DeferredInvocationSpec = (ctx: InvocationSpecContext) => Promise<Inv
  */
 export type PlannedInvocationSpec = InvocationSpec | DeferredInvocationSpec;
 
-export type RunOutcome = { status: "completed" | "failed" | "awaiting_approval"; runId: string };
+/**
+ * An LLM Invocation committed as `executing` whose provider call must now be
+ * made OUTSIDE any transaction (Phase 9). Carried in memory only: the compiled
+ * context is not persisted, because an interrupted dispatch is never re-sent —
+ * see `failInterruptedInvocation` (`./executor.ts`).
+ */
+export type PendingModelDispatch = {
+  invocationId: string;
+  runId: string;
+  route: RouteResult;
+  compiledContext: CompiledContext;
+  expectedOutputShape: Record<string, unknown>;
+};
+
+/**
+ * - `completed` / `failed` / `awaiting_approval`: as before.
+ * - `dispatch_required`: the Run yielded at an LLM Invocation. The caller must
+ *   commit, dispatch `dispatch` with no transaction open, record the outcome
+ *   with `completeModelDispatch` in a fresh transaction, and call `executeRun`
+ *   again to continue.
+ * - `in_flight`: another caller in this process is dispatching this Run's
+ *   current Invocation right now. Nothing was changed; try again later.
+ */
+export type RunOutcome =
+  | { status: "completed" | "failed" | "awaiting_approval"; runId: string }
+  | { status: "dispatch_required"; runId: string; dispatch: PendingModelDispatch }
+  | { status: "in_flight"; runId: string };

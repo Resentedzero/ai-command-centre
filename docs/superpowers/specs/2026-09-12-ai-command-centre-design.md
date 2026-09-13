@@ -94,6 +94,15 @@ vector DB.
 - **Invocation** = one concrete callable operation inside a Run, one of five kinds:
   **LLM**, **Tool**, **Retrieval**, **Deterministic function**, **Browser/external
   action**. Lifecycle: `proposed → authorized → executing → completed/failed`.
+
+  > **Implementation note (Phase 9, 2026-09-14) — makes `executing` durable.**
+  > An LLM Invocation commits `executing` *before* its provider call, which happens
+  > with no database transaction open. The outcome is recorded in a fresh
+  > transaction. An `executing` Invocation whose process died has an **unknown**
+  > outcome. It is failed and never re-dispatched (a retry is a new Run, §3b). Its
+  > reservation is charged at the full estimate, not released. Exactly one process
+  > may execute against a database (§13.2, enforced at startup). Authoritative
+  > write-up: `docs/architecture/DURABLE_EXECUTION.md`.
   - *LLM Invocation*: Context Compiler compiles minimal context fresh for this
     invocation only; Model Router selects model/provider; Budget Governor
     estimates/authorizes before the call; structured events + usage recorded after.
@@ -1003,6 +1012,13 @@ No systemd on Windows, so this gets a stated answer:
 - **V1.1** (once the platform is stable enough to want unattended operation): wrap the
   backend as a Windows Service via **NSSM** (free, lightweight, auto-start-on-boot,
   auto-restart-on-crash) — a deliberate, cheap deferral, not a gap.
+
+> **Implementation note (Phase 9, 2026-09-14).** "One backend process" is now a
+> load-bearing invariant, and startup enforces it. The process takes a session
+> advisory lock and refuses to start if another process holds it. It then settles any
+> Invocation a previous process left `executing` before it accepts requests. So an
+> NSSM auto-restart after a crash recovers interrupted work rather than stranding it.
+> See `docs/architecture/DURABLE_EXECUTION.md` §4–5.
 
 ### 13.3 Artifact storage paths — relative, POSIX-style, root-configured
 

@@ -1,0 +1,28 @@
+# Documentation index
+
+If a lower tier disagrees with a higher one, the higher tier wins. The spec's dated implementation notes record every place the implementation clarifies or extends it.
+
+## 1. Specification (frozen)
+- [`superpowers/specs/2026-09-12-ai-command-centre-design.md`](superpowers/specs/2026-09-12-ai-command-centre-design.md): the product and architecture spec, Phases 1–20. Each subsystem doc below links back to the section it implements.
+
+## 2. Architecture: authoritative subsystem designs
+- [`architecture/DURABLE_EXECUTION.md`](architecture/DURABLE_EXECUTION.md) covers:
+  - the transaction boundaries around provider calls;
+  - the `executing` state and interruption recovery;
+  - the single-executor-process invariant and lock order. (Phase 9)
+- [`architecture/SUBSCRIPTION_PROVIDER_DESIGN.md`](architecture/SUBSCRIPTION_PROVIDER_DESIGN.md) covers:
+  - the Claude Max (`claude -p`) provider adapter;
+  - quota state and telemetry, and the disabled quota guardrail;
+  - the tier ladder and candidate routing. (Phases 6–7H)
+
+Module-level contracts live in the header comment of each source file, and CLAUDE.md files sit alongside modules (spec §17.2).
+
+## 3. Development records: phase closures and reviews
+- [`development/PHASE8_CLOSURE.md`](development/PHASE8_CLOSURE.md): Phase 8, runtime containment. Emergency stop, DAY budget, run budgets, quota telemetry, deferred decisions.
+- [`development/PHASE8_REVIEW.md`](development/PHASE8_REVIEW.md): independent review of Phase 8.
+
+## 4. Planning and research (advisory, authorizes nothing)
+- [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
+- [`superpowers/plans/2026-09-12-ai-command-centre-mvp.md`](superpowers/plans/2026-09-12-ai-command-centre-mvp.md): the original MVP implementation plan.
+- `research/`: the subscription provider research, runtime spike and benchmark notes.
+- `gamification/`: the tile pack inventory.

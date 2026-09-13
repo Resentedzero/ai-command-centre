@@ -22,6 +22,7 @@ import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRu
 import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
 import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { runWorkflowMutationAndRelay } from "../liveEventRelay.js";
+import { transactionRunner } from "../../db/transactionRunner.js";
 
 /**
  * The V1 actor recorded for every Approval resolution made through this API
@@ -121,19 +122,24 @@ function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "ap
 
     const workflowRunId = lookup.workflowRunId;
     try {
-      const result = await runWorkflowMutationAndRelay(deps.db, workflowRunId, async (tx) => {
-        // FIRST statement in the transaction, deliberately: it takes this
-        // Approval's row lock before any of the work below, so a losing
-        // concurrent resolution can never reach `advanceWorkflowRunUntilBlocked`
-        // at all, and its throw rolls this entire transaction back.
-        const resolved = await resolveApproval(tx, approvalId, decision, V1_RESOLUTION_ACTOR);
-
-        const seed = await findSeededPublishWorkflow(tx);
+      const runInTx = transactionRunner(deps.db);
+      const result = await runWorkflowMutationAndRelay(deps.db, workflowRunId, async () => {
+        // Checked BEFORE resolving: the resolution commits on its own, so a
+        // missing seed must not leave a decided Approval with nothing to act on.
+        const seed = await runInTx((tx) => findSeededPublishWorkflow(tx));
         if (!seed) {
           throw new Error('No seeded Workflow Definition found — run "npm run seed" first.');
         }
-        const builder = buildInvocationSpecsForTaskDefinition(tx, seed);
-        const advanceResult = await advanceWorkflowRunUntilBlocked(tx, workflowRunId, builder);
+
+        // Resolved and COMMITTED before any advancement (Phase 9: the advance
+        // runs in its own short transactions). The conditional UPDATE inside
+        // `resolveApproval` is still the exactly-once guarantee: a losing
+        // concurrent resolution throws here and never reaches the driver.
+        const resolved = await runInTx((tx) => resolveApproval(tx, approvalId, decision, V1_RESOLUTION_ACTOR));
+
+        const advanceResult = await advanceWorkflowRunUntilBlocked(runInTx, workflowRunId, (tx) =>
+          buildInvocationSpecsForTaskDefinition(tx, seed)
+        );
 
         return {
           approvalId: resolved.id,

@@ -28,6 +28,7 @@ import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRu
 import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
 import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { runWorkflowMutationAndRelay } from "../liveEventRelay.js";
+import { transactionRunner } from "../../db/transactionRunner.js";
 
 type CreateGoalBody = { title?: string; description?: string };
 
@@ -38,22 +39,29 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
       return reply.status(400).send({ error: "title is required" });
     }
 
-    const result = await runWorkflowMutationAndRelay(deps.db, null, async (tx) => {
-      const seed = await findSeededPublishWorkflow(tx);
-      if (!seed) {
-        throw new Error('No seeded Workflow Definition found — run "npm run seed" before creating Goals.');
-      }
+    const runInTx = transactionRunner(deps.db);
+    const result = await runWorkflowMutationAndRelay(deps.db, null, async () => {
+      // Goal + Workflow Run commit first, as one unit; the driver then advances
+      // in its own short transactions (Phase 9 — see the driver's header).
+      const { seed, goalId, workflowRunId } = await runInTx(async (tx) => {
+        const seed = await findSeededPublishWorkflow(tx);
+        if (!seed) {
+          throw new Error('No seeded Workflow Definition found — run "npm run seed" before creating Goals.');
+        }
 
-      const [goalRow] = await tx
-        .insert(goals)
-        .values({ projectId: seed.projectId, title, description: description ?? null, status: "active" })
-        .returning();
-      const goalId = goalRow!.id;
+        const [goalRow] = await tx
+          .insert(goals)
+          .values({ projectId: seed.projectId, title, description: description ?? null, status: "active" })
+          .returning();
+        const goalId = goalRow!.id;
 
-      const { workflowRunId } = await startWorkflowRun(tx, seed.workflowDefinitionId, goalId);
+        const { workflowRunId } = await startWorkflowRun(tx, seed.workflowDefinitionId, goalId);
+        return { seed, goalId, workflowRunId };
+      });
 
-      const builder = buildInvocationSpecsForTaskDefinition(tx, seed);
-      const advanceResult = await advanceWorkflowRunUntilBlocked(tx, workflowRunId, builder);
+      const advanceResult = await advanceWorkflowRunUntilBlocked(runInTx, workflowRunId, (tx) =>
+        buildInvocationSpecsForTaskDefinition(tx, seed)
+      );
 
       return { goalId, workflowRunId, status: advanceResult.status };
     });

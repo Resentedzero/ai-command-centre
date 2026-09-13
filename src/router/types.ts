@@ -98,6 +98,34 @@ export type ProviderCallResult = {
  * provider-specific error class. Anything that is not an object carrying an
  * object-valued `quotaObservation` yields undefined — never a guessed reading.
  */
+/**
+ * What a FAILED provider call may have consumed (Phase 9).
+ *
+ * - `none`: provably nothing — the adapter refused before sending anything
+ *   (no executable, no credential, misconfigured unit, oversized input) or the
+ *   provider refused the request outright (expired login, exhausted quota).
+ * - `unknown`: anything else — a timeout, a crash mid-stream, a missing usage
+ *   report. The work may have been done.
+ *
+ * The accounting rule this drives (`completeModelDispatch`): `none` releases
+ * the reservation; `unknown` CHARGES it at its estimate, exactly like an
+ * interrupted Invocation. Releasing on `unknown` would hand back capacity the
+ * provider may already have spent — widening effective authorization on the
+ * strength of an unknown.
+ *
+ * Adapters opt INTO `none` by attaching `consumption: "none"` to the error they
+ * throw. Read structurally, like `quotaObservation`, so the Router never imports
+ * a provider's error class. Absent, malformed, or any other value reads as
+ * `unknown`: the conservative default, so a new failure mode is charged until
+ * someone proves it consumes nothing.
+ */
+export type ProviderConsumption = "none" | "unknown";
+
+export function providerConsumptionFrom(error: unknown): ProviderConsumption {
+  if (typeof error !== "object" || error === null) return "unknown";
+  return (error as { consumption?: unknown }).consumption === "none" ? "none" : "unknown";
+}
+
 export function quotaObservationFrom(error: unknown): QuotaObservation | undefined {
   if (typeof error !== "object" || error === null) return undefined;
   const candidate = (error as { quotaObservation?: unknown }).quotaObservation;

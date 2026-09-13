@@ -13,14 +13,65 @@
  */
 import "dotenv/config";
 import { buildServer } from "./server.js";
+import { db, pool } from "../db/client.js";
+import { transactionRunner } from "../db/transactionRunner.js";
+import { acquireExecutorInstanceLock } from "../execution/executorInstanceLock.js";
+import { recoverInterruptedInvocations, redriveInProgressWorkflowRuns } from "../workflow/recoverInterruptedInvocations.js";
+import { findSeededPublishWorkflow } from "../definitions/lookupSeed.js";
+import { buildInvocationSpecsForTaskDefinition } from "../workflow/buildInvocationSpecsForTaskDefinition.js";
 
 async function main() {
+  // Phase 9: exactly one executing process per database, then settle anything a
+  // previous process left mid-dispatch — both BEFORE accepting requests. The
+  // lock's connection is held for the life of the process.
+  const instanceLock = await acquireExecutorInstanceLock(pool);
+  // Losing this connection releases the lock, after which a second process
+  // could start and settle this one's live dispatches as interrupted. There is
+  // no safe way to continue without it: exit, and let supervision restart us
+  // (which re-acquires the lock and runs recovery).
+  instanceLock.on("error", (err) => {
+    // eslint-disable-next-line no-console
+    console.error("Executor instance lock connection lost; exiting to preserve the single-executor invariant.", err);
+    process.exit(1);
+  });
+
+  const runInTx = transactionRunner(db);
+  const recovery = await recoverInterruptedInvocations(runInTx);
+  if (recovery.recovered.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `Recovered ${recovery.recovered.length} interrupted Invocation(s) left executing by a previous process ` +
+        `(outcome unknown; failed, reservations charged at estimate, never re-dispatched): ${recovery.recovered.join(", ")}`
+    );
+  }
+  if (recovery.failed.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error("Could NOT settle these interrupted Invocation(s); they need operator attention:", recovery.failed);
+  }
+
   const app = buildServer();
   const port = Number(process.env.PORT ?? 3000);
   const host = process.env.HOST ?? "127.0.0.1";
   await app.listen({ port, host });
   // eslint-disable-next-line no-console
   console.log(`AI Command Centre API listening on http://${host}:${port}`);
+
+  // Continue Workflow Runs a previous process left mid-advance, in the
+  // background so the API is available meanwhile. See the function's header.
+  const seed = await runInTx((tx) => findSeededPublishWorkflow(tx));
+  if (seed) {
+    redriveInProgressWorkflowRuns(runInTx, (tx) => buildInvocationSpecsForTaskDefinition(tx, seed))
+      .then((report) => {
+        if (report.redriven.length > 0 || report.failed.length > 0) {
+          // eslint-disable-next-line no-console
+          console.log("Startup re-drive of in-progress Workflow Runs:", report);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("Startup re-drive of in-progress Workflow Runs failed:", err);
+      });
+  }
 }
 
 main().catch((err) => {

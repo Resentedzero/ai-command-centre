@@ -15,11 +15,25 @@
  *   - `status: "awaiting_approval"` -> resume exactly at that point (re-check
  *     the Approval, `reauthorize`, fresh `reserveBudget`, execute) rather
  *     than restarting from index 0.
+ *   - `status: "executing"` (Phase 9) -> an LLM Invocation committed before
+ *     its provider call. If this process is dispatching it right now, return
+ *     `in_flight` and change nothing; otherwise its dispatcher is gone, so
+ *     settle it as interrupted (`failInterruptedInvocation` — never
+ *     re-dispatched).
  *   - no row -> process it fresh from the top of its per-kind orchestration.
- *   - any other status is an inconsistency this unit does not attempt to
- *     recover from (see the throw at the bottom of `executeRun`'s loop) —
- *     recovering from a mid-execution process crash is out of this unit's
- *     scope.
+ *   - `proposed`/`failed` persisting under a non-terminal Run is still an
+ *     inconsistency this unit refuses to guess about (see the throw at the
+ *     bottom of `executeRun`'s loop). Neither can survive a crash: every
+ *     transaction that writes them also writes the Run's terminal state or a
+ *     later Invocation status before committing.
+ *
+ * Transaction boundaries (Phase 9 — durable execution; the authoritative
+ * write-up is docs/architecture/DURABLE_EXECUTION.md): `executeRun` never makes
+ * a provider call. At an LLM Invocation it commits the Invocation as
+ * `executing` and yields `dispatch_required`; the caller dispatches with no
+ * transaction open and records the outcome via `completeModelDispatch`. Tool,
+ * deterministic and retrieval Invocations still execute inside the caller's
+ * transaction — today they are all fast and local.
  * `runs.status` is short-circuited at the top for the two terminal outcomes
  * ("failed"/"completed") so a call after the Run is already finished is a
  * cheap no-op read rather than re-walking every spec.
@@ -63,7 +77,13 @@ import { approvals, artifacts, invocations, runs, taskInstances, workflowRuns } 
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
 import type { ApprovalRequiredPayload } from "../events/types.js";
-import { NOOP_RESERVATION_ID, reconcileBudget, releaseReservation, reserveBudget } from "../governance/budget.js";
+import {
+  chargeReservationAtEstimate,
+  NOOP_RESERVATION_ID,
+  reconcileBudget,
+  releaseReservation,
+  reserveBudget,
+} from "../governance/budget.js";
 import { createApproval, expirePendingApproval, reauthorize } from "../governance/approvals.js";
 import {
   assertCapabilityGrantsNotStopped,
@@ -71,11 +91,18 @@ import {
   ExecutionStoppedError,
 } from "../governance/executionStop.js";
 import { compileContext } from "../context/compiler.js";
-import { authorizeRoute, callModel } from "../router/modelRouter.js";
+import {
+  authorizeRoute,
+  emitModelInvocationCompleted,
+  finalizeModelCall,
+  type ModelDispatchOutcome,
+} from "../router/modelRouter.js";
+import { providerConsumptionFrom } from "../router/types.js";
 import {
   authorizeInvocation,
   completeInvocation,
   failInvocation,
+  markInvocationExecuting,
   proposeInvocation,
   resolveCapabilityGrant,
   resolveToolBindingTrustLevel,
@@ -86,6 +113,7 @@ import type {
   InvocationSpec,
   InvocationSpecContext,
   LlmInvocationSpec,
+  PendingModelDispatch,
   PlannedInvocationSpec,
   PriorInvocationArtifact,
   RetrievalInvocationSpec,
@@ -573,54 +601,22 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
     return { status: "failed", runId };
   }
 
-  // Steps 3-4: compileContext (Unit 4) -> callModel (Unit 5).
-  //
-  // Fix-round-1 (Important #1 + the analogous gap it exposed for this path,
-  // fixed here for consistency with Important #2's tool-path fix): the
-  // budget reservation `authorizeRoute` made lives on `route.reservationId`.
-  // `callModel`'s OWN success path (inside modelRouter.ts) reconciles it,
-  // unconditionally, before returning. So:
-  //   - a throw from `compileContext`, or from `callModel` itself (e.g. the
-  //     provider call throwing), means callModel never returned, so no
-  //     reconcile ran yet -> releasing here is correct and was the original
-  //     Important #1 leak (nothing released it before this fix).
-  //   - a throw from callModel's OWN post-reconcile `emitEvent` call would be
-  //     a DB error that aborts the whole transaction outright, so this catch
-  //     effectively can't observe a "reconciled but transaction still alive"
-  //     state from THAT source.
-  //   - BUT a throw from `persistInvocationResultAsArtifact` (a plain
-  //     TypeError from JSON.stringify on a cyclic/BigInt result — NOT a DB
-  //     error, does NOT abort the transaction) happens in OUR code, AFTER
-  //     `callModel` already returned successfully and therefore already
-  //     reconciled. Releasing in that case would double-decrement
-  //     reserved_amount (budget.ts: reconcileBudget/releaseReservation are
-  //     NOT idempotent) — the identical bug class as Important #2. Guarded
-  //     the same way: a `reconciled` flag set immediately after `callModel`
-  //     returns, checked in the catch before releasing.
-  let reconciled = false;
+  // Step 3: compileContext (Unit 4). A throw here means nothing was dispatched,
+  // so the reservation `authorizeRoute` made is released, not charged.
+  let compiledContext;
   try {
-    const compiledContext = await compileContext(tx, {
+    compiledContext = await compileContext(tx, {
       intent: spec.intent,
       taskInstanceId,
       candidateArtifactIds: spec.candidateArtifactIds,
       candidateToolCapabilityIds: spec.candidateToolCapabilityIds,
       budget: spec.contextBudget,
     });
-
-    const { result } = await callModel(tx, route, compiledContext, spec.expectedOutputShape);
-    reconciled = true; // callModel's success path already reconciled route.reservationId.
-
-    const { artifactId } = await persistInvocationResultAsArtifact(tx, invocationId, toStructuredOutput(result));
-    // emitEvent: false — callModel already emitted invocation_completed (Ruling 3).
-    await completeInvocation(tx, { invocationId, runId, taskInstanceId, payload: { artifactId }, emitEvent: false });
-    return { status: "completed", runId };
   } catch (error) {
-    if (!reconciled) {
-      await releaseReservation(tx, route.reservationId);
-    }
-    // DECISION (Ruling 5 step 4's "your call"): same reasoning as the
-    // authorizeRoute-failure branch above — the Executor owns invocation_failed
-    // uniformly across every kind, since callModel never emits it itself.
+    await releaseReservation(tx, route.reservationId);
+    // DECISION (Ruling 5 step 4's "your call"): the Executor owns
+    // invocation_failed uniformly across every kind — the Model Router never
+    // emits it itself.
     await failInvocation(tx, {
       invocationId,
       runId,
@@ -630,6 +626,243 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
     await failRun(tx, runId);
     return { status: "failed", runId };
   }
+
+  // Step 4: YIELD for dispatch (Phase 9). The provider call is NOT made here,
+  // inside the caller's transaction. Instead the Invocation is committed as
+  // `executing`, with its reservation recorded exactly where approval-halted
+  // holds are (`pendingReservations`), and the caller dispatches with no
+  // transaction open, then records the outcome via `completeModelDispatch`.
+  //
+  // Once this commits there is a durable record that a call may have been
+  // made. If the process dies before the outcome is recorded, recovery
+  // (`failInterruptedInvocation`) finds the `executing` row and settles it —
+  // it is never re-dispatched.
+  await markInvocationExecuting(tx, invocationId);
+  await savePendingReservation(tx, runId, seqNo, route.reservationId);
+  inFlightDispatches.add(invocationId);
+  return {
+    status: "dispatch_required",
+    runId,
+    dispatch: { invocationId, runId, route, compiledContext, expectedOutputShape: spec.expectedOutputShape },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch completion and interruption recovery (Phase 9)
+// ---------------------------------------------------------------------------
+
+/**
+ * Invocations whose provider call THIS PROCESS is currently making.
+ *
+ * This is how `executeRun` tells an `executing` row that is genuinely in
+ * flight (return `in_flight`, change nothing) from one whose dispatcher is gone
+ * (settle it as interrupted). Process memory is the right authority for that
+ * question precisely because it dies with the dispatcher: the application runs
+ * as ONE process (spec §13.2), enforced at startup by
+ * `acquireExecutorInstanceLock`, so an `executing` row absent from this set has
+ * no live dispatcher anywhere.
+ *
+ * Entries are added in the same transaction that commits `executing`, and
+ * removed by the driver once the outcome is recorded — or once it gives up, so
+ * a dispatch that failed to record is recoverable rather than "in flight"
+ * forever. A stale entry for a transaction that rolled back is inert: it names
+ * a random id no committed row carries.
+ */
+const inFlightDispatches = new Set<string>();
+
+/** Called by the dispatch driver when it stops owning a dispatch, whatever the outcome. */
+export function releaseDispatchSlot(invocationId: string): void {
+  inFlightDispatches.delete(invocationId);
+}
+
+export function isDispatchInFlight(invocationId: string): boolean {
+  return inFlightDispatches.has(invocationId);
+}
+
+async function lockRun(tx: DrizzleTransaction, runId: string): Promise<RunRow | undefined> {
+  const [row] = await tx.select().from(runs).where(eq(runs.id, runId)).for("update");
+  return row;
+}
+
+async function lockInvocation(tx: DrizzleTransaction, invocationId: string) {
+  const [row] = await tx.select().from(invocations).where(eq(invocations.id, invocationId)).for("update");
+  return row;
+}
+
+/**
+ * Records the outcome of a dispatch `executeRun` yielded for, in a fresh
+ * transaction. Settles that ONE Invocation — completed (reconciled, artifact
+ * persisted) or failed (reservation released, Run failed) — and nothing else;
+ * the caller then calls `executeRun` again to continue the Run.
+ *
+ * Deliberately independent of stops and pauses: the call has already happened,
+ * so its real consumption and result must be recorded. A stop takes effect at
+ * the NEXT Invocation boundary, as spec §9.7 requires.
+ *
+ * Lock order matches `executeRun`: the Run row, then the Invocation row.
+ *
+ * If the Invocation is no longer `executing`, recovery already settled it as
+ * interrupted — its reservation charged in full and its Run failed. The late
+ * outcome is then logged and NOT applied: applying it would reconcile the same
+ * reservation twice.
+ */
+export async function completeModelDispatch(
+  tx: DrizzleTransaction,
+  dispatch: PendingModelDispatch,
+  outcome: ModelDispatchOutcome
+): Promise<"completed" | "failed" | "already_settled"> {
+  const { invocationId, runId, route } = dispatch;
+
+  const runRow = await lockRun(tx, runId);
+  const invocation = await lockInvocation(tx, invocationId);
+  if (!runRow || !invocation) {
+    throw new Error(`completeModelDispatch: no run "${runId}" / invocation "${invocationId}" found.`);
+  }
+  if (invocation.status !== "executing") {
+    // eslint-disable-next-line no-console
+    console.error(
+      `completeModelDispatch: invocation "${invocationId}" is "${invocation.status}", not "executing" — it was ` +
+        "already settled (e.g. as interrupted). Discarding the late dispatch outcome rather than reconciling twice."
+    );
+    return "already_settled";
+  }
+
+  const recordedReservationId = await peekPendingReservation(tx, runId, invocation.seqNo);
+  if (recordedReservationId !== route.reservationId) {
+    throw new Error(
+      `completeModelDispatch: invocation "${invocationId}"'s recorded reservation does not match the dispatched route's.`
+    );
+  }
+
+  const taskInstanceId = runRow.taskInstanceId;
+  // `finalizeModelCall` reconciles on success; a later throw in OUR code (a
+  // plain TypeError from JSON.stringify on a cyclic result, which does not
+  // abort the transaction) must not then settle the same reservation again —
+  // reconcile/release/charge are not idempotent (budget.ts).
+  let reconciled = false;
+  try {
+    const providerResult = await finalizeModelCall(tx, route, outcome);
+    reconciled = true;
+    await clearPendingReservation(tx, runId, invocation.seqNo);
+
+    const { artifactId } = await persistInvocationResultAsArtifact(
+      tx,
+      invocationId,
+      toStructuredOutput(providerResult.result)
+    );
+    // Only now, with the result persisted, is the Invocation's completion a
+    // fact — so exactly ONE terminal event is ever recorded for it.
+    await emitModelInvocationCompleted(tx, route, providerResult);
+    await completeInvocation(tx, { invocationId, runId, taskInstanceId, payload: { artifactId }, emitEvent: false });
+    return "completed";
+  } catch (error) {
+    const settlement = await settleFailedDispatchReservation(tx, route.reservationId, outcome, reconciled);
+    await clearPendingReservation(tx, runId, invocation.seqNo);
+    await failInvocation(tx, {
+      invocationId,
+      runId,
+      taskInstanceId,
+      reason: error instanceof Error ? error.message : String(error),
+      details: settlement,
+    });
+    await failRun(tx, runId);
+    return "failed";
+  }
+}
+
+/**
+ * Settles the reservation of a dispatch that ended in failure (Phase 9).
+ *
+ * - Already reconciled (the failure came after usage was recorded): nothing
+ *   more to do — the real usage stands.
+ * - The provider failed AND declared it consumed nothing (refused before
+ *   sending, or refused outright): RELEASE.
+ * - Otherwise — a provider failure of unknown consumption (a timeout, a crash
+ *   mid-stream, missing usage), or a call that succeeded but could not be
+ *   reconciled (a usage report in the wrong unit): CHARGE AT ESTIMATE. The work
+ *   may have been done; releasing would let later work spend that capacity a
+ *   second time. The same rule an interrupted Invocation gets.
+ *
+ * Returned as event details, so the counter movement is explained by the log.
+ */
+async function settleFailedDispatchReservation(
+  tx: DrizzleTransaction,
+  reservationId: string,
+  outcome: ModelDispatchOutcome,
+  reconciled: boolean
+): Promise<Record<string, unknown>> {
+  if (reconciled) {
+    return { reservationSettlement: "reconciled" };
+  }
+  if (!outcome.ok && providerConsumptionFrom(outcome.error) === "none") {
+    await releaseReservation(tx, reservationId);
+    return { reservationSettlement: "released", providerConsumption: "none" };
+  }
+  const charge = await chargeReservationAtEstimate(tx, reservationId);
+  return { reservationSettlement: "charged_at_estimate", providerConsumption: "unknown", ...charge };
+}
+
+/** The `invocation_failed` reason recorded for an Invocation whose dispatcher died mid-call. */
+export const INTERRUPTED_INVOCATION_REASON = "interrupted_outcome_unknown";
+
+/**
+ * Settles an Invocation left `executing` by a dispatcher that no longer exists
+ * — a crash, a restart, or an outcome that could not be recorded.
+ *
+ * Its outcome is UNKNOWN: the provider may or may not have done the work, and a
+ * `claude -p` call carries no idempotency key to ask. The resolution is
+ * therefore the conservative one on every axis:
+ *   - NEVER re-dispatched. Re-sending could do the work twice and spend twice;
+ *     a retry is a new Run (spec §3b/§3d), an explicit decision, not a side
+ *     effect of recovery.
+ *   - The reservation is CHARGED at its full estimate, not released — see
+ *     `chargeReservationAtEstimate` for why releasing would widen effective
+ *     authorization.
+ *   - The Invocation fails with `outcome: "unknown"` recorded, and its Run
+ *     fails, naming the interrupted Invocation. The failure event carries no
+ *     `usage`: none was observed, and inventing figures would put fiction in the
+ *     immutable ledger. The counter, not the event, carries the charge.
+ *
+ * Returns false (changing nothing) unless the Invocation is still `executing`.
+ * The caller must ensure no live dispatcher owns it (`isDispatchInFlight`).
+ */
+export async function failInterruptedInvocation(tx: DrizzleTransaction, invocationId: string): Promise<boolean> {
+  const unlocked = await tx.query.invocations.findFirst({ where: eq(invocations.id, invocationId) });
+  if (!unlocked) return false;
+
+  const runRow = await lockRun(tx, unlocked.runId);
+  const invocation = await lockInvocation(tx, invocationId);
+  if (!runRow || !invocation || invocation.status !== "executing") return false;
+
+  const envelope = await getBudgetEnvelope(tx, runRow.id);
+  const reservationId = envelope.pendingReservations?.[String(invocation.seqNo)];
+  let charge: { chargedAmount: string; resourceUnit: string } | null = null;
+  if (reservationId && isRealReservation(reservationId)) {
+    charge = await chargeReservationAtEstimate(tx, reservationId);
+    await clearPendingReservation(tx, runRow.id, invocation.seqNo);
+  }
+
+  await failInvocation(tx, {
+    invocationId,
+    runId: runRow.id,
+    taskInstanceId: runRow.taskInstanceId,
+    reason: INTERRUPTED_INVOCATION_REASON,
+    // The charge is recorded here, as a fact about this Invocation, because no
+    // usage-bearing event exists for it: without it the counter movement could
+    // not be explained from the log.
+    details: charge
+      ? { outcome: "unknown", reservationSettlement: "charged_at_estimate", ...charge }
+      : { outcome: "unknown", reservationSettlement: "none_recorded" },
+  });
+  await tx
+    .update(runs)
+    .set({
+      status: "failed",
+      completedAt: new Date(),
+      outcome: { status: "failed", reason: "invocation_interrupted", invocationId },
+    })
+    .where(eq(runs.id, runRow.id));
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -750,7 +983,11 @@ export async function executeRun(
   runId: string,
   invocationSpecs: PlannedInvocationSpec[]
 ): Promise<RunOutcome> {
-  const runRow = await tx.query.runs.findFirst({ where: eq(runs.id, runId) });
+  // Locked: once the Run commits in several transactions (Phase 9), two callers
+  // advancing the same Run must not both propose the same seqNo. The second
+  // waits here, then sees the first's committed Invocations. Lock order across
+  // the Executor is Run row, then Invocation row, then budget counters.
+  const runRow = await lockRun(tx, runId);
   if (!runRow) {
     throw new Error(`executeRun: no run found for id "${runId}"`);
   }
@@ -912,6 +1149,22 @@ export async function executeRun(
           // Skipped for a lookup failure, which has aborted the transaction: no
           // write could succeed, and the whole transaction rolls back anyway.
           if (error instanceof ExecutionStoppedError && !error.lookupFailed) {
+            // A still-PENDING approval for this invocation can now never take
+            // effect — its Run is about to become terminal. Close it so it
+            // leaves the approvals queue instead of waiting forever for a
+            // decision nothing will act on. Conditional on `pending`, so an
+            // already-resolved approval keeps its real decision.
+            //
+            // Done FIRST, before any event is emitted: `resolveApproval` locks
+            // the approval row and then the Run's event advisory lock, so taking
+            // the approval row here only after that advisory lock would let a
+            // concurrent approve deadlock with this stop.
+            const pendingApproval = await tx.query.approvals.findFirst({
+              where: and(eq(approvals.invocationId, existing.id), eq(approvals.status, "pending")),
+            });
+            if (pendingApproval) {
+              await expirePendingApproval(tx, pendingApproval.id, "system:execution_stop");
+            }
             const reservationId = await peekPendingReservation(tx, runId, seqNo);
             if (isRealReservation(reservationId)) {
               await releaseReservation(tx, reservationId);
@@ -923,17 +1176,6 @@ export async function executeRun(
               taskInstanceId: run.taskInstanceId,
               reason: "execution_stopped",
             });
-            // A still-PENDING approval for this invocation can now never take
-            // effect — its Run is about to become terminal. Close it so it
-            // leaves the approvals queue instead of waiting forever for a
-            // decision nothing will act on. Conditional on `pending`, so an
-            // already-resolved approval keeps its real decision.
-            const pendingApproval = await tx.query.approvals.findFirst({
-              where: and(eq(approvals.invocationId, existing.id), eq(approvals.status, "pending")),
-            });
-            if (pendingApproval) {
-              await expirePendingApproval(tx, pendingApproval.id, "system:execution_stop");
-            }
           }
           throw error;
         }
@@ -942,6 +1184,17 @@ export async function executeRun(
         const outcome = await resumeToolSpec(tx, run, seqNo, spec, existing);
         if (outcome.status !== "completed") return outcome;
         continue; // resumed and completed — proceed to the next spec, not restart from 0
+      }
+      if (existing.status === "executing") {
+        // Checked BEFORE any containment check: the call already happened (or
+        // is happening), so a stop cannot un-send it — it applies at the next
+        // Invocation boundary.
+        if (isDispatchInFlight(existing.id)) {
+          return { status: "in_flight", runId };
+        }
+        // No live dispatcher owns it: interrupted, outcome unknown.
+        await failInterruptedInvocation(tx, existing.id);
+        return { status: "failed", runId };
       }
       // "proposed"/"failed" rows persisting here indicate a mid-execution crash
       // recovery scenario, which is explicitly out of this unit's scope (see

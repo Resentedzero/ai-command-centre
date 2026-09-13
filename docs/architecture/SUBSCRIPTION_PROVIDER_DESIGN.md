@@ -440,17 +440,28 @@ direction; B never writes `budget_counters`; A never reads
 
 ## Part 8 — Exhaustion and failure semantics (design)
 
+> **Amended in Phase 9 (2026-09-14).** The Reservation column originally said
+> "release" for every failure, including timeout. That under-reported real
+> consumption: a CLI child killed after minutes, or a stream that died mid-way,
+> has almost certainly consumed tokens, and releasing hands that capacity back.
+> The rule now follows each failure's *consumption*. It is released only when
+> the failure provably sent nothing or was refused outright, and otherwise
+> charged at the reservation's estimate. Usage is never invented in either case:
+> the failure event carries no `usage`, and records the settlement and charged
+> amount in its payload. See `DURABLE_EXECUTION.md` §4.1.
+
 | Condition | Code | Reservation | Behaviour |
 |---|---|---|---|
-| Auth expired | `auth_expired` | release | Distinct, operator-actionable; runtime cannot self-recover |
-| Quota exhausted | `quota_exhausted` | release | **No automatic fallback** |
-| Overage rejected | `quota_exhausted` | release | Same; no billable spillover exists |
-| Provider unavailable / CLI missing | `cli_unavailable` | release | Config/operator problem, not runtime (Step 4A) |
-| Malformed structured result | `schema_validation` | release | Success-without-`structured_output` is a failure |
-| Missing/malformed usage | `usage_missing` | release | Fail closed; never invent usage |
-| Timeout | `timeout` | **release, never reconcile** | Terminated child records no result; reconciling 0 would under-report real consumption |
-| Non-zero exit (process ran) | `nonzero_exit` | release | Distinct from `cli_unavailable` |
-| CLI version mismatch | `cli_unavailable` | release | Surfaced via `cli_version` on quota state |
+| Auth expired | `auth_expired` | release (consumption `none`) | Distinct, operator-actionable; runtime cannot self-recover |
+| Quota exhausted | `quota_exhausted` | release (consumption `none`) | **No automatic fallback** |
+| Overage rejected | `quota_exhausted` | release (consumption `none`) | Same; no billable spillover exists |
+| Provider unavailable / CLI missing | `cli_unavailable` | release (consumption `none`) | Config/operator problem, not runtime (Step 4A) |
+| Misconfigured unit / oversized input | `misconfigured` / `input_too_large` | release (consumption `none`) | Refused before spawning |
+| Malformed structured result | `schema_validation` | **charge at estimate** | Success-without-`structured_output` is a failure; the CLI did run |
+| Missing/malformed usage | `usage_missing` | **charge at estimate** | Fail closed; never invent usage — and never assume none |
+| Timeout | `timeout` | **charge at estimate** | Terminated child records no result; reconciling 0, or releasing, would under-report real consumption |
+| Non-zero exit / parse error / no result | `nonzero_exit` / `parse_error` / `no_result` | **charge at estimate** | The process ran; consumption unknown |
+| CLI version mismatch | `cli_unavailable` | release (consumption `none`) | Surfaced via `cli_version` on quota state |
 | Stale / unknown quota | n/a | n/a | Not a failure; ALLOW + record UNKNOWN (§6.3) |
 
 ### 8.1 What happens when Max refuses

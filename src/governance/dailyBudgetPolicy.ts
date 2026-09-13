@@ -26,18 +26,16 @@
  *      mechanical default so the mechanism is well-defined and testable; it has
  *      no effect while no ceiling is configured, and should be confirmed (or
  *      changed to a local timezone) when ceilings are set.
- *   3. Sequencing against Phase 9. A day counter is ONE ROW SHARED BY EVERY
- *      RUN, and reservation holds `SELECT … FOR UPDATE` on it until the Run's
- *      transaction commits. Today a whole workflow advance — including
- *      multi-minute provider calls — runs inside one transaction (B-4). Once a
- *      daily ceiling is configured, all execution in that unit therefore
- *      serializes on the day row. Effective concurrency is already one today,
- *      so this regresses nothing in practice, but it makes Phase 9's
- *      transaction redesign a prerequisite for any concurrency afterwards.
- *      The same holds, already and regardless of this module, for the single
- *      `subscription_quota_state` row: every subscription invocation upserts it
- *      inside the Run's transaction. Phase 9 must treat both rows as shared
- *      cross-Run locks.
+ *   3. (RESOLVED by Phase 9.) A day counter is ONE ROW SHARED BY EVERY RUN,
+ *      and reservation holds `SELECT … FOR UPDATE` on it until the reserving
+ *      transaction commits. Before Phase 9 that transaction spanned
+ *      multi-minute provider calls, so a configured ceiling would have
+ *      serialized all execution in its unit behind one call. Provider calls now
+ *      happen between transactions (docs/architecture/DURABLE_EXECUTION.md), so
+ *      the day row — like the shared `subscription_quota_state` row — is held
+ *      only for the short reserve and reconcile transactions. Tool Invocations
+ *      still reserve, execute and reconcile in one transaction, which is short
+ *      while every tool is local.
  *
  * The ceilings object is frozen: it cannot be raised at runtime, and no
  * capability or caller can pass a different limit.

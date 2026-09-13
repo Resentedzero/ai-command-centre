@@ -395,14 +395,48 @@ export async function reconcileBudget(
   actualAmount: number
 ): Promise<void> {
   const reservation = decodeReservationId(reservationId);
-  const rows = await lockHeldCounters(tx, "reconcileBudget", reservation);
+  await reconcileDecoded(tx, "reconcileBudget", reservation, String(actualAmount));
+}
+
+/**
+ * Reconciles a reservation as though the work consumed EXACTLY its reserved
+ * estimate — for work whose actual consumption can never be known (Phase 9:
+ * an Invocation interrupted while `executing`).
+ *
+ * Why charge rather than release: the provider may well have consumed the
+ * entitlement (a `claude -p` child that was killed mid-call, or whose result
+ * was lost with the process). Releasing would hand that capacity back and let
+ * later work spend it a second time — widening effective authorization on the
+ * strength of an unknown. Charging the pessimistic estimate over-counts at
+ * worst, and only against a Run that has already failed. The estimate is the
+ * exact string recorded at reservation time, so no rounding is introduced.
+ */
+export async function chargeReservationAtEstimate(
+  tx: DrizzleTransaction,
+  reservationId: string
+): Promise<{ chargedAmount: string; resourceUnit: ResourceUnit }> {
+  const reservation = decodeReservationId(reservationId);
+  await reconcileDecoded(tx, "chargeReservationAtEstimate", reservation, reservation.estimatedAmount);
+  // Returned so the caller can record the charge as an immutable fact: no usage
+  // event exists for it, so without this the counter could not be explained
+  // from the event log.
+  return { chargedAmount: reservation.estimatedAmount, resourceUnit: reservation.resourceUnit };
+}
+
+async function reconcileDecoded(
+  tx: DrizzleTransaction,
+  operation: string,
+  reservation: DecodedReservation,
+  actualAmount: string
+): Promise<void> {
+  const rows = await lockHeldCounters(tx, operation, reservation);
 
   for (const row of rows) {
     await tx
       .update(budgetCounters)
       .set({
         reservedAmount: sql`${budgetCounters.reservedAmount} - ${reservation.estimatedAmount}::numeric`,
-        consumedAmount: sql`${budgetCounters.consumedAmount} + ${String(actualAmount)}::numeric`,
+        consumedAmount: sql`${budgetCounters.consumedAmount} + ${actualAmount}::numeric`,
         updatedAt: new Date(),
       })
       .where(eq(budgetCounters.id, row.id));

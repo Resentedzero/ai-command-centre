@@ -18,6 +18,7 @@ import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRu
 import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
 import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { runWorkflowMutationAndRelay } from "../liveEventRelay.js";
+import { transactionRunner } from "../../db/transactionRunner.js";
 
 export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps): void {
   app.post<{ Params: { id: string } }>("/workflow-runs/:id/pause", async (request, reply) => {
@@ -34,15 +35,18 @@ export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps):
   app.post<{ Params: { id: string } }>("/workflow-runs/:id/resume", async (request, reply) => {
     const workflowRunId = request.params.id;
 
-    const result = await runWorkflowMutationAndRelay(deps.db, workflowRunId, async (tx) => {
-      await resumeWorkflowRun(tx, workflowRunId);
-
-      const seed = await findSeededPublishWorkflow(tx);
+    const runInTx = transactionRunner(deps.db);
+    const result = await runWorkflowMutationAndRelay(deps.db, workflowRunId, async () => {
+      const seed = await runInTx((tx) => findSeededPublishWorkflow(tx));
       if (!seed) {
         throw new Error('No seeded Workflow Definition found — run "npm run seed" first.');
       }
-      const builder = buildInvocationSpecsForTaskDefinition(tx, seed);
-      const advanceResult = await advanceWorkflowRunUntilBlocked(tx, workflowRunId, builder);
+
+      await runInTx((tx) => resumeWorkflowRun(tx, workflowRunId));
+
+      const advanceResult = await advanceWorkflowRunUntilBlocked(runInTx, workflowRunId, (tx) =>
+        buildInvocationSpecsForTaskDefinition(tx, seed)
+      );
 
       return { workflowRunId, status: advanceResult.status };
     });

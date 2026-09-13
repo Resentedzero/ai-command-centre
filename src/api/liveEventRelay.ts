@@ -82,7 +82,6 @@
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { events, runs, taskInstances } from "../db/schema.js";
 import type { Database } from "../db/client.js";
-import type { DrizzleTransaction } from "../events/emit.js";
 import { publishLiveEvent } from "./eventBus.js";
 import { rowToEventEnvelope } from "./eventEnvelopeRow.js";
 
@@ -110,9 +109,15 @@ async function captureRunSequenceWatermarks(db: Database, workflowRunId: string)
 }
 
 /**
- * Runs `action` inside a real, committing transaction, then relays every
- * Event it created to live SSE subscribers via `publishLiveEvent`, in
- * ascending `sequenceNo` order per run.
+ * Runs `action`, then relays every Event it committed to live SSE subscribers
+ * via `publishLiveEvent`, in ascending `sequenceNo` order per run.
+ *
+ * `action` owns its own transactions (Phase 9): a workflow advance commits in
+ * several steps so no transaction spans a provider call. The relay therefore
+ * runs once `action` has returned — every transaction it opened has committed —
+ * and a throwing `action` relays nothing, exactly as before. Events it did
+ * commit before throwing are durable and reach subscribers on their next SSE
+ * replay; only live delivery is skipped.
  *
  * `beforeWorkflowRunId` is the Workflow Run's id BEFORE the transaction
  * runs. Pass `null` when the transaction itself creates a brand new
@@ -126,11 +131,11 @@ async function captureRunSequenceWatermarks(db: Database, workflowRunId: string)
 export async function runWorkflowMutationAndRelay<T extends { workflowRunId: string }>(
   db: Database,
   beforeWorkflowRunId: string | null,
-  action: (tx: DrizzleTransaction) => Promise<T>
+  action: () => Promise<T>
 ): Promise<T> {
   const before = beforeWorkflowRunId ? await captureRunSequenceWatermarks(db, beforeWorkflowRunId) : new Map<string, number>();
 
-  const result = await db.transaction(action);
+  const result = await action();
 
   // Fix round 2, Important #1: the mutation above has ALREADY COMMITTED —
   // nothing below this point may cause the caller to see a failure for a

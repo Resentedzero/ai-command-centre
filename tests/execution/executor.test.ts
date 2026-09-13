@@ -34,7 +34,9 @@ vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
   callClaudeSubscriptionModel: vi.fn(),
 }));
 
-import { executeRun } from "../../src/execution/executor.js";
+// Phase 9: executeRun yields at each LLM Invocation; this drives it to the next
+// real boundary exactly as the production driver does. See the helper's header.
+import { executeRunToBoundary as executeRun } from "../helpers/driveToBoundary.js";
 import * as invocationLifecycleModule from "../../src/execution/invocationLifecycle.js";
 import * as policyModule from "../../src/governance/policy.js";
 import * as budgetModule from "../../src/governance/budget.js";
@@ -1149,31 +1151,52 @@ describe('"llm" kind orchestration', () => {
   // returns the handle on `route.reservationId`; before this fix, a thrown
   // compileContext/provider error never released it, permanently inflating
   // `reserved_amount` on the run's budget_counters row.
-  it("a thrown callModel error releases the reservation authorizeRoute made (Important #1 — reservation leak)", async () => {
+  // Phase 9 corrected two things here. The counter asserted is the one the LLM
+  // leg actually reserves in (subscription_tokens — this test previously read
+  // the untouched usd counter and passed vacuously). And a failed dispatch no
+  // longer always releases: it releases only when the provider declares it
+  // consumed nothing, and otherwise charges the estimate.
+  async function llmTokenCounter(tx: DrizzleTransaction, runId: string) {
+    const row = await tx.query.budgetCounters.findFirst({
+      where: and(eq(schema.budgetCounters.scopeRefId, runId), eq(schema.budgetCounters.resourceUnit, "subscription_tokens")),
+    });
+    return { reserved: Number(row!.reservedAmount), consumed: Number(row!.consumedAmount) };
+  }
+
+  async function failedPayload(tx: DrizzleTransaction, runId: string) {
+    const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+    const event = await tx.query.events.findFirst({
+      where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_failed")),
+    });
+    return event!.payload as Record<string, unknown>;
+  }
+
+  it("a provider failure that consumed nothing releases the reservation authorizeRoute made (no leak)", async () => {
     await withRollback(async (tx) => {
       const { runId } = await seedGenericRunFixture(tx, { limitAmount: "10.00" });
+      vi.mocked(callClaudeSubscriptionModel).mockRejectedValueOnce(
+        Object.assign(new Error("login expired"), { consumption: "none" as const })
+      );
 
-      const before = await tx.query.budgetCounters.findFirst({
-        where: and(
-          eq(schema.budgetCounters.scopeRefId, runId),
-          eq(schema.budgetCounters.resourceUnit, "usd")
-        ),
-      });
-      expect(Number(before!.reservedAmount)).toBe(0);
+      expect(await executeRun(tx, runId, [buildLlmSpec()])).toEqual({ status: "failed", runId });
+      // Returned to the pre-call baseline — not left inflated by a leaked reservation.
+      expect(await llmTokenCounter(tx, runId)).toEqual({ reserved: 0, consumed: 0 });
+      expect(await failedPayload(tx, runId)).toMatchObject({ reservationSettlement: "released" });
+    });
+  });
 
+  it("a provider failure of unknown consumption (e.g. a timeout) charges the reservation at its estimate", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx, { limitAmount: "10.00" });
       vi.mocked(callClaudeSubscriptionModel).mockRejectedValueOnce(new Error("provider boom"));
-      const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
-      expect(outcome).toEqual({ status: "failed", runId });
 
-      const after = await tx.query.budgetCounters.findFirst({
-        where: and(
-          eq(schema.budgetCounters.scopeRefId, runId),
-          eq(schema.budgetCounters.resourceUnit, "usd")
-        ),
-      });
-      // Returned to the pre-call baseline — not left inflated by the leaked reservation.
-      expect(Number(after!.reservedAmount)).toBe(0);
-      expect(Number(after!.consumedAmount)).toBe(0);
+      expect(await executeRun(tx, runId, [buildLlmSpec()])).toEqual({ status: "failed", runId });
+      const payload = await failedPayload(tx, runId);
+      expect(payload).toMatchObject({ reservationSettlement: "charged_at_estimate", resourceUnit: "subscription_tokens" });
+      const counter = await llmTokenCounter(tx, runId);
+      expect(counter.reserved).toBe(0);
+      expect(counter.consumed).toBe(Number(payload.chargedAmount));
+      expect(counter.consumed).toBeGreaterThan(0);
     });
   });
 
@@ -1213,6 +1236,15 @@ describe('"llm" kind orchestration', () => {
 
       const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
       expect(invocation?.status).toBe("failed");
+
+      // Exactly ONE terminal event: completion is only recorded once the result
+      // is persisted, so a persistence failure cannot leave both in the log.
+      const terminal = await tx.query.events.findMany({
+        where: and(eq(schema.events.invocationId, invocation!.id)),
+      });
+      expect(terminal.map((e) => e.eventType).filter((t) => t === "invocation_completed" || t === "invocation_failed")).toEqual([
+        "invocation_failed",
+      ]);
     });
   });
 });

@@ -33,7 +33,28 @@ vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
   callClaudeSubscriptionModel: vi.fn(),
 }));
 
-import { authorizeRoute, callModel, selectCandidates } from "../../src/router/modelRouter.js";
+import {
+  authorizeRoute,
+  dispatchModelCall,
+  emitModelInvocationCompleted,
+  finalizeModelCall,
+  selectCandidates,
+} from "../../src/router/modelRouter.js";
+
+/**
+ * Dispatch, finalize, then record completion — the Phase 9 halves composed for
+ * Router-level tests (the Executor persists the result between the last two).
+ */
+async function callModel(
+  tx: DrizzleTransaction,
+  route: RouteResult,
+  compiledContext: CompiledContext,
+  expectedOutputShape: Record<string, unknown>
+) {
+  const providerResult = await finalizeModelCall(tx, route, await dispatchModelCall(route, compiledContext, expectedOutputShape));
+  await emitModelInvocationCompleted(tx, route, providerResult);
+  return providerResult;
+}
 import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
 import { callOpenAiModel } from "../../src/router/providers/openai.js";
 import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";

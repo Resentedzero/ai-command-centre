@@ -26,7 +26,9 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: 
 vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
 vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeSubscriptionModel: vi.fn() }));
 
-import { executeRun } from "../../src/execution/executor.js";
+// Phase 9: executeRun yields at each LLM Invocation; this drives it to the next
+// real boundary exactly as the production driver does. See the helper's header.
+import { executeRunToBoundary as executeRun } from "../helpers/driveToBoundary.js";
 import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
 import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
 import { dayScopeRef } from "../../src/governance/dailyBudgetPolicy.js";

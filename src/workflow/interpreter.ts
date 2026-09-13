@@ -149,7 +149,7 @@ import { goals, runs, taskInstances, workflowDefinitions, workflowRuns } from ".
 import type { DrizzleTransaction } from "../events/emit.js";
 import { createWorkflowTaskInstance } from "../execution/taskInstance.js";
 import { executeRun } from "../execution/executor.js";
-import type { PlannedInvocationSpec, RunOutcome } from "../execution/types.js";
+import type { PendingModelDispatch, PlannedInvocationSpec, RunOutcome } from "../execution/types.js";
 import { isLinearGraphDefinition, type LinearGraphDefinition } from "./graphTypes.js";
 
 /**
@@ -177,7 +177,16 @@ export type InvocationSpecBuilder = (params: {
   input: Record<string, unknown>;
 }) => Promise<PlannedInvocationSpec[]>;
 
-type AdvanceResult = { status: "in_progress" | "completed" | "failed" | "paused" };
+/**
+ * `dispatch_required` (Phase 9): the current step's Run yielded at an LLM
+ * Invocation committed as `executing`. The caller must commit this transaction,
+ * dispatch with no transaction open, record the outcome with
+ * `completeModelDispatch`, then advance again. See
+ * `./advanceWorkflowRunUntilBlocked.ts`, the driver that does exactly that.
+ */
+export type AdvanceResult =
+  | { status: "in_progress" | "completed" | "failed" | "paused" }
+  | { status: "dispatch_required"; dispatch: PendingModelDispatch };
 type WorkflowRunRow = typeof workflowRuns.$inferSelect;
 
 // ---------------------------------------------------------------------------
@@ -207,7 +216,9 @@ function readBookkeeping(variables: Record<string, unknown> | null): StepBookkee
 }
 
 /** Ruling 2: explicit, exhaustive mapping — see module header for why this is not a bare `outcome.status` copy. */
-function mapRunOutcomeToTaskInstanceStatus(status: RunOutcome["status"]): "completed" | "failed" | "awaiting_approval" {
+function mapRunOutcomeToTaskInstanceStatus(
+  status: RunOutcome["status"]
+): "completed" | "failed" | "awaiting_approval" | "active" {
   switch (status) {
     case "completed":
       return "completed";
@@ -215,6 +226,10 @@ function mapRunOutcomeToTaskInstanceStatus(status: RunOutcome["status"]): "compl
       return "failed";
     case "awaiting_approval":
       return "awaiting_approval";
+    // The step's Run is mid-Invocation (Phase 9): spec §3d's `active`.
+    case "dispatch_required":
+    case "in_flight":
+      return "active";
   }
 }
 
@@ -298,7 +313,17 @@ export async function pauseWorkflowRun(tx: DrizzleTransaction, workflowRunId: st
         "pause is only valid from \"in_progress\" (documented choice, see module header)."
     );
   }
-  await tx.update(workflowRuns).set({ status: "paused" }).where(eq(workflowRuns.id, workflowRunId));
+  // Conditional on the status just checked: without it, a pause racing an
+  // advance that is finishing this Workflow Run would wait for the advance's
+  // row lock, then overwrite its `completed`/`failed` with `paused`.
+  const updated = await tx
+    .update(workflowRuns)
+    .set({ status: "paused" })
+    .where(and(eq(workflowRuns.id, workflowRunId), eq(workflowRuns.status, "in_progress")))
+    .returning({ id: workflowRuns.id });
+  if (updated.length === 0) {
+    throw new Error(`pauseWorkflowRun: workflow_run "${workflowRunId}" stopped being "in_progress" before it could be paused.`);
+  }
 }
 
 export async function resumeWorkflowRun(tx: DrizzleTransaction, workflowRunId: string): Promise<void> {
@@ -312,7 +337,14 @@ export async function resumeWorkflowRun(tx: DrizzleTransaction, workflowRunId: s
         "resume is only valid from \"paused\" (documented choice, see module header)."
     );
   }
-  await tx.update(workflowRuns).set({ status: "in_progress" }).where(eq(workflowRuns.id, workflowRunId));
+  const updated = await tx
+    .update(workflowRuns)
+    .set({ status: "in_progress" })
+    .where(and(eq(workflowRuns.id, workflowRunId), eq(workflowRuns.status, "paused")))
+    .returning({ id: workflowRuns.id });
+  if (updated.length === 0) {
+    throw new Error(`resumeWorkflowRun: workflow_run "${workflowRunId}" stopped being "paused" before it could be resumed.`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -346,9 +378,40 @@ async function resolveStepOutcome(
     return { status: "failed" };
   }
 
-  // outcome.status === "awaiting_approval" (step 11) — see module header's
-  // documented choice.
+  if (outcome.status === "dispatch_required") {
+    return { status: "dispatch_required", dispatch: outcome.dispatch };
+  }
+
+  // "awaiting_approval" (step 11) — see module header's documented choice — or
+  // "in_flight" (another caller is dispatching this step right now).
   return { status: "in_progress" };
+}
+
+/**
+ * Applies a Run's terminal FAILURE to its Workflow step, outside a normal
+ * advance — for a Run failed by interruption recovery (Phase 9), which happens
+ * at startup with no builder and no advance in progress. Without this, a
+ * recovered Workflow Run would sit `in_progress` with nothing left to drive it.
+ *
+ * Mirrors what `advanceWorkflowRun` records for a failed step (Ruling 2: this
+ * module is what writes Task Instance status). A no-op for a standalone Task
+ * Instance, a Run that has not failed, or a Workflow Run already terminal.
+ */
+export async function settleWorkflowStepForFailedRun(tx: DrizzleTransaction, runId: string): Promise<void> {
+  const run = await tx.query.runs.findFirst({ where: eq(runs.id, runId) });
+  if (!run || run.status !== "failed") return;
+  const taskInstance = await tx.query.taskInstances.findFirst({ where: eq(taskInstances.id, run.taskInstanceId) });
+  if (!taskInstance?.workflowRunId) return;
+
+  const [workflowRun] = await tx
+    .select()
+    .from(workflowRuns)
+    .where(eq(workflowRuns.id, taskInstance.workflowRunId))
+    .for("update");
+  await tx.update(taskInstances).set({ status: "failed", updatedAt: new Date() }).where(eq(taskInstances.id, taskInstance.id));
+  if (workflowRun && workflowRun.status !== "completed" && workflowRun.status !== "failed") {
+    await tx.update(workflowRuns).set({ status: "failed", completedAt: new Date() }).where(eq(workflowRuns.id, workflowRun.id));
+  }
 }
 
 /** Algorithm step 5: create a NEW step's Task Instance + Run, then run it fresh. */
@@ -433,7 +496,12 @@ export async function advanceWorkflowRun(
   workflowRunId: string,
   buildInvocationSpecs: InvocationSpecBuilder
 ): Promise<AdvanceResult> {
-  const workflowRun = await tx.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, workflowRunId) });
+  // Locked for the whole advance (Phase 9). A request no longer holds one
+  // transaction end to end, so two concurrent advances of the same Workflow
+  // Run could otherwise both read an unfilled step slot and create two Task
+  // Instances for it. The second waits, then reads the first's committed
+  // bookkeeping. Lock order: this row before any Run/Invocation row.
+  const [workflowRun] = await tx.select().from(workflowRuns).where(eq(workflowRuns.id, workflowRunId)).for("update");
   if (!workflowRun) {
     throw new Error(`advanceWorkflowRun: no workflow_runs row found for id "${workflowRunId}"`);
   }

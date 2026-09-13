@@ -26,19 +26,21 @@
  *   5. On success, emits `invocation_started` (pre-dispatch ruling) carrying
  *      the full routing decision as its payload, then returns the route.
  *
- * `callModel` (Pass 2+3) calls the provider wrapper selected by
- * `tierConfig[route.tier].provider`, reconciles actual usage via Unit 2's
- * `reconcileBudget`, and emits `invocation_completed` with usage populated
+ * Pass 2+3 are TWO functions, split across a transaction boundary (Phase 9):
+ * `dispatchModelCall` calls the provider wrapper selected by the route with NO
+ * transaction open, and `finalizeModelCall` records the outcome in a fresh
+ * transaction — reconciling actual usage via Unit 2's `reconcileBudget`, and
+ * emitting `invocation_completed` with usage populated
  * (pre-dispatch ruling, point 3), correlated to `invocationId`, `runId`, AND
  * `taskInstanceId` (all three carried on `RouteResult` — see `./types.ts`;
  * `runId`/`taskInstanceId` added in fix round 1 after independent review
  * flagged that a `runId: null` event falls into `emit.ts`'s shared GLOBAL
  * sequence bucket instead of the per-run one, breaking per-run event
- * ordering queries). On a thrown provider error, `callModel`
- * does NOT emit `invocation_failed` itself — the exception propagates
- * uncaught. Emitting `invocation_failed` uniformly (across LLM, tool,
- * retrieval, and deterministic invocation kinds alike) is the future Unit 6
- * Executor's responsibility, not this module's — `callModel` only knows
+ * ordering queries). On a provider error, `finalizeModelCall`
+ * does NOT emit `invocation_failed` itself — it rethrows the error. Emitting
+ * `invocation_failed` uniformly (across LLM, tool,
+ * retrieval, and deterministic invocation kinds alike) is the Unit 6
+ * Executor's responsibility, not this module's — this module only knows
  * about LLM invocations and has no business defining the failure-event
  * contract for every other kind.
  */
@@ -406,33 +408,81 @@ export async function authorizeRoute(
   };
 }
 
-export async function callModel(
-  tx: DrizzleTransaction,
+/**
+ * The outcome of ONE provider dispatch, captured rather than thrown so it can
+ * cross a transaction boundary intact: the dispatch happens with no transaction
+ * open, and the outcome is recorded afterwards by `finalizeModelCall` in a fresh
+ * one (Phase 9).
+ */
+export type ModelDispatchOutcome =
+  | { ok: true; providerResult: ProviderCallResult }
+  | { ok: false; error: unknown };
+
+/**
+ * Pass 2 — the provider call itself, and NOTHING else.
+ *
+ * Deliberately takes no transaction and touches no database. A `claude -p`
+ * child can run for minutes; doing that inside a transaction would hold the
+ * run's event-sequence advisory lock, its budget counter locks and the shared
+ * quota-state row for the whole call. The caller commits the Invocation as
+ * `executing` (with its reservation recorded) BEFORE calling this, so an
+ * interruption leaves a durable, recoverable record rather than nothing.
+ *
+ * Never throws: a provider failure is returned as `{ ok: false }` so it reaches
+ * `finalizeModelCall`, which records its quota observation. No retry, no
+ * fallback — exactly one dispatch to the routed candidate.
+ */
+export async function dispatchModelCall(
   route: RouteResult,
   compiledContext: CompiledContext,
   expectedOutputShape: Record<string, unknown>
-): Promise<{ result: unknown; usage: { tokensIn: number; tokensOut: number; costAmount: number } }> {
-  const invocation = { invocationId: route.invocationId, runId: route.runId, taskInstanceId: route.taskInstanceId };
-
-  // The ROUTED candidate's provider and accounting, carried on the route —
-  // never re-derived from the tier, which would dispatch a non-primary
-  // candidate's call to the primary candidate's adapter.
-  let providerResult: ProviderCallResult;
+): Promise<ModelDispatchOutcome> {
   try {
-    providerResult = await PROVIDERS[route.provider](
+    // The ROUTED candidate's provider and accounting, carried on the route —
+    // never re-derived from the tier, which would dispatch a non-primary
+    // candidate's call to the primary candidate's adapter.
+    const providerResult = await PROVIDERS[route.provider](
       route.modelId,
       compiledContext,
       expectedOutputShape,
       route.accounting
     );
+    return { ok: true, providerResult };
   } catch (error) {
-    // provider failure -> quota observation -> record -> (Executor) invocation
-    // failure. Recorded here, in the same transaction the Executor fails the
-    // invocation in, then rethrown unchanged: this catch adds telemetry and
-    // alters nothing about the failure path. No retry, no fallback.
-    await recordInvocationQuotaObservation(tx, invocation, quotaObservationFrom(error));
-    throw error;
+    return { ok: false, error };
   }
+}
+
+/**
+ * Pass 3 — records a dispatch outcome, inside the transaction the Executor
+ * completes or fails the Invocation in.
+ *
+ * On failure: records the quota observation the failure carried, then throws
+ * the provider's error unchanged, so the Executor settles the reservation (see
+ * `providerConsumptionFrom`) and fails the Invocation in this same transaction.
+ * On success: records the observation, refuses a cross-unit usage report, and
+ * reconciles.
+ *
+ * It does NOT emit `invocation_completed`: the Executor emits it through
+ * `emitModelInvocationCompleted` only once the result is durably persisted, in
+ * the same transaction. Emitting it here, before persistence, meant a
+ * persistence failure afterwards left one Invocation with BOTH a completed and a
+ * failed event in the immutable log.
+ */
+export async function finalizeModelCall(
+  tx: DrizzleTransaction,
+  route: RouteResult,
+  outcome: ModelDispatchOutcome
+): Promise<ProviderCallResult> {
+  const invocation = { invocationId: route.invocationId, runId: route.runId, taskInstanceId: route.taskInstanceId };
+
+  if (!outcome.ok) {
+    // provider failure -> quota observation -> record -> (Executor) invocation
+    // failure. Telemetry only; the failure itself is rethrown unchanged.
+    await recordInvocationQuotaObservation(tx, invocation, quotaObservationFrom(outcome.error));
+    throw outcome.error;
+  }
+  const providerResult = outcome.providerResult;
 
   // provider result -> quota observation -> record -> invocation completion.
   // Advisory telemetry only; it cannot fail the invocation (see quotaTelemetry.ts).
@@ -444,13 +494,25 @@ export async function callModel(
   // dollars. Refuse instead; the Executor releases the reservation.
   if (providerResult.usage.costUnit !== route.accounting.unit) {
     throw new Error(
-      `callModel: the provider reported usage in "${providerResult.usage.costUnit}" but this route was ` +
+      `finalizeModelCall: the provider reported usage in "${providerResult.usage.costUnit}" but this route was ` +
         `reserved in "${route.accounting.unit}". Refusing to reconcile across resource units.`
     );
   }
 
   await reconcileBudget(tx, route.reservationId, providerResult.usage.costAmount);
+  return providerResult;
+}
 
+/**
+ * Emits `invocation_completed` for a finalized model call, carrying its usage.
+ * Called by the Executor after the result is persisted — see
+ * `finalizeModelCall` for why the two are separate.
+ */
+export async function emitModelInvocationCompleted(
+  tx: DrizzleTransaction,
+  route: RouteResult,
+  providerResult: ProviderCallResult
+): Promise<void> {
   await emitEvent(tx, {
     idempotencyKey: `invocation_completed:${route.invocationId}`,
     eventType: "invocation_completed",
@@ -481,6 +543,4 @@ export async function callModel(
       ...(providerResult.usage.secondaryUsage ? { secondaryUsage: providerResult.usage.secondaryUsage } : {}),
     },
   });
-
-  return providerResult;
 }

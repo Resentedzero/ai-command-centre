@@ -50,11 +50,13 @@ vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
 
 import {
   startWorkflowRun,
-  advanceWorkflowRun,
   pauseWorkflowRun,
   resumeWorkflowRun,
   type InvocationSpecBuilder,
 } from "../../src/workflow/interpreter.js";
+// Phase 9: advanceWorkflowRun yields at each LLM Invocation; this drives it to
+// the next real boundary exactly as the production driver does.
+import { advanceWorkflowRunToBoundary as advanceWorkflowRun } from "../helpers/driveToBoundary.js";
 import { seedPublishWorkflow, DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET } from "../../src/definitions/seed.js";
 import { buildResearchReportInvocationSpecs } from "../../src/capabilities/researchRetrieve/buildInvocationSpecs.js";
 import { buildPublishReportInvocationSpecs } from "../../src/capabilities/publishReport/buildInvocationSpecs.js";
@@ -723,7 +725,11 @@ describe("Pause/resume scenario A (between Task A completion and Task B start)",
       mockLlmOnce("pause scenario A report");
       const afterTaskA = await advanceWorkflowRun(tx, workflowRunId, builder);
       expect(afterTaskA).toEqual({ status: "in_progress" });
-      expect(calls).toEqual([seed.taskDefinitionId]); // only Task A's builder ran so far
+      // Only Task A's builder ran so far — twice, since Phase 9: once creating
+      // the step, and once resuming it after its LLM Invocation's dispatch
+      // yield (the builder contract requires it to be safe to call repeatedly).
+      const taskAOnly = [seed.taskDefinitionId, seed.taskDefinitionId];
+      expect(calls).toEqual(taskAOnly);
 
       await pauseWorkflowRun(tx, workflowRunId);
 
@@ -731,7 +737,7 @@ describe("Pause/resume scenario A (between Task A completion and Task B start)",
       expect(whilePaused).toEqual({ status: "paused" });
       // The paused short-circuit precedes the builder entirely (interpreter.ts's
       // own top-of-function check) — proves Task B's builder never ran.
-      expect(calls).toEqual([seed.taskDefinitionId]);
+      expect(calls).toEqual(taskAOnly);
 
       let taskInstances = await tx.query.taskInstances.findMany({ where: eq(schema.taskInstances.workflowRunId, workflowRunId) });
       expect(taskInstances).toHaveLength(1);
@@ -740,7 +746,7 @@ describe("Pause/resume scenario A (between Task A completion and Task B start)",
 
       const afterResume = await advanceWorkflowRun(tx, workflowRunId, builder); // creates Task B, halts awaiting_approval
       expect(afterResume).toEqual({ status: "in_progress" });
-      expect(calls).toEqual([seed.taskDefinitionId, seed.reviewAndPublishTaskDefinitionId]);
+      expect(calls).toEqual([...taskAOnly, seed.reviewAndPublishTaskDefinitionId]);
 
       taskInstances = await tx.query.taskInstances.findMany({ where: eq(schema.taskInstances.workflowRunId, workflowRunId) });
       expect(taskInstances).toHaveLength(2);

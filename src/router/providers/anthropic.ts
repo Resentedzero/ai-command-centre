@@ -79,9 +79,14 @@ export type { ProviderCallResult, ProviderUsage } from "../types.js";
  */
 function assertUsdAccounting(accounting: TierAccounting, modelId: string): TierPricing {
   if (accounting.unit !== "usd") {
-    throw new Error(
-      `callAnthropicModel: tier for model "${modelId}" is configured with accounting unit` +
-        ` "${accounting.unit}", but this adapter bills real money and can only account in "usd".`
+    // `consumption: "none"`: refused before any request is sent (see
+    // `providerConsumptionFrom` in ../types.ts).
+    throw Object.assign(
+      new Error(
+        `callAnthropicModel: tier for model "${modelId}" is configured with accounting unit` +
+          ` "${accounting.unit}", but this adapter bills real money and can only account in "usd".`
+      ),
+      { consumption: "none" as const }
     );
   }
   return accounting.pricing;
@@ -115,8 +120,9 @@ export async function callAnthropicModel(
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      "callAnthropicModel: ANTHROPIC_API_KEY is not set in this environment. Refusing to call the Anthropic API."
+    throw Object.assign(
+      new Error("callAnthropicModel: ANTHROPIC_API_KEY is not set in this environment. Refusing to call the Anthropic API."),
+      { consumption: "none" as const }
     );
   }
 

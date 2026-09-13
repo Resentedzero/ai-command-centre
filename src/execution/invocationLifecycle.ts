@@ -293,7 +293,18 @@ export type FailInvocationParams = {
   runId: string;
   taskInstanceId: string;
   reason: string;
+  /** Extra facts about the failure, recorded in the event payload alongside `reason` (which they cannot override). */
+  details?: Record<string, unknown>;
 };
+
+/**
+ * Commits the Invocation's intent to call out (spec §3a's `executing`). Written
+ * in the transaction that COMMITS before an external dispatch, so a process
+ * that dies mid-call leaves a durable record that the call may have happened.
+ */
+export async function markInvocationExecuting(tx: DrizzleTransaction, invocationId: string): Promise<void> {
+  await tx.update(invocations).set({ status: "executing" }).where(eq(invocations.id, invocationId));
+}
 
 /**
  * Always emits `invocation_failed` — including for the "llm" kind. Unlike
@@ -323,7 +334,7 @@ export async function failInvocation(tx: DrizzleTransaction, params: FailInvocat
     },
     actor: "system",
     producer: "executor",
-    payload: { reason: params.reason },
+    payload: { ...(params.details ?? {}), reason: params.reason },
     usage: null,
   });
 }
