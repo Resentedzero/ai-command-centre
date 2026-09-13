@@ -93,6 +93,36 @@ export async function createApproval(
   return { id: row!.id, status: "pending" };
 }
 
+/** No `approvals` row exists for the given id at all. Distinct from `ApprovalAlreadyResolvedError` so the API layer can map the two to 404 and 409 respectively. */
+export class ApprovalNotFoundError extends Error {
+  readonly approvalId: string;
+
+  constructor(approvalId: string) {
+    super(`resolveApproval: no approval found for id "${approvalId}"`);
+    this.name = "ApprovalNotFoundError";
+    this.approvalId = approvalId;
+  }
+}
+
+/**
+ * The Approval exists but was not `pending` when its conditional UPDATE ran —
+ * it had already been resolved earlier, has expired, or (the case this error
+ * was introduced for) it LOST a genuine concurrent race against another
+ * resolution. Carries the status the row actually holds now, which for a race
+ * is the WINNING decision, so the caller can report it accurately.
+ */
+export class ApprovalAlreadyResolvedError extends Error {
+  readonly approvalId: string;
+  readonly currentStatus: string;
+
+  constructor(approvalId: string, currentStatus: string) {
+    super(`resolveApproval: approval "${approvalId}" is already resolved (status: "${currentStatus}")`);
+    this.name = "ApprovalAlreadyResolvedError";
+    this.approvalId = approvalId;
+    this.currentStatus = currentStatus;
+  }
+}
+
 /**
  * Applies a human's approve/reject decision AND records Phase 9.5's explicit
  * "resolution event recorded" step — `approval_granted` on the approve path,
@@ -101,6 +131,39 @@ export async function createApproval(
  * feed (Phase 18.1a, "a direct tail of Events") could not show the MVP's
  * flagship governance moment at all; it was the one step of the Phase 9.5
  * lifecycle with no event behind it (final-review Finding 1).
+ *
+ * ---------------------------------------------------------------------------
+ * The status precondition is the UPDATE's own WHERE clause — the DATABASE
+ * provides the concurrency guarantee (independent-review Important 1)
+ * ---------------------------------------------------------------------------
+ * `UPDATE ... WHERE id = $1 AND status = 'pending' RETURNING *` is what makes
+ * "one Approval resolves exactly once" true, and it is deliberately NOT an
+ * application-side read-then-write pre-check anywhere above this line. A
+ * pre-check cannot be correct here no matter which layer performs it: two
+ * concurrent requests can both read `pending` before either has written, and
+ * the immutable Event log (Phase 8.7) would then record BOTH
+ * `approval_granted` and `approval_rejected` for one already-executed action.
+ *
+ * Under Postgres's own row-level locking the conditional UPDATE closes that
+ * window without any coordination between the two transactions: the second
+ * transaction's UPDATE blocks on the row lock until the first COMMITs, then
+ * re-evaluates its WHERE clause against the now-committed row version, matches
+ * ZERO rows, and this function throws `ApprovalAlreadyResolvedError` — before
+ * a single downstream statement (the correlation walk, the `emitEvent` call)
+ * has run. Because that throw propagates out of the caller's
+ * `db.transaction(...)`, the losing request's ENTIRE transaction is rolled
+ * back, including any workflow advancement the caller had chained onto the
+ * resolution. That whole-transaction rollback is precisely why this is a throw
+ * rather than a returned "already resolved" value: a return would leave the
+ * caller mid-transaction, having to remember to abort.
+ *
+ * Three outcomes, distinguishable by the caller:
+ *   (a) no such Approval  -> `ApprovalNotFoundError` (the API layer's 404)
+ *   (b) not `pending`     -> `ApprovalAlreadyResolvedError` (the 409)
+ *   (c) success           -> `{ id, status }`, the unchanged success shape.
+ * Note that (b) now also, correctly, covers an `expired` Approval: a TTL that
+ * has already auto-resolved to reject (Phase 9.5) can no longer be resolved by
+ * a human either.
  *
  * Envelope conventions follow the existing `invocation_started` /
  * `invocation_completed` / `invocation_failed` emissions verbatim
@@ -111,21 +174,28 @@ export async function createApproval(
  *
  * Two deliberate departures from those call sites, both because this is the
  * one place a HUMAN, not the system, is acting:
- *   - `actor` is `resolvedBy` (the route defaults it to `"human:api"`, which
- *     fits the envelope's documented `"human:<id>"` form) rather than
- *     `"system"`. Phase 8.7 makes the raw Event table the audit trail; an
- *     audit trail that records every approval as having been granted by
- *     "system" would be worse than useless.
+ *   - `actor` is `resolvedBy` rather than `"system"`. Phase 8.7 makes the raw
+ *     Event table the audit trail; an audit trail that records every approval
+ *     as having been granted by "system" would be worse than useless. Callers
+ *     must supply a value from Phase 8.1's actor vocabulary, and it must be
+ *     one the SERVER decided — the HTTP layer passes its own fixed
+ *     `V1_RESOLUTION_ACTOR` constant (`../api/routes/approvals.ts`) and never
+ *     anything read out of a request body (independent-review Important 2).
  *   - `producer` is `"governance"` (this module), not `"executor"`.
  *
  * Correlation is resolved by walking approval -> invocation -> run, so the
  * event lands in the right Run's `sequenceNo` stream and the feed can
  * attribute it. Every link is NOT NULL and FK-constrained, so the walk cannot
  * actually fail — but it degrades to null correlation fields rather than
- * throwing if one ever did. That is deliberate and is why NO new throw path
- * was added here: `resolveApproval` still throws for exactly one reason (a
- * missing Approval), and recording the audit event must never be able to fail
- * a governance decision that has already been made and committed.
+ * throwing if one ever did, because a best-effort CORRELATION lookup should
+ * not be able to fail a governance decision.
+ *
+ * That is NOT a claim about the event write itself. `emitEvent` runs inside
+ * the SAME transaction as the status update, so if it fails, the resolution
+ * rolls back with it — which is the correct and intended boundary: a decision
+ * whose audit record could not be written must not be allowed to stand. (An
+ * earlier version of this comment described the opposite behavior; the comment
+ * was wrong, not the code — independent-review Minor 2.)
  */
 export async function resolveApproval(
   tx: DrizzleTransaction,
@@ -136,11 +206,19 @@ export async function resolveApproval(
   const [row] = await tx
     .update(approvals)
     .set({ status: decision, resolvedAt: new Date(), resolvedBy })
-    .where(eq(approvals.id, approvalId))
+    .where(and(eq(approvals.id, approvalId), eq(approvals.status, "pending")))
     .returning();
 
   if (!row) {
-    throw new Error(`resolveApproval: no approval found for id "${approvalId}"`);
+    // Zero rows matched, which is genuinely ambiguous: either there is no such
+    // Approval, or there is one that is no longer `pending`. Read it back to
+    // tell the two apart — under READ COMMITTED this read takes a fresh
+    // snapshot, so it sees the winning transaction's committed status.
+    const existing = await tx.query.approvals.findFirst({ where: eq(approvals.id, approvalId) });
+    if (!existing) {
+      throw new ApprovalNotFoundError(approvalId);
+    }
+    throw new ApprovalAlreadyResolvedError(approvalId, existing.status);
   }
 
   const invocation = await tx.query.invocations.findFirst({ where: eq(invocations.id, row.invocationId) });
@@ -154,9 +232,12 @@ export async function resolveApproval(
   };
 
   await emitEvent(tx, {
-    // Keyed per approval AND decision: re-applying the same decision is a
-    // no-op (emitEvent's idempotency), while the two decisions remain
-    // distinct keys so a genuine approve-then-reject records both.
+    // Keyed per approval AND decision. The conditional UPDATE above is now
+    // what guarantees at most one resolution event per Approval — this key is
+    // the belt-and-braces second line, not the guarantee itself. (Before that
+    // UPDATE existed, this key was load-bearing for the repeat-same-decision
+    // case and, by design, useless for the approve-then-reject case, which is
+    // exactly the audit-log corruption independent-review Important 1 found.)
     idempotencyKey: `${eventType}:${row.id}`,
     eventType,
     eventVersion: 1,

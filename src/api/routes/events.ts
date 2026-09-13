@@ -49,10 +49,26 @@
  * transactions can commit out of cursor order, so a reconnect could in
  * principle step over an event whose cursor was assigned earlier but
  * committed later. This is out of scope for this fix (it needs a
- * commit-ordered cursor), is the identical property the pre-existing per-run
- * `sequenceNo` already has, and is not reachable in this single-process MVP,
- * where mutations are serialized per request and `../liveEventRelay.ts`
- * relays only post-commit.
+ * commit-ordered cursor) and is the identical property the pre-existing
+ * per-run `sequenceNo` already has.
+ *
+ * Be precise about what does and does not bound that residual
+ * (independent-review Minor 1 — an earlier version of this paragraph claimed
+ * "mutations are serialized per request", which is false and, worse, read as
+ * if requests were serialized with respect to EACH OTHER). What IS
+ * guaranteed: each mutating request does its own writes inside ONE atomic
+ * transaction, and `../liveEventRelay.ts` publishes only after that
+ * transaction has committed, so a subscriber never sees an event Postgres
+ * does not durably have. What is NOT guaranteed: any serialization BETWEEN
+ * requests. Fastify serves requests concurrently, each on its own pooled
+ * connection, so two mutating transactions can genuinely overlap and commit
+ * out of `global_seq` order — which is precisely the residual above, and it
+ * is reachable rather than merely theoretical. Nothing elsewhere closes it in
+ * general either: the `approvals` row lock added for independent-review
+ * Important 1 serializes concurrent resolutions of THE SAME Approval and says
+ * nothing about any other pair of requests. What bounds this in practice is
+ * operational, not structural — a single-operator local MVP rarely has two
+ * mutating requests in flight at once.
  *
  * ---------------------------------------------------------------------------
  * De-duplication is by `eventId`, NOT by any sequence/cursor value

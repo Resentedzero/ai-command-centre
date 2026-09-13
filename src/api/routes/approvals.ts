@@ -13,85 +13,140 @@
  * Instance (`workflow_run_id: null`) is resolved only — there is no
  * Workflow Run to advance.
  */
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { eq } from "drizzle-orm";
 import { approvals, invocations, runs, taskInstances } from "../../db/schema.js";
 import type { ApiDeps } from "../server.js";
-import { resolveApproval } from "../../governance/approvals.js";
+import { resolveApproval, ApprovalAlreadyResolvedError, ApprovalNotFoundError } from "../../governance/approvals.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
 import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
 import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { runWorkflowMutationAndRelay } from "../liveEventRelay.js";
 
-type ResolveBody = { resolvedBy?: string };
+/**
+ * The V1 actor recorded for every Approval resolution made through this API
+ * (independent-review Important 2).
+ *
+ * `resolvedBy` used to be read straight off the request body
+ * (`request.body?.resolvedBy ?? "human:api"`) and passed unvalidated into the
+ * Event envelope's `actor` — the permanent, immutable audit record (Phase
+ * 8.7). A body of `{"resolvedBy":"system"}` therefore wrote `actor: "system"`,
+ * falsely attributing a human's governance decision to the system itself, and
+ * any other string was accepted just as readily.
+ *
+ * The fix is that the SERVER decides this value, not the client: there is one
+ * fixed identity, defined here, and `resolvedBy` has been removed from the
+ * request surface entirely — no sanitization, no defaulting, no body read at
+ * all. Sanitizing an attacker-chosen string is not the same as the server
+ * choosing the value.
+ *
+ * One hardcoded constant is the right mechanism for V1 specifically because
+ * Phase 9.8 scopes this MVP to a single local operator with no user-to-user
+ * permission model ("permissions apply agent-to-action"), so there is exactly
+ * one human this could ever denote, and inventing an auth system to discover
+ * that would be building a multi-user concept the spec explicitly defers. It
+ * is a `human:<id>` value per Phase 8.1's actor vocabulary — the audit trail
+ * still records that a HUMAN decided, which is the fact that matters and the
+ * reason `resolveApproval` does not simply record `"system"`. When real
+ * identities arrive, this constant is the single place they replace.
+ */
+export const V1_RESOLUTION_ACTOR = "human:operator";
 
 /** Approval -> Invocation -> Run -> Task Instance -> workflowRunId (Ruling 3's own stated lookup path), read-only, BEFORE any mutation. */
 async function lookupApprovalWorkflowRunId(
   deps: ApiDeps,
   approvalId: string
-): Promise<{ found: true; status: string; workflowRunId: string | null } | { found: false }> {
+): Promise<{ found: true; workflowRunId: string | null } | { found: false }> {
   const approval = await deps.db.query.approvals.findFirst({ where: eq(approvals.id, approvalId) });
   if (!approval) return { found: false };
 
   const invocation = await deps.db.query.invocations.findFirst({ where: eq(invocations.id, approval.invocationId) });
-  if (!invocation) return { found: true, status: approval.status, workflowRunId: null };
+  if (!invocation) return { found: true, workflowRunId: null };
 
   const run = await deps.db.query.runs.findFirst({ where: eq(runs.id, invocation.runId) });
-  if (!run) return { found: true, status: approval.status, workflowRunId: null };
+  if (!run) return { found: true, workflowRunId: null };
 
   const taskInstance = await deps.db.query.taskInstances.findFirst({ where: eq(taskInstances.id, run.taskInstanceId) });
-  return { found: true, status: approval.status, workflowRunId: taskInstance?.workflowRunId ?? null };
+  return { found: true, workflowRunId: taskInstance?.workflowRunId ?? null };
+}
+
+/**
+ * Maps `resolveApproval`'s two throw paths onto this route's existing
+ * `{ error: string }` 404/409 contract; anything else is a genuine server
+ * error and is rethrown untouched.
+ *
+ * Independent-review Important 1: this is REPORTING, not enforcement. The
+ * guarantee that one Approval produces exactly one state transition lives
+ * entirely in `resolveApproval`'s conditional `UPDATE ... WHERE status =
+ * 'pending'` and Postgres's row-level locking (see that function's header).
+ * The route-level read-only 409 pre-check that used to stand in for it has
+ * been REMOVED: it could not be correct, because the read and the write were
+ * not atomic with respect to each other, so two concurrent requests could both
+ * pass it before either had written anything — and the loser would then go on
+ * to overwrite the winner's status and emit a contradictory resolution event
+ * into the immutable log. The 404 pre-check survives only because
+ * `lookupApprovalWorkflowRunId` has to run anyway (to choose the standalone vs
+ * workflow path, and to give the live-event relay its "before" Workflow Run);
+ * the `ApprovalNotFoundError` branch below is what actually closes that case.
+ */
+function replyForResolutionError(error: unknown, reply: FastifyReply, approvalId: string): FastifyReply {
+  if (error instanceof ApprovalAlreadyResolvedError) {
+    return reply.status(409).send({ error: `Approval "${approvalId}" is already resolved (status: "${error.currentStatus}")` });
+  }
+  if (error instanceof ApprovalNotFoundError) {
+    return reply.status(404).send({ error: `No approval found for id "${approvalId}"` });
+  }
+  throw error;
 }
 
 function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "approved" | "rejected", path: string): void {
-  app.post<{ Params: { id: string }; Body: ResolveBody }>(path, async (request, reply) => {
+  app.post<{ Params: { id: string } }>(path, async (request, reply) => {
     const approvalId = request.params.id;
-    const resolvedBy = request.body?.resolvedBy ?? "human:api";
 
     const lookup = await lookupApprovalWorkflowRunId(deps, approvalId);
     if (!lookup.found) {
       return reply.status(404).send({ error: `No approval found for id "${approvalId}"` });
     }
 
-    // Final-review Minor 1: resolveApproval itself has no status precondition
-    // (deliberately — see its own header on why no new throw path was added
-    // there). A second resolution of an already-resolved Approval must not
-    // reach it at all, or the immutable Event log would record two
-    // contradictory resolution facts for one already-executed-or-cancelled
-    // action. Checked here, read-only, before any mutation — never as a
-    // `.where()` addition on the update itself, which would collapse this
-    // into the unrelated "no approval found" 404 contract.
-    if (lookup.status !== "pending") {
-      return reply.status(409).send({ error: `Approval "${approvalId}" is already resolved (status: "${lookup.status}")` });
-    }
-
     if (!lookup.workflowRunId) {
       // Standalone Task Instance (or an Invocation/Run this codebase can no
       // longer resolve) — resolve the Approval only, nothing to advance.
-      const resolved = await deps.db.transaction((tx) => resolveApproval(tx, approvalId, decision, resolvedBy));
-      return reply.send({ approvalId: resolved.id, approvalStatus: resolved.status, workflowRunId: null, workflowStatus: null });
+      try {
+        const resolved = await deps.db.transaction((tx) => resolveApproval(tx, approvalId, decision, V1_RESOLUTION_ACTOR));
+        return reply.send({ approvalId: resolved.id, approvalStatus: resolved.status, workflowRunId: null, workflowStatus: null });
+      } catch (error) {
+        return replyForResolutionError(error, reply, approvalId);
+      }
     }
 
     const workflowRunId = lookup.workflowRunId;
-    const result = await runWorkflowMutationAndRelay(deps.db, workflowRunId, async (tx) => {
-      const resolved = await resolveApproval(tx, approvalId, decision, resolvedBy);
+    try {
+      const result = await runWorkflowMutationAndRelay(deps.db, workflowRunId, async (tx) => {
+        // FIRST statement in the transaction, deliberately: it takes this
+        // Approval's row lock before any of the work below, so a losing
+        // concurrent resolution can never reach `advanceWorkflowRunUntilBlocked`
+        // at all, and its throw rolls this entire transaction back.
+        const resolved = await resolveApproval(tx, approvalId, decision, V1_RESOLUTION_ACTOR);
 
-      const seed = await findSeededPublishWorkflow(tx);
-      if (!seed) {
-        throw new Error('No seeded Workflow Definition found — run "npm run seed" first.');
-      }
-      const builder = buildInvocationSpecsForTaskDefinition(tx, seed);
-      const advanceResult = await advanceWorkflowRunUntilBlocked(tx, workflowRunId, builder);
+        const seed = await findSeededPublishWorkflow(tx);
+        if (!seed) {
+          throw new Error('No seeded Workflow Definition found — run "npm run seed" first.');
+        }
+        const builder = buildInvocationSpecsForTaskDefinition(tx, seed);
+        const advanceResult = await advanceWorkflowRunUntilBlocked(tx, workflowRunId, builder);
 
-      return {
-        approvalId: resolved.id,
-        approvalStatus: resolved.status,
-        workflowRunId,
-        workflowStatus: advanceResult.status,
-      };
-    });
+        return {
+          approvalId: resolved.id,
+          approvalStatus: resolved.status,
+          workflowRunId,
+          workflowStatus: advanceResult.status,
+        };
+      });
 
-    return reply.send(result);
+      return reply.send(result);
+    } catch (error) {
+      return replyForResolutionError(error, reply, approvalId);
+    }
   });
 }
 

@@ -702,6 +702,45 @@ plan is written, rather than leaving it implicit:
    verified baseline rather than assuming more of today's code is already
    wired up than actually is.
 
+4. **KNOWN LIMITATION, NOT SOLVED — `reauthorize` cannot independently
+   re-check Tool Binding trust level at resume time.** `invocations`
+   currently does not persist a `tool_binding_id` column (confirmed by
+   direct schema inspection — `src/db/schema.ts` has no such column).
+   `resumeToolSpec` (`src/execution/executor.ts`) validates
+   `capabilityId`/`permission`/`costClass`/`proposedActionSnapshot` against
+   the stored invocation before resuming, and `reauthorize`
+   (`src/governance/approvals.ts`) re-checks Grant existence, revocation,
+   TTL, and snapshot equality — but neither re-evaluates
+   `evaluatePolicy`'s trust-bar/unverified-binding rules (added to
+   `src/governance/policy.ts` in the fix-round-2 commit). A caller-supplied
+   `toolBindingId` on resume is not validated against anything persisted,
+   so re-resolving trust from it would be *weaker* than not checking at
+   all — there is currently no sound way to close this without schema
+   work.
+   **Why this is safe in the current V1 configuration, and only there:**
+   each seeded capability (`research.retrieve`, `publish.report`) has
+   exactly one static `tool_bindings` row, `trust_level` is config no
+   runtime code writes, and both seeded bindings already clear their
+   Grant's `max_trust_level_required` bar. Nothing in V1 can cause a
+   Grant's binding to change out from under an in-flight Approval.
+   **Why this becomes a real gap, and when:** the moment a Capability gets
+   a *second*, swappable, or lower-trust Tool Binding (§15 of this plan —
+   new capabilities, added per the Phase 14 rubric), or the moment a human
+   downgrades a binding's `trust_level`/raises a Grant's
+   `max_trust_level_required` while an Approval is genuinely pending
+   (Phase 20 risk #7, "trust-level drift"), an Approval created against
+   one trust state could execute against a different one with no
+   re-check. This is a **hard prerequisite**, not a nice-to-have, before
+   either of those two things happens.
+   **The fix, when it's time:** persist `tool_binding_id` on `invocations`
+   at propose time (schema + migration), then have `resumeToolSpec` and/or
+   `reauthorize` validate it against the resuming spec and re-run (or
+   re-derive) the trust check from the persisted binding — mirroring how
+   `capabilityId`/`permission`/`costClass` are already validated on
+   resume. Scope this as its own reviewed unit when §15 first adds a
+   capability with more than one binding, or sooner if trust-level drift
+   is observed in practice.
+
 ## Appendix B: Cross-cutting non-goals (collected)
 
 Repeated across multiple sections above; collected here as a single

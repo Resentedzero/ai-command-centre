@@ -16,7 +16,13 @@ import {
   approvals,
   events,
 } from "../../src/db/schema.js";
-import { createApproval, resolveApproval, reauthorize } from "../../src/governance/approvals.js";
+import {
+  createApproval,
+  resolveApproval,
+  reauthorize,
+  ApprovalAlreadyResolvedError,
+  ApprovalNotFoundError,
+} from "../../src/governance/approvals.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
 
 beforeAll(async () => {
@@ -214,9 +220,53 @@ describe("resolveApproval", () => {
     });
   });
 
-  it("throws when the approval does not exist", async () => {
+  it("throws ApprovalNotFoundError when the approval does not exist", async () => {
     await withRollback(async (tx) => {
-      await expect(resolveApproval(tx, randomUUID(), "approved", "reviewer")).rejects.toThrow();
+      await expect(resolveApproval(tx, randomUUID(), "approved", "reviewer")).rejects.toBeInstanceOf(
+        ApprovalNotFoundError
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Independent-review Important 1: the status precondition lives in the
+  // UPDATE's own WHERE clause, so it is the DATABASE, not an application-side
+  // pre-check, that decides whether a resolution may proceed. These two tests
+  // pin the single-transaction half of that contract (the genuinely
+  // concurrent, two-connection half is pinned by
+  // `tests/api/routes.integration.test.ts`'s row-lock race test).
+  // -------------------------------------------------------------------------
+
+  it("throws ApprovalAlreadyResolvedError, carrying the current status, when the approval is no longer pending", async () => {
+    await withRollback(async (tx) => {
+      const { invocation } = await seedInvocationChain(tx);
+      const created = await createApproval(tx, invocation.id, { action: "spend" }, "low", 3600);
+
+      await resolveApproval(tx, created.id, "approved", "reviewer");
+
+      const error = await resolveApproval(tx, created.id, "rejected", "reviewer").catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ApprovalAlreadyResolvedError);
+      expect((error as ApprovalAlreadyResolvedError).approvalId).toBe(created.id);
+      expect((error as ApprovalAlreadyResolvedError).currentStatus).toBe("approved");
+    });
+  });
+
+  it("leaves the row completely untouched when it refuses — the losing decision writes nothing at all", async () => {
+    await withRollback(async (tx) => {
+      const { invocation } = await seedInvocationChain(tx);
+      const created = await createApproval(tx, invocation.id, { action: "spend" }, "low", 3600);
+
+      await resolveApproval(tx, created.id, "approved", "human:first");
+      const afterFirst = await tx.query.approvals.findFirst({ where: eq(approvals.id, created.id) });
+
+      await expect(resolveApproval(tx, created.id, "rejected", "human:second")).rejects.toBeInstanceOf(
+        ApprovalAlreadyResolvedError
+      );
+
+      const afterSecond = await tx.query.approvals.findFirst({ where: eq(approvals.id, created.id) });
+      expect(afterSecond?.status).toBe("approved");
+      expect(afterSecond?.resolvedBy).toBe("human:first");
+      expect(afterSecond?.resolvedAt).toEqual(afterFirst?.resolvedAt);
     });
   });
 });
@@ -294,37 +344,60 @@ describe("resolveApproval emits the Phase 9.5 resolution event", () => {
     });
   });
 
-  it("does not double-emit when the same resolution is applied twice (emitEvent idempotency, keyed per approval + decision)", async () => {
+  it("emits no second event when the same resolution is applied twice — the repeat is now REFUSED by the UPDATE's own WHERE clause, not merely de-duplicated after the fact", async () => {
+    // Independent-review Important 1 strengthened this test. It previously
+    // proved only that `emitEvent`'s idempotency key swallowed the duplicate
+    // AFTER an unconditional UPDATE had already rewritten the row. The
+    // conditional UPDATE now refuses the second call outright, so nothing
+    // downstream of it (including the event emission) runs at all — a
+    // strictly stronger guarantee than post-hoc de-duplication, and the one
+    // that also holds for a CONTRADICTORY second decision, which a
+    // per-decision idempotency key could never have caught.
     await withRollback(async (tx) => {
       const { invocation } = await seedInvocationChain(tx);
       const created = await createApproval(tx, invocation.id, { action: "spend" }, "low", 3600);
 
       await resolveApproval(tx, created.id, "approved", "human:reviewer");
-      await resolveApproval(tx, created.id, "approved", "human:reviewer");
+      await expect(resolveApproval(tx, created.id, "approved", "human:reviewer")).rejects.toBeInstanceOf(
+        ApprovalAlreadyResolvedError
+      );
 
       const granted = await tx.query.events.findMany({ where: eq(events.eventType, "approval_granted") });
       expect(granted).toHaveLength(1);
+
+      const row = await tx.query.approvals.findFirst({ where: eq(approvals.id, created.id) });
+      expect(row?.status).toBe("approved");
     });
   });
 
-  it("leaves resolveApproval's failure contract unchanged: a missing approval still throws, and that is still the ONLY throw path", async () => {
+  it("resolveApproval's failure contract: exactly two throw paths (missing approval, non-pending approval), and the audit emission is deliberately NOT one of them", async () => {
     // The correlation lookup added for Finding 1 walks approval ->
     // invocation -> run. Every link in that chain is NOT NULL and
     // FK-constrained (`../../src/db/schema.ts`), so it cannot actually break
     // — but the implementation still degrades to null correlation fields
-    // instead of throwing if one ever did. That is deliberate: emitting the
-    // audit event (Phase 8.7) must never be able to fail a governance
-    // decision that has already been made. This test pins the contract that
-    // matters and is testable — no NEW throw path was introduced.
+    // instead of throwing if one ever did. That is deliberate: a
+    // best-effort CORRELATION lookup should not be able to fail a governance
+    // decision. (Note what this does NOT say: `emitEvent` itself runs in the
+    // same transaction as the status update, so a genuine failure THERE does
+    // — correctly — roll the whole resolution back. See
+    // `src/governance/approvals.ts`'s own header.)
+    //
+    // Independent-review Important 1 added the second throw path: an
+    // approval that is no longer `pending` (see the dedicated tests above).
     await withRollback(async (tx) => {
       const { invocation } = await seedInvocationChain(tx);
       const created = await createApproval(tx, invocation.id, { action: "spend" }, "low", 3600);
 
-      await expect(resolveApproval(tx, randomUUID(), "approved", "human:reviewer")).rejects.toThrow();
+      await expect(resolveApproval(tx, randomUUID(), "approved", "human:reviewer")).rejects.toBeInstanceOf(
+        ApprovalNotFoundError
+      );
       await expect(resolveApproval(tx, created.id, "approved", "human:reviewer")).resolves.toEqual({
         id: created.id,
         status: "approved",
       });
+      await expect(resolveApproval(tx, created.id, "approved", "human:reviewer")).rejects.toBeInstanceOf(
+        ApprovalAlreadyResolvedError
+      );
     });
   });
 });
