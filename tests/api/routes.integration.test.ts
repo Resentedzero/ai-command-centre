@@ -284,7 +284,8 @@ describe("POST /workflow-runs/:id/pause and /resume", () => {
     expect(first.statusCode).toBe(200);
 
     const second = await app.inject({ method: "POST", url: `/workflow-runs/${created.workflowRunId}/pause` });
-    expect(second.statusCode).toBe(500);
+    // 409, not 500: a wrong-state request is the client's conflict, not a server fault.
+    expect(second.statusCode).toBe(409);
   });
 });
 

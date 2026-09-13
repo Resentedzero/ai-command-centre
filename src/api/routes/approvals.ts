@@ -23,6 +23,7 @@ import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvoc
 import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { runWorkflowMutationAndRelay } from "../liveEventRelay.js";
 import { transactionRunner } from "../../db/transactionRunner.js";
+import { isUuid } from "../requestGuards.js";
 
 /**
  * The V1 actor recorded for every Approval resolution made through this API
@@ -103,6 +104,11 @@ function replyForResolutionError(error: unknown, reply: FastifyReply, approvalId
 function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "approved" | "rejected", path: string): void {
   app.post<{ Params: { id: string } }>(path, async (request, reply) => {
     const approvalId = request.params.id;
+    // Validated before any query: a non-UUID otherwise reaches Postgres and
+    // surfaces as a 500 instead of a client error.
+    if (!isUuid(approvalId)) {
+      return reply.status(400).send({ error: "approval id must be a UUID" });
+    }
 
     const lookup = await lookupApprovalWorkflowRunId(deps, approvalId);
     if (!lookup.found) {

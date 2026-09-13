@@ -302,13 +302,29 @@ export async function startWorkflowRun(
 // pauseWorkflowRun / resumeWorkflowRun
 // ---------------------------------------------------------------------------
 
+/** No Workflow Run has this id. Typed so the API can answer 404 rather than 500. */
+export class WorkflowRunNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkflowRunNotFoundError";
+  }
+}
+
+/** The Workflow Run exists but is not in the state the operation requires. Typed so the API can answer 409. */
+export class WorkflowRunStateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkflowRunStateError";
+  }
+}
+
 export async function pauseWorkflowRun(tx: DrizzleTransaction, workflowRunId: string): Promise<void> {
   const row = await tx.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, workflowRunId) });
   if (!row) {
-    throw new Error(`pauseWorkflowRun: no workflow_runs row found for id "${workflowRunId}"`);
+    throw new WorkflowRunNotFoundError(`pauseWorkflowRun: no workflow_runs row found for id "${workflowRunId}"`);
   }
   if (row.status !== "in_progress") {
-    throw new Error(
+    throw new WorkflowRunStateError(
       `pauseWorkflowRun: workflow_run "${workflowRunId}" is not "in_progress" (status="${row.status}") — ` +
         "pause is only valid from \"in_progress\" (documented choice, see module header)."
     );
@@ -322,17 +338,19 @@ export async function pauseWorkflowRun(tx: DrizzleTransaction, workflowRunId: st
     .where(and(eq(workflowRuns.id, workflowRunId), eq(workflowRuns.status, "in_progress")))
     .returning({ id: workflowRuns.id });
   if (updated.length === 0) {
-    throw new Error(`pauseWorkflowRun: workflow_run "${workflowRunId}" stopped being "in_progress" before it could be paused.`);
+    throw new WorkflowRunStateError(
+      `pauseWorkflowRun: workflow_run "${workflowRunId}" stopped being "in_progress" before it could be paused.`
+    );
   }
 }
 
 export async function resumeWorkflowRun(tx: DrizzleTransaction, workflowRunId: string): Promise<void> {
   const row = await tx.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, workflowRunId) });
   if (!row) {
-    throw new Error(`resumeWorkflowRun: no workflow_runs row found for id "${workflowRunId}"`);
+    throw new WorkflowRunNotFoundError(`resumeWorkflowRun: no workflow_runs row found for id "${workflowRunId}"`);
   }
   if (row.status !== "paused") {
-    throw new Error(
+    throw new WorkflowRunStateError(
       `resumeWorkflowRun: workflow_run "${workflowRunId}" is not "paused" (status="${row.status}") — ` +
         "resume is only valid from \"paused\" (documented choice, see module header)."
     );
@@ -343,7 +361,9 @@ export async function resumeWorkflowRun(tx: DrizzleTransaction, workflowRunId: s
     .where(and(eq(workflowRuns.id, workflowRunId), eq(workflowRuns.status, "paused")))
     .returning({ id: workflowRuns.id });
   if (updated.length === 0) {
-    throw new Error(`resumeWorkflowRun: workflow_run "${workflowRunId}" stopped being "paused" before it could be resumed.`);
+    throw new WorkflowRunStateError(
+      `resumeWorkflowRun: workflow_run "${workflowRunId}" stopped being "paused" before it could be resumed.`
+    );
   }
 }
 

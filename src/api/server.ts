@@ -80,6 +80,7 @@ import { registerWorkflowRunsRoutes } from "./routes/workflowRuns.js";
 import { registerEventsRoutes } from "./routes/events.js";
 import { registerAgentsRoutes } from "./routes/agents.js";
 import { registerExecutionStopsRoutes } from "./routes/executionStops.js";
+import { makeRequestGuard } from "./requestGuards.js";
 
 export type ApiDeps = { db: Database };
 
@@ -126,6 +127,34 @@ export function buildServer(overrides?: Partial<ApiDeps>): FastifyInstance {
 
   app.addHook("onRequest", async (_request, reply) => {
     setCorsHeaders(reply);
+  });
+
+  // Refuses DNS-rebinding and cross-site state changes BEFORE any route runs —
+  // see `./requestGuards.ts`. Registered after the CORS hook so a refusal still
+  // carries CORS headers (the UI can read why it was refused).
+  app.addHook(
+    "onRequest",
+    makeRequestGuard({
+      uiOrigin: UI_ORIGIN,
+      extraAllowedHosts: (process.env.API_ALLOWED_HOSTS ?? "")
+        .split(",")
+        .map((h) => h.trim().toLowerCase())
+        .filter(Boolean),
+    })
+  );
+
+  // 5xx bodies never carry the error's message: drizzle's messages embed the
+  // full SQL text and parameters, and other errors can carry host paths. The
+  // detail goes to the server log; the client gets a generic message. 4xx
+  // errors raised by Fastify itself (e.g. malformed JSON) keep their message.
+  app.setErrorHandler(async (error: { statusCode?: number; message?: string }, _request, reply) => {
+    const status = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error("Unhandled API error:", error);
+      return reply.status(status).send({ error: "Internal server error" });
+    }
+    return reply.status(status).send({ error: error.message ?? "Bad request" });
   });
 
   // A real registered route, not just relying on the hook above: a browser

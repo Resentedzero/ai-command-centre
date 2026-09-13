@@ -112,6 +112,11 @@ export const sseTestHooks = {
 export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void {
   app.get<{ Querystring: { sinceEventCursor?: string } }>("/events/stream", async (request, reply) => {
     const sinceEventCursor = Number(request.query.sinceEventCursor ?? 0);
+    // Validated before the stream opens: a non-integer cursor would otherwise
+    // reach the replay query as NaN and silently end the stream.
+    if (!Number.isSafeInteger(sinceEventCursor) || sinceEventCursor < 0) {
+      return reply.status(400).send({ error: "sinceEventCursor must be a non-negative integer" });
+    }
 
     // Fastify won't try to manage/send a response after this — we own
     // `reply.raw` for the rest of the connection's lifetime.

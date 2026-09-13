@@ -700,6 +700,29 @@ per-Goal/Workflow-Run. Revoking a Grant auto-cancels its still-pending Approvals
 No user-to-user permission complexity; permissions apply agent-to-action. The model
 generalizes to multi-user later without rework.
 
+> **Implementation note (2026-09-14): "no user auth" does not mean "no request
+> guards".**
+>
+> **The threat.** The unauthenticated API binds loopback, but the operator's own
+> browser is on loopback too. Any page the operator visits can therefore send
+> requests to it, and CORS only governs whether that page may *read* the response.
+> Two attacks follow:
+> - **DNS rebinding** can read approval ids and then approve, lift a global stop,
+>   or start goals.
+> - **Cross-site POSTs** can fire the no-body approve/reject routes.
+>
+> **The guards** (`src/api/requestGuards.ts`), which run before every route:
+> - **Host.** A request whose `Host` is not a loopback name, or an
+>   operator-configured `API_ALLOWED_HOSTS` entry, is refused.
+> - **Origin.** A state-changing request whose `Origin` is present and is not the
+>   UI's origin is refused.
+>
+> **Error responses.**
+> - Malformed route ids are 400s.
+> - Wrong-state Workflow Run operations are 409s.
+> - 5xx bodies are generic. Database errors embed SQL text, so their details go to
+>   the server log only.
+
 ## Phase 10 — Model Routing
 
 ### 10.1 Provider abstraction
