@@ -566,6 +566,70 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
     });
   });
 
+  // NEXT_PHASE_PLAN Appendix A #4 (trust-level drift, Phase 20 risk #7): the
+  // binding is persisted at propose time, and Policy is re-run against its
+  // CURRENT trust on resume — an Approval granted under one trust state must not
+  // execute under a lower one.
+  it("a binding whose trust drops below the Grant's bar while its Approval is pending never executes after approval", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+      expect(await executeRun(tx, runId, [spec])).toEqual({ status: "awaiting_approval", runId });
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      expect(invocation?.toolBindingId).toBe(toolBindingId);
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+
+      // Drift while pending: the binding is downgraded AND the Grant's bar raised.
+      await tx.update(schema.toolBindings).set({ trustLevel: 0 }).where(eq(schema.toolBindings.id, toolBindingId));
+      await tx
+        .update(schema.capabilityGrants)
+        .set({ maxTrustLevelRequired: 99 })
+        .where(eq(schema.capabilityGrants.capabilityId, capabilityId));
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+      expect(await executeRun(tx, runId, [spec])).toEqual({ status: "failed", runId });
+      expect(spec.execute).not.toHaveBeenCalled();
+
+      const failed = await tx.query.events.findFirst({
+        where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_failed")),
+      });
+      expect(failed?.payload).toMatchObject({ reason: "reauthorization_policy_denied" });
+      const counter = await tx.query.budgetCounters.findFirst({
+        where: and(eq(schema.budgetCounters.scopeRefId, runId), eq(schema.budgetCounters.resourceUnit, "usd")),
+      });
+      expect(Number(counter!.reservedAmount)).toBe(0);
+      expect(Number(counter!.consumedAmount)).toBe(0);
+    });
+  });
+
+  it("resuming with a different toolBindingId than the one authorized fails as a spec mismatch", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      await executeRun(tx, runId, [buildToolSpec({ capabilityId, toolBindingId, permission })]);
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+      const [otherBinding] = await tx
+        .insert(schema.toolBindings)
+        .values({ capabilityId, kind: "internal", config: {}, trustLevel: 2, version: 2 })
+        .returning();
+      const swapped = buildToolSpec({ capabilityId, toolBindingId: otherBinding!.id, permission });
+
+      expect(await executeRun(tx, runId, [swapped])).toEqual({ status: "failed", runId });
+      expect(swapped.execute).not.toHaveBeenCalled();
+      const failed = await tx.query.events.findFirst({
+        where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_failed")),
+      });
+      expect(failed?.payload).toMatchObject({ reason: "resume_spec_mismatch" });
+    });
+  });
+
   // Fix-round-2 (New Important, found by the round-1 re-review):
   // `invocations.costClass` is a real, persisted column. A resuming spec that
   // claims `costClass: "deterministic"` against an invocation actually

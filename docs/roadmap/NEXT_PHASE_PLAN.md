@@ -702,7 +702,15 @@ plan is written, rather than leaving it implicit:
    verified baseline rather than assuming more of today's code is already
    wired up than actually is.
 
-4. **KNOWN LIMITATION, NOT SOLVED — `reauthorize` cannot independently
+4. > **RESOLVED (2026-09-14, after Phase 9).** `invocations.tool_binding_id` is
+   > persisted at propose time (migration 0010). On resume, a different
+   > `toolBindingId` fails as `resume_spec_mismatch`; a stored null fails closed
+   > the same way. After `reauthorize`, Policy is re-evaluated against the
+   > persisted binding's current trust and the current Grant, and a DENY fails the
+   > invocation as `reauthorization_policy_denied` before any side effect runs.
+   > The original analysis is kept below for the record.
+
+   **KNOWN LIMITATION, NOT SOLVED — `reauthorize` cannot independently
    re-check Tool Binding trust level at resume time.** `invocations`
    currently does not persist a `tool_binding_id` column (confirmed by
    direct schema inspection — `src/db/schema.ts` has no such column).

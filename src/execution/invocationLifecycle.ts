@@ -59,6 +59,8 @@ export type ProposeInvocationParams = {
   taskInstanceId: string;
   capabilityId?: string | null;
   permission?: string | null;
+  /** The Tool Binding a "tool" invocation is authorized against; re-checked on resume. */
+  toolBindingId?: string | null;
   proposedActionSnapshot?: Record<string, unknown> | null;
   /**
    * Whether to emit `invocation_started` ourselves. Default true (tool,
@@ -94,6 +96,7 @@ export async function proposeInvocation(
       idempotencyKey,
       capabilityId: params.capabilityId ?? null,
       permission: params.permission ?? null,
+      toolBindingId: params.toolBindingId ?? null,
       proposedActionSnapshot: params.proposedActionSnapshot ?? null,
     })
     .returning();

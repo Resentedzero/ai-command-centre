@@ -243,6 +243,12 @@ export const invocations = pgTable("invocations", {
   // invocationId, with no other input.
   capabilityId: uuid("capability_id").references(() => capabilities.id),
   permission: text("permission"),
+  // The Tool Binding this invocation was authorized against, persisted at
+  // propose time (closes NEXT_PHASE_PLAN Appendix A #4). Without it, resuming
+  // after an Approval could not re-check the binding's trust against the
+  // Grant's bar — the caller-supplied `toolBindingId` on resume matched
+  // nothing persisted. Null for non-tool invocations.
+  toolBindingId: uuid("tool_binding_id").references(() => toolBindings.id),
   // The CURRENT/mutable proposed action for this invocation — distinct from
   // `approvals.proposedActionSnapshot`, which is the FROZEN snapshot taken at
   // Approval-creation time and never changes after creation. `reauthorize`

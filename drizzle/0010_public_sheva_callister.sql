@@ -1,0 +1,2 @@
+ALTER TABLE "invocations" ADD COLUMN "tool_binding_id" uuid;--> statement-breakpoint
+ALTER TABLE "invocations" ADD CONSTRAINT "invocations_tool_binding_id_tool_bindings_id_fk" FOREIGN KEY ("tool_binding_id") REFERENCES "public"."tool_bindings"("id") ON DELETE no action ON UPDATE no action;

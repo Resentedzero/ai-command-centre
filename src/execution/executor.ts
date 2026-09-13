@@ -274,6 +274,7 @@ async function processToolSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: nu
     taskInstanceId: runRow.taskInstanceId,
     capabilityId: spec.capabilityId,
     permission: spec.permission,
+    toolBindingId: spec.toolBindingId,
     proposedActionSnapshot: spec.proposedActionSnapshot,
     startedPayload: { capabilityId: spec.capabilityId, permission: spec.permission },
   });
@@ -496,6 +497,9 @@ async function resumeToolSpec(
     spec.capabilityId !== storedInvocation.capabilityId ||
     spec.permission !== storedInvocation.permission ||
     spec.costClass !== storedInvocation.costClass ||
+    // The binding authorized at propose time. A stored null (an invocation
+    // proposed before the column existed) never matches, so it fails closed.
+    spec.toolBindingId !== storedInvocation.toolBindingId ||
     !isDeepStrictEqual(spec.proposedActionSnapshot, storedInvocation.proposedActionSnapshot)
   ) {
     const mismatchedReservationId = await peekPendingReservation(tx, runId, seqNo);
@@ -523,6 +527,42 @@ async function resumeToolSpec(
     }
     await clearPendingReservation(tx, runId, seqNo);
     await failInvocation(tx, { invocationId, runId, taskInstanceId: runRow.taskInstanceId, reason: "reauthorization_failed" });
+    await failRun(tx, runId);
+    return { status: "failed", runId };
+  }
+
+  // Policy again, against the PERSISTED Tool Binding's CURRENT trust (spec 9.5:
+  // Grant validity is re-checked immediately before a gated side effect;
+  // Phase 20 risk #7, trust-level drift). `reauthorize` confirms the Grant
+  // still exists and the snapshot is unchanged, but not that the binding still
+  // clears the Grant's trust bar — a binding downgraded, or a bar raised, while
+  // the Approval was pending must not execute on the strength of the old trust.
+  // Only DENY blocks: the action is already approved, so REQUIRE_APPROVAL is
+  // satisfied, and a now-AUTONOMOUS Grant changes nothing.
+  const currentGrant = await resolveCapabilityGrant(tx, {
+    runId,
+    capabilityId: spec.capabilityId,
+    permission: spec.permission,
+  });
+  const currentTrust = await resolveToolBindingTrustLevel(tx, storedInvocation.toolBindingId!);
+  const { decision: currentDecision } = await authorizeInvocation(tx, {
+    grant: currentGrant,
+    permission: spec.permission,
+    proposedActionSnapshot: spec.proposedActionSnapshot,
+    trustLevel: currentTrust.trustLevel,
+    bindingTrustLevel: currentTrust.bindingTrustLevel,
+  });
+  if (currentDecision === "DENY") {
+    if (isRealReservation(originalReservationId)) {
+      await releaseReservation(tx, originalReservationId);
+    }
+    await clearPendingReservation(tx, runId, seqNo);
+    await failInvocation(tx, {
+      invocationId,
+      runId,
+      taskInstanceId: runRow.taskInstanceId,
+      reason: "reauthorization_policy_denied",
+    });
     await failRun(tx, runId);
     return { status: "failed", runId };
   }
