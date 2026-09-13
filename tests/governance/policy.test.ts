@@ -60,6 +60,7 @@ describe("evaluatePolicy", () => {
       permission: "READ",
       proposedActionSnapshot: {},
       trustLevel: "first_party",
+      bindingTrustLevel: 2,
     });
     expect(result.decision).toBe("DENY");
   });
@@ -70,6 +71,7 @@ describe("evaluatePolicy", () => {
       agentDefinitionVersion: 1,
       capabilityId: "00000000-0000-0000-0000-000000000000",
       permissions: ["READ"],
+      maxTrustLevelRequired: 1,
       autonomyState: "AUTONOMOUS",
     };
     const result = await evaluatePolicy(poisonedTx(), {
@@ -77,6 +79,7 @@ describe("evaluatePolicy", () => {
       permission: "WRITE",
       proposedActionSnapshot: {},
       trustLevel: "first_party",
+      bindingTrustLevel: 2,
     });
     expect(result.decision).toBe("DENY");
   });
@@ -89,6 +92,7 @@ describe("evaluatePolicy", () => {
         agentDefinitionVersion,
         capabilityId,
         permissions: ["READ"],
+        maxTrustLevelRequired: 1,
         autonomyState: "AUTONOMOUS",
       };
       const result = await evaluatePolicy(tx, {
@@ -96,6 +100,7 @@ describe("evaluatePolicy", () => {
         permission: "READ",
         proposedActionSnapshot: {},
         trustLevel: "first_party",
+        bindingTrustLevel: 2,
       });
       expect(result.decision).toBe("ALLOW");
       expect(result.riskTier).toBe("low");
@@ -110,6 +115,7 @@ describe("evaluatePolicy", () => {
         agentDefinitionVersion,
         capabilityId,
         permissions: ["SPEND"],
+        maxTrustLevelRequired: 1,
         autonomyState: "ALWAYS_APPROVE",
       };
       const result = await evaluatePolicy(tx, {
@@ -117,6 +123,7 @@ describe("evaluatePolicy", () => {
         permission: "SPEND",
         proposedActionSnapshot: {},
         trustLevel: "first_party",
+        bindingTrustLevel: 2,
       });
       expect(result.decision).toBe("REQUIRE_APPROVAL");
     });
@@ -130,6 +137,7 @@ describe("evaluatePolicy", () => {
         agentDefinitionVersion,
         capabilityId,
         permissions: ["SPEND"],
+        maxTrustLevelRequired: 1,
         autonomyState: "CONDITIONAL",
       };
       const result = await evaluatePolicy(tx, {
@@ -137,6 +145,7 @@ describe("evaluatePolicy", () => {
         permission: "SPEND",
         proposedActionSnapshot: {},
         trustLevel: "first_party",
+        bindingTrustLevel: 2,
       });
       expect(result.decision).toBe("REQUIRE_APPROVAL");
     });
@@ -150,6 +159,11 @@ describe("evaluatePolicy", () => {
         agentDefinitionVersion,
         capabilityId,
         permissions: ["SPEND"],
+        // 0, not 1: this test is about RISK escalation for an unverified
+        // binding, so the Grant's trust bar must be MET (0 >= 0) — otherwise
+        // the finding-2 trust DENY short-circuits before risk is computed and
+        // the test would silently stop measuring what it names.
+        maxTrustLevelRequired: 0,
         autonomyState: "ALWAYS_APPROVE",
       };
       const result = await evaluatePolicy(tx, {
@@ -157,6 +171,7 @@ describe("evaluatePolicy", () => {
         permission: "SPEND",
         proposedActionSnapshot: { amountOrScope: 1_000_000, isNovelAction: true },
         trustLevel: "unverified_third_party",
+        bindingTrustLevel: 0,
       });
       expect(result.riskTier).toBe("highest");
     });
@@ -171,6 +186,7 @@ describe("evaluatePolicy", () => {
           agentDefinitionVersion,
           capabilityId,
           permissions: ["SPEND"],
+          maxTrustLevelRequired: 1,
           autonomyState: "ALWAYS_APPROVE",
         };
         await expect(
@@ -179,6 +195,7 @@ describe("evaluatePolicy", () => {
             permission: "SPEND",
             proposedActionSnapshot: { amountOrScope: "a lot" },
             trustLevel: "first_party",
+            bindingTrustLevel: 2,
           })
         ).rejects.toThrow(/amountOrScope/);
       });
@@ -192,6 +209,7 @@ describe("evaluatePolicy", () => {
           agentDefinitionVersion,
           capabilityId,
           permissions: ["SPEND"],
+          maxTrustLevelRequired: 1,
           autonomyState: "ALWAYS_APPROVE",
         };
         await expect(
@@ -200,6 +218,7 @@ describe("evaluatePolicy", () => {
             permission: "SPEND",
             proposedActionSnapshot: { amountOrScope: NaN },
             trustLevel: "first_party",
+            bindingTrustLevel: 2,
           })
         ).rejects.toThrow(/amountOrScope/);
       });
@@ -213,6 +232,7 @@ describe("evaluatePolicy", () => {
           agentDefinitionVersion,
           capabilityId,
           permissions: ["SPEND"],
+          maxTrustLevelRequired: 1,
           autonomyState: "ALWAYS_APPROVE",
         };
         await expect(
@@ -221,6 +241,7 @@ describe("evaluatePolicy", () => {
             permission: "SPEND",
             proposedActionSnapshot: { isNovelAction: "yes" },
             trustLevel: "first_party",
+            bindingTrustLevel: 2,
           })
         ).rejects.toThrow(/isNovelAction/);
       });
@@ -234,6 +255,7 @@ describe("evaluatePolicy", () => {
           agentDefinitionVersion,
           capabilityId,
           permissions: ["SPEND"],
+          maxTrustLevelRequired: 1,
           autonomyState: "ALWAYS_APPROVE",
         };
         const resultAbsent = await evaluatePolicy(tx, {
@@ -241,6 +263,7 @@ describe("evaluatePolicy", () => {
           permission: "SPEND",
           proposedActionSnapshot: {},
           trustLevel: "first_party",
+          bindingTrustLevel: 2,
         });
         expect(resultAbsent.riskTier).toBe("low");
 
@@ -249,8 +272,273 @@ describe("evaluatePolicy", () => {
           permission: "SPEND",
           proposedActionSnapshot: { amountOrScope: null },
           trustLevel: "first_party",
+          bindingTrustLevel: 2,
         });
         expect(resultExplicitNull.riskTier).toBe("low");
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Final-review Finding 2: the Grant's declared trust bar
+  // (`capability_grants.max_trust_level_required`) vs. the resolved Tool
+  // Binding's actual `tool_bindings.trust_level` — Phase 6.
+  //
+  // Two distinct rules, deliberately producing two different outcomes (see
+  // the fix-review report for the full DENY-vs-REQUIRE_APPROVAL reasoning):
+  //   Rule 1 — bar NOT met -> DENY. Phase 9.3: DENY "fires when the Grant
+  //     doesn't cover the action at all (a configuration fact, not a judgment
+  //     call)". Two stored integers disagreeing is exactly a configuration
+  //     fact.
+  //   Rule 2 — bar met but the binding is `unverified_third_party` -> never
+  //     ALLOW; escalate to REQUIRE_APPROVAL. Phase 6: "never eligible for
+  //     autonomous EXECUTE-class permissions until explicitly upgraded".
+  //     One-directional: it can only tighten ALLOW, never relax an existing
+  //     REQUIRE_APPROVAL.
+  // -------------------------------------------------------------------------
+  describe("Finding 2: Grant trust bar vs. Tool Binding trust level (Phase 6)", () => {
+    it("rule 1 (no regression): a binding that MEETS the bar is decided exactly as before", async () => {
+      await withRollback(async (tx) => {
+        const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, "low");
+        const grant: CapabilityGrant = {
+          agentDefinitionId,
+          agentDefinitionVersion,
+          capabilityId,
+          permissions: ["READ"],
+          maxTrustLevelRequired: 1,
+          autonomyState: "AUTONOMOUS",
+        };
+
+        // Exceeds the bar (2 > 1) — the seeded V1 shape.
+        const exceeds = await evaluatePolicy(tx, {
+          grant,
+          permission: "READ",
+          proposedActionSnapshot: {},
+          trustLevel: "first_party",
+          bindingTrustLevel: 2,
+        });
+        expect(exceeds.decision).toBe("ALLOW");
+        expect(exceeds.riskTier).toBe("low");
+
+        // Exactly meets the bar (1 === 1) — a minimum, not a strict "above".
+        const meets = await evaluatePolicy(tx, {
+          grant,
+          permission: "READ",
+          proposedActionSnapshot: {},
+          trustLevel: "verified_third_party",
+          bindingTrustLevel: 1,
+        });
+        expect(meets.decision).toBe("ALLOW");
+      });
+    });
+
+    it("rule 1: a binding BELOW the bar is DENY — and, like the other DENY paths, never touches tx", async () => {
+      const grant: CapabilityGrant = {
+        agentDefinitionId: "00000000-0000-0000-0000-000000000000",
+        agentDefinitionVersion: 1,
+        capabilityId: "00000000-0000-0000-0000-000000000000",
+        permissions: ["READ"],
+        maxTrustLevelRequired: 1,
+        autonomyState: "AUTONOMOUS",
+      };
+      // poisonedTx proves the insufficient-trust DENY is settled as a
+      // configuration fact, before any risk computation — the same structural
+      // property the null-grant and uncovered-permission DENYs already have.
+      const result = await evaluatePolicy(poisonedTx(), {
+        grant,
+        permission: "READ",
+        proposedActionSnapshot: {},
+        trustLevel: "unverified_third_party",
+        bindingTrustLevel: 0,
+      });
+      expect(result.decision).toBe("DENY");
+    });
+
+    it("rule 1 fails closed: a non-finite/absent binding trust level is DENY, never read as 'trusted enough'", async () => {
+      const grant: CapabilityGrant = {
+        agentDefinitionId: "00000000-0000-0000-0000-000000000000",
+        agentDefinitionVersion: 1,
+        capabilityId: "00000000-0000-0000-0000-000000000000",
+        permissions: ["READ"],
+        maxTrustLevelRequired: 1,
+        autonomyState: "AUTONOMOUS",
+      };
+      for (const bindingTrustLevel of [NaN, Infinity, undefined as unknown as number]) {
+        const result = await evaluatePolicy(poisonedTx(), {
+          grant,
+          permission: "READ",
+          proposedActionSnapshot: {},
+          trustLevel: "first_party",
+          bindingTrustLevel,
+        });
+        expect(result.decision).toBe("DENY");
+      }
+    });
+
+    it("rule 2: an unverified_third_party binding is never ALLOW, even with an AUTONOMOUS Grant whose bar it meets", async () => {
+      await withRollback(async (tx) => {
+        const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, "low");
+        const grant: CapabilityGrant = {
+          agentDefinitionId,
+          agentDefinitionVersion,
+          capabilityId,
+          permissions: ["EXECUTE"],
+          maxTrustLevelRequired: 0, // bar deliberately met, so rule 1 cannot be what fires
+          autonomyState: "AUTONOMOUS",
+        };
+        const result = await evaluatePolicy(tx, {
+          grant,
+          permission: "EXECUTE",
+          proposedActionSnapshot: {},
+          trustLevel: "unverified_third_party",
+          bindingTrustLevel: 0,
+        });
+        expect(result.decision).toBe("REQUIRE_APPROVAL");
+      });
+    });
+
+    it("rule 2 applies to every permission type generically, not just EXECUTE (no permission-type branch)", async () => {
+      await withRollback(async (tx) => {
+        const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, "low");
+        const grant: CapabilityGrant = {
+          agentDefinitionId,
+          agentDefinitionVersion,
+          capabilityId,
+          permissions: ["READ", "WRITE", "CREATE", "SEND"],
+          maxTrustLevelRequired: 0,
+          autonomyState: "AUTONOMOUS",
+        };
+        for (const permission of ["READ", "WRITE", "CREATE", "SEND"] as const) {
+          const result = await evaluatePolicy(tx, {
+            grant,
+            permission,
+            proposedActionSnapshot: {},
+            trustLevel: "unverified_third_party",
+            bindingTrustLevel: 0,
+          });
+          expect(result.decision).toBe("REQUIRE_APPROVAL");
+        }
+      });
+    });
+
+    it("rule 2 is one-directional: it never relaxes an existing REQUIRE_APPROVAL, and never applies to trusted bindings", async () => {
+      await withRollback(async (tx) => {
+        const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, "low");
+        const grant: CapabilityGrant = {
+          agentDefinitionId,
+          agentDefinitionVersion,
+          capabilityId,
+          permissions: ["READ"],
+          maxTrustLevelRequired: 0,
+          autonomyState: "ALWAYS_APPROVE",
+        };
+        const unverified = await evaluatePolicy(tx, {
+          grant,
+          permission: "READ",
+          proposedActionSnapshot: {},
+          trustLevel: "unverified_third_party",
+          bindingTrustLevel: 0,
+        });
+        expect(unverified.decision).toBe("REQUIRE_APPROVAL");
+
+        // verified_third_party / first_party are untouched by rule 2 — an
+        // AUTONOMOUS Grant on those still reaches ALLOW.
+        const verifiedGrant: CapabilityGrant = { ...grant, autonomyState: "AUTONOMOUS" };
+        const verified = await evaluatePolicy(tx, {
+          grant: verifiedGrant,
+          permission: "READ",
+          proposedActionSnapshot: {},
+          trustLevel: "verified_third_party",
+          bindingTrustLevel: 1,
+        });
+        expect(verified.decision).toBe("ALLOW");
+      });
+    });
+
+    it("trust never GRANTS anything: a maximally-trusted binding cannot exceed the Grant's own permissions[]/autonomyState", async () => {
+      await withRollback(async (tx) => {
+        const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, "low");
+
+        // (a) High trust does not add a permission the Grant never carried.
+        const readOnlyGrant: CapabilityGrant = {
+          agentDefinitionId,
+          agentDefinitionVersion,
+          capabilityId,
+          permissions: ["READ"],
+          maxTrustLevelRequired: 0,
+          autonomyState: "AUTONOMOUS",
+        };
+        const uncovered = await evaluatePolicy(poisonedTx(), {
+          grant: readOnlyGrant,
+          permission: "WRITE",
+          proposedActionSnapshot: {},
+          trustLevel: "first_party",
+          bindingTrustLevel: 9_000,
+        });
+        expect(uncovered.decision).toBe("DENY");
+
+        // (b) High trust does not promote autonomy: ALWAYS_APPROVE stays
+        // REQUIRE_APPROVAL no matter how trusted the binding is.
+        const approveGrant: CapabilityGrant = {
+          agentDefinitionId,
+          agentDefinitionVersion,
+          capabilityId,
+          permissions: ["SPEND"],
+          maxTrustLevelRequired: 0,
+          autonomyState: "ALWAYS_APPROVE",
+        };
+        const stillGated = await evaluatePolicy(tx, {
+          grant: approveGrant,
+          permission: "SPEND",
+          proposedActionSnapshot: {},
+          trustLevel: "first_party",
+          bindingTrustLevel: 9_000,
+        });
+        expect(stillGated.decision).toBe("REQUIRE_APPROVAL");
+
+        // (c) Unit 3's structural autonomy ceiling is enforced independently
+        // of trust — a maximally-trusted Grant is still an invalid Grant.
+        expect(
+          validateCapabilityGrant({
+            agentDefinitionId,
+            agentDefinitionVersion,
+            capabilityId,
+            permissions: ["SPEND"],
+            maxTrustLevelRequired: 9_000,
+            autonomyState: "AUTONOMOUS",
+          }).valid
+        ).toBe(false);
+      });
+    });
+
+    it("neither trust input can be influenced by the proposed action snapshot (i.e. by anything the model produced)", async () => {
+      await withRollback(async (tx) => {
+        const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, "low");
+        const grant: CapabilityGrant = {
+          agentDefinitionId,
+          agentDefinitionVersion,
+          capabilityId,
+          permissions: ["READ"],
+          maxTrustLevelRequired: 1,
+          autonomyState: "AUTONOMOUS",
+        };
+        // The snapshot is the ONLY evaluatePolicy input a model's output can
+        // reach (the Executor builds it from the proposed tool call). Here it
+        // claims maximal trust and a zero bar; the real, server-resolved
+        // values say otherwise, and the real values must win.
+        const result = await evaluatePolicy(tx, {
+          grant,
+          permission: "READ",
+          proposedActionSnapshot: {
+            trustLevel: "first_party",
+            bindingTrustLevel: 9_000,
+            maxTrustLevelRequired: 0,
+            grant: { autonomyState: "AUTONOMOUS", permissions: ["READ", "WRITE"], maxTrustLevelRequired: 0 },
+          },
+          trustLevel: "unverified_third_party",
+          bindingTrustLevel: 0,
+        });
+        expect(result.decision).toBe("DENY");
       });
     });
   });
@@ -269,6 +557,7 @@ describe("validateCapabilityGrant — SPEND/TRADE/PUBLISH/DELETE autonomy ceilin
       const result = validateCapabilityGrant({
         ...base,
         permissions: [permission],
+        maxTrustLevelRequired: 1,
         autonomyState: "AUTONOMOUS",
       });
       expect(result.valid).toBe(false);
@@ -281,6 +570,7 @@ describe("validateCapabilityGrant — SPEND/TRADE/PUBLISH/DELETE autonomy ceilin
       const result = validateCapabilityGrant({
         ...base,
         permissions: ["SPEND"],
+        maxTrustLevelRequired: 1,
         autonomyState,
       });
       expect(result.valid).toBe(true);
@@ -291,6 +581,7 @@ describe("validateCapabilityGrant — SPEND/TRADE/PUBLISH/DELETE autonomy ceilin
     const result = validateCapabilityGrant({
       ...base,
       permissions: [permission],
+      maxTrustLevelRequired: 1,
       autonomyState: "AUTONOMOUS",
     });
     expect(result.valid).toBe(true);

@@ -5,70 +5,84 @@
  * `src/definitions/seed.ts`'s `seedResearchWorkflow`) when it runs as
  * Workflow 2's step 0, driven by Unit 7's `advanceWorkflowRun`.
  *
- * Builds the exact `[toolSpec, llmSpec]` pair Unit 8's own integration test
- * built inline (tool: `research.retrieve` via `retrieveResearch`; llm:
- * `intent: "synthesize"`, `riskTier: "low"`, `taskDifficulty: "simple"`,
- * `candidateArtifactIds` populated with the tool step's Artifact) — but as
- * real, reusable production code rather than test-only inline logic.
- *
  * ═══════════════════════════════════════════════════════════════════════
- * Confirmation of the report contract's central question: Unit 8's
- * "two-phase executeRun" hand-off gap (task-8-report.md) STILL APPLIES here,
- * verified directly against `executor.ts`'s current code — the llm spec's
- * `candidateArtifactIds` must contain a real, persisted Artifact id, which
- * does not exist until the tool spec has actually executed, and
- * `executeRun` processes a given `invocationSpecs` array in one synchronous
- * walk with no gap to look anything up in between.
+ * FINAL-REVIEW FINDING 4 — this builder no longer executes anything itself.
+ * ═══════════════════════════════════════════════════════════════════════
+ * It previously called `executeRun` TWICE from inside itself and, between the
+ * two calls, reverted the Executor's own terminal lifecycle state
+ * (`tx.update(runs).set({status: "active", completedAt: null, outcome: null})`)
+ * so `executeRun`'s top-of-function re-entry guard would not short-circuit the
+ * second call — a capability module reaching into core runtime state to defeat
+ * a safety guard, and relying on the Interpreter's own `executeRun` call
+ * degrading to a no-op afterwards.
  *
- * Unlike Unit 8's standalone test, THIS module has no ability to call
- * `executeRun` twice from "outside": `advanceWorkflowRun`'s
- * `createAndRunStep`/`resumeStep` call `buildInvocationSpecs` exactly ONCE,
- * then call `executeRun` exactly ONCE with whatever this function returns
- * (`src/workflow/interpreter.ts`). So this function performs BOTH phases
- * ITSELF, internally, before ever returning:
- *   1. `executeRun(tx, runId, [toolSpec])` — runs the tool step alone.
- *   2. Reset `runs.status` back to `"active"` (Unit 8's own discovered
- *      requirement: `executeRun` marks the run "completed" once it finishes
- *      walking the array IT WAS GIVEN, which would make a second call
- *      short-circuit at the top before ever looking at seqNo 2).
- *   3. `executeRun(tx, runId, [toolSpec, llmSpec])`, now that the tool
- *      Artifact's real id is known — seqNo 1 already has a "completed" row
- *      and is skipped without re-execution (`executeRun`'s own documented
- *      resumability contract); seqNo 2 (llm) is processed fresh.
- *   4. `persistReportArtifact` (Unit 8's helper, reused verbatim, NOT
- *      duplicated) on the llm invocation's structured output.
- *   5. Return `[toolSpec, llmSpec]` WITHOUT resetting `runs.status` again —
- *      the run is genuinely, correctly "completed" at this point (both
- *      invocations done). The OUTER `executeRun` call
- *      `advanceWorkflowRun`/`createAndRunStep` makes immediately after this
- *      function returns then hits its own top-of-function re-entry guard
- *      (`if (runRow.status === "completed") return {status:"completed",...}`)
- *      and returns the correct outcome without re-walking anything. So the
- *      full picture is: two REAL internal `executeRun` calls here, plus one
- *      harmless no-op short-circuit call made by the interpreter itself.
+ * The root cause was a missing Executor primitive, not a mistake here: the llm
+ * spec's `candidateArtifactIds` must contain a REAL, persisted Artifact id,
+ * which does not exist until the tool spec has actually executed — yet
+ * `executeRun` took a static, fully-resolved `InvocationSpec[]` computed before
+ * any position ran. That primitive now exists
+ * (`DeferredInvocationSpec`/`PlannedInvocationSpec`,
+ * `../../execution/types.ts`), so this module is PURELY DECLARATIVE: it
+ * provisions, then returns a three-position plan and returns. Every Invocation
+ * is executed exactly once, by the ONE `executeRun` call the Workflow
+ * Interpreter makes.
  *
- * Idempotency (Ruling 3's determinism requirement): this Task Definition
- * never reaches `awaiting_approval` under this seed (`research.retrieve`'s
- * Grant is `AUTONOMOUS`; llm Invocations are never Approval-gated), so
- * `advanceWorkflowRun` never actually calls this builder a second time for
- * the same step in normal operation. It is still made defensively safe to
- * call again: if seqNo 2 already has a `"completed"` invocation row, this
- * function returns `[toolSpec, llmSpec]` immediately without repeating
- * either internal `executeRun` call, resetting `runs.status`, or calling
- * `persistReportArtifact` a second time (which is NOT itself idempotent —
- * see its own module header/tests — a second call would create a second,
- * duplicate `"report"`-type Artifact row, corrupting Task B's Ruling-2
- * cross-step lookup, which requires exactly one such row per Run).
+ * The plan (`seqNo` = array position + 1):
+ *   1. `"tool"` — `research.retrieve` via `retrieveResearch`. A ready-made
+ *      spec; it depends on nothing earlier.
+ *   2. `"llm"` — DEFERRED. `intent: "synthesize"`, `riskTier: "low"`,
+ *      `taskDifficulty: "simple"`, with `candidateArtifactIds` populated from
+ *      seqNo 1's ACTUAL Artifact id, supplied by the Executor at resolution
+ *      time. This is Phase 5.8 exactly ("a prior Tool Invocation's structured
+ *      output becomes a new high-priority candidate for the next
+ *      compilation"), and Phase 5.5 exactly (an ID REFERENCE — the Context
+ *      Compiler, not this module, decides whether any content gets inlined).
+ *   3. `"deterministic"` — DEFERRED. Marks seqNo 2's output as this Run's
+ *      final, addressable `"report"` Artifact via `persistReportArtifact`
+ *      (Unit 8's helper, reused verbatim, NOT duplicated). This used to be a
+ *      side effect of the builder, invisible to the event ledger; as a real
+ *      Deterministic Invocation it is a first-class member of the Run's
+ *      ordered sequence, which is what Phase 3a describes ("Deterministic
+ *      function: free, no governance overhead beyond existence check" —
+ *      precisely what `processGenericSpec` does). Task B's cross-step lookup
+ *      (`../publishReport/buildInvocationSpecs.ts`) requires exactly one such
+ *      Artifact per Run.
+ *
+ * Idempotency (Ruling 3's determinism requirement): the hand-rolled guard this
+ * module used to carry is GONE, and deliberately not ported. It existed only
+ * because execution had been pulled up into build time, which made the
+ * non-idempotent `persistReportArtifact` reachable twice. Now that every
+ * Invocation runs inside `executeRun`, that unit's own per-`seqNo` skip
+ * ("already `completed` -> continue", `../../execution/executor.ts`) is the
+ * single, canonical guard — and it skips a completed position WITHOUT even
+ * resolving its thunk, so `persistReportArtifact` cannot run twice. Building
+ * the plan is now free of side effects beyond `bindRunAgent`/
+ * `ensureRunBudgetCounter`, both idempotent by design (see
+ * `../shared/runProvisioning.ts`).
  */
-import { and, eq } from "drizzle-orm";
-import { artifacts, invocations, runs } from "../../db/schema.js";
+import { eq } from "drizzle-orm";
+import { artifacts } from "../../db/schema.js";
 import type { DrizzleTransaction } from "../../events/emit.js";
-import { executeRun } from "../../execution/executor.js";
 import { persistReportArtifact } from "../../execution/reportArtifact.js";
-import type { InvocationSpec, LlmInvocationSpec, ToolInvocationSpec } from "../../execution/types.js";
+import type {
+  DeferredInvocationSpec,
+  DeterministicInvocationSpec,
+  InvocationSpecContext,
+  LlmInvocationSpec,
+  PlannedInvocationSpec,
+  ToolInvocationSpec,
+} from "../../execution/types.js";
 import type { ContextBudget } from "../../context/types.js";
 import { bindRunAgent, ensureRunBudgetCounter, findRunByTaskInstanceId } from "../shared/runProvisioning.js";
 import { retrieveResearch } from "./toolBinding.js";
+
+/**
+ * This plan's fixed shape. Positions are selected by `seqNo`, never by index
+ * into `ctx.priorArtifacts` — see `PriorInvocationArtifact`'s doc comment for
+ * why creation-time/positional selection is unsafe here.
+ */
+const TOOL_SEQ_NO = 1;
+const LLM_SEQ_NO = 2;
 
 export type ResearchReportBuilderConfig = {
   agentDefinitionId: string;
@@ -101,29 +115,28 @@ function buildToolSpec(config: ResearchReportBuilderConfig): ToolInvocationSpec 
   };
 }
 
-async function buildLlmSpecFromToolArtifact(
-  tx: DrizzleTransaction,
-  runId: string,
-  config: ResearchReportBuilderConfig
-): Promise<LlmInvocationSpec> {
-  const toolInvocation = await tx.query.invocations.findFirst({
-    where: and(eq(invocations.runId, runId), eq(invocations.seqNo, 1)),
-  });
-  if (!toolInvocation) {
-    throw new Error(`buildResearchReportInvocationSpecs: no seqNo=1 (tool) invocation found for run "${runId}"`);
-  }
-  const toolArtifact = await tx.query.artifacts.findFirst({
-    where: eq(artifacts.producingInvocationId, toolInvocation.id),
-  });
-  if (!toolArtifact) {
-    throw new Error(`buildResearchReportInvocationSpecs: no Artifact found for tool invocation "${toolInvocation.id}"`);
+/**
+ * seqNo 2, deferred: the llm spec, built from the tool Invocation's REAL
+ * Artifact id. Fails closed if the Executor hands over a context with no
+ * artifact from seqNo 1 — that would mean the tool step produced nothing, and
+ * synthesizing from an empty candidate set would silently produce a report
+ * about nothing rather than an error.
+ */
+function buildLlmSpec(config: ResearchReportBuilderConfig, ctx: InvocationSpecContext): LlmInvocationSpec {
+  const toolArtifactIds = ctx.priorArtifacts.filter((a) => a.seqNo === TOOL_SEQ_NO).map((a) => a.artifactId);
+  if (toolArtifactIds.length === 0) {
+    throw new Error(
+      `buildResearchReportInvocationSpecs: no Artifact produced by seqNo ${TOOL_SEQ_NO} (the research.retrieve tool ` +
+        "Invocation) was available when building the llm spec (fail closed)."
+    );
   }
 
   return {
     kind: "llm",
     costClass: "llm",
     intent: "synthesize",
-    candidateArtifactIds: [toolArtifact.id],
+    // Phase 5.5: an ID REFERENCE. compileContext decides reference-vs-content.
+    candidateArtifactIds: toolArtifactIds,
     candidateToolCapabilityIds: [],
     contextBudget: config.contextBudget,
     taskDifficulty: "simple",
@@ -132,68 +145,65 @@ async function buildLlmSpecFromToolArtifact(
   };
 }
 
+/**
+ * seqNo 3, deferred: marks the llm Invocation's output as this Run's final
+ * `"report"` Artifact.
+ *
+ * `producingInvocationId` is deliberately the LLM Invocation's id, NOT this
+ * deterministic Invocation's own — the artifact IS the llm's output, marked
+ * final, and attributing it elsewhere would change its meaning (and break the
+ * `producingInvocationId` assertion in
+ * `tests/capabilities/researchRetrieve.integration.test.ts`).
+ *
+ * `execute` returns `{}` so `processGenericSpec`'s
+ * `Object.keys(result).length > 0` check skips persisting a redundant
+ * `"invocation_result"` Artifact for this bookkeeping step — the Run's artifact
+ * set stays exactly what it was before Finding 4's fix.
+ */
+function buildReportSpec(tx: DrizzleTransaction, ctx: InvocationSpecContext): DeterministicInvocationSpec {
+  const llmArtifact = ctx.priorArtifacts.find((a) => a.seqNo === LLM_SEQ_NO);
+  if (!llmArtifact) {
+    throw new Error(
+      `buildResearchReportInvocationSpecs: no Artifact produced by seqNo ${LLM_SEQ_NO} (the llm Invocation) was ` +
+        "available when building the report spec (fail closed)."
+    );
+  }
+
+  return {
+    kind: "deterministic",
+    costClass: "deterministic",
+    execute: async () => {
+      const row = await tx.query.artifacts.findFirst({ where: eq(artifacts.id, llmArtifact.artifactId) });
+      if (!row?.inlineContent) {
+        throw new Error(
+          `buildResearchReportInvocationSpecs: llm Artifact "${llmArtifact.artifactId}" has no inlineContent to publish as a report.`
+        );
+      }
+      const structuredOutput = JSON.parse(row.inlineContent) as Record<string, unknown>;
+      await persistReportArtifact(tx, llmArtifact.invocationId, structuredOutput);
+      return {};
+    },
+  };
+}
+
 export async function buildResearchReportInvocationSpecs(
   tx: DrizzleTransaction,
   config: ResearchReportBuilderConfig,
   params: BuilderParams
-): Promise<InvocationSpec[]> {
+): Promise<PlannedInvocationSpec[]> {
   const runRow = await findRunByTaskInstanceId(tx, params.taskInstanceId);
   const runId = runRow.id;
 
-  // Ruling 3: agent-binding + budget provisioning are this builder's job.
+  // Ruling 3: agent-binding + budget provisioning are this builder's job — the
+  // only hook available after the `runs` row exists and before `executeRun`
+  // authorizes anything (see `../shared/runProvisioning.ts`). Both idempotent.
   await bindRunAgent(tx, runId, config.agentDefinitionId, config.agentDefinitionVersion);
   await ensureRunBudgetCounter(tx, runId, config.runBudgetLimit ?? "1.00");
 
-  const toolSpec = buildToolSpec(config);
+  const llmSpec: DeferredInvocationSpec = async (ctx) => buildLlmSpec(config, ctx);
+  const reportSpec: DeferredInvocationSpec = async (ctx) => buildReportSpec(tx, ctx);
 
-  // Idempotency guard (see module header) — do not redo the two-phase dance
-  // or re-persist the report Artifact if this builder is somehow called
-  // again after already fully completing.
-  const existingCompletedLlmInvocation = await tx.query.invocations.findFirst({
-    where: and(eq(invocations.runId, runId), eq(invocations.seqNo, 2), eq(invocations.status, "completed")),
-  });
-  if (existingCompletedLlmInvocation) {
-    const llmSpec = await buildLlmSpecFromToolArtifact(tx, runId, config);
-    return [toolSpec, llmSpec];
-  }
-
-  // --- Phase 1: tool Invocation alone ---
-  const toolOutcome = await executeRun(tx, runId, [toolSpec]);
-  if (toolOutcome.status !== "completed") {
-    // Failed (or, structurally impossible for this Grant, awaiting_approval)
-    // — the outer executeRun call will observe the Run's terminal status and
-    // short-circuit; nothing further to build.
-    return [toolSpec];
-  }
-
-  const llmSpec = await buildLlmSpecFromToolArtifact(tx, runId, config);
-
-  // Unit 8's discovered gap (see module header): revert executeRun's own
-  // "completed" write before the second internal call, or it would
-  // short-circuit at its own top-of-function re-entry guard.
-  await tx.update(runs).set({ status: "active", completedAt: null, outcome: null }).where(eq(runs.id, runId));
-
-  // --- Phase 2: llm Invocation, now that the tool Artifact id is known ---
-  const llmOutcome = await executeRun(tx, runId, [toolSpec, llmSpec]);
-  if (llmOutcome.status !== "completed") {
-    return [toolSpec, llmSpec];
-  }
-
-  const llmInvocation = await tx.query.invocations.findFirst({
-    where: and(eq(invocations.runId, runId), eq(invocations.seqNo, 2)),
-  });
-  if (!llmInvocation) {
-    throw new Error(`buildResearchReportInvocationSpecs: no seqNo=2 (llm) invocation found for run "${runId}"`);
-  }
-  const llmResultArtifact = await tx.query.artifacts.findFirst({
-    where: eq(artifacts.producingInvocationId, llmInvocation.id),
-  });
-  if (!llmResultArtifact?.inlineContent) {
-    throw new Error(`buildResearchReportInvocationSpecs: no result Artifact found for llm invocation "${llmInvocation.id}"`);
-  }
-  const structuredOutput = JSON.parse(llmResultArtifact.inlineContent) as Record<string, unknown>;
-  await persistReportArtifact(tx, llmInvocation.id, structuredOutput);
-
-  // Deliberately NOT resetting runs.status again — see module header step 5.
-  return [toolSpec, llmSpec];
+  // Fixed length, fixed order, decided here and now — nothing below can change
+  // how many Invocations this Run has, only what positions 2 and 3 contain.
+  return [buildToolSpec(config), llmSpec, reportSpec];
 }

@@ -18,6 +18,7 @@ import {
   text,
   integer,
   boolean,
+  bigserial,
   timestamp,
   jsonb,
   numeric,
@@ -248,6 +249,22 @@ export const events = pgTable(
     eventVersion: integer("event_version").notNull(),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
     sequenceNo: integer("sequence_no").notNull(),
+    // Final-review Finding 3 addition. `sequence_no` above is monotonic ONLY
+    // per `run_id` (Phase 8.1) and remains THE authoritative causal-ordering
+    // field — this column does not replace it and nothing that reasons about
+    // ordering WITHIN one run should use this instead.
+    //
+    // `global_seq` exists for exactly one purpose: a genuinely globally
+    // monotonic value an SSE client can use as a replay/reconnect CURSOR
+    // (Phase 15.3 — the stream is "a delivery mechanism, not a second source
+    // of truth", so resuming needs a position that is total-ordered across
+    // every run, which a per-run counter can never be). `events.id` is a uuid
+    // and therefore not orderable, so a dedicated column is required.
+    //
+    // Assigned by a Postgres sequence, so it is unique and gap-tolerant by
+    // construction — no application-side max+1 computation and no advisory
+    // lock, unlike `sequence_no`.
+    globalSeq: bigserial("global_seq", { mode: "number" }).notNull(),
     causationId: uuid("causation_id"),
     goalId: uuid("goal_id"),
     workflowRunId: uuid("workflow_run_id"),
@@ -274,6 +291,12 @@ export const events = pgTable(
     uniqueIndex("events_run_id_sequence_no_idx")
       .on(table.runId, table.sequenceNo)
       .where(sql`${table.runId} is not null`),
+    // The replay/reconnect cursor is read as `global_seq > N ORDER BY
+    // global_seq ASC` (`../api/routes/events.ts`) — index it, and make the
+    // "globally unique" half of "globally monotonic" a structural DB
+    // invariant rather than something that merely happens to be true because
+    // a sequence currently backs the column.
+    uniqueIndex("events_global_seq_idx").on(table.globalSeq),
   ]
 );
 

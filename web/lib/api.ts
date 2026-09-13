@@ -81,16 +81,20 @@ export type EventDisplayItem = {
   eventId: string;
   eventType: string;
   occurredAt: string;
+  /** Per-`runId` causal order (Phase 8.1). Display/ordering-within-a-run only — NEVER a resume position; see `subscribeToActivity`. */
   sequenceNo: number;
+  /** Globally monotonic across all runs — the value a reconnect resumes from. */
+  eventCursor: number;
   summary: string;
 };
 
-/** The wire shape of one SSE message's `data:` payload — a JSON-serialized `EventEnvelope` (`src/events/types.ts`), independently declared per the note above. Only the fields `toEventDisplayItem` actually uses. */
+/** The wire shape of one SSE message's `data:` payload — a JSON-serialized `WireEventEnvelope` (`src/api/eventEnvelopeRow.ts`), independently declared per the note above. Only the fields `toEventDisplayItem` actually uses. */
 type RawEventEnvelope = {
   eventId: string;
   eventType: string;
   occurredAt: string;
   sequenceNo: number;
+  eventCursor: number;
   payload: Record<string, unknown>;
 };
 
@@ -160,6 +164,7 @@ function toEventDisplayItem(raw: RawEventEnvelope): EventDisplayItem {
     eventType: raw.eventType,
     occurredAt: raw.occurredAt,
     sequenceNo: raw.sequenceNo,
+    eventCursor: raw.eventCursor,
     summary: summarizeEvent(raw),
   };
 }
@@ -167,46 +172,66 @@ function toEventDisplayItem(raw: RawEventEnvelope): EventDisplayItem {
 /**
  * Subscribes to `GET /events/stream`, matching Unit 10's replay-then-live
  * contract exactly. Reconnect (Ruling 5) is handled ENTIRELY inside this
- * function: the last-seen `sequenceNo` is tracked in a closure variable, and
- * on the underlying `EventSource`'s `onerror` (connection dropped), that
+ * function: the resume cursor is tracked in a closure variable, and on the
+ * underlying `EventSource`'s `onerror` (connection dropped), that
  * `EventSource` is explicitly closed and a brand NEW one is opened against
- * `?sinceSequenceNo=<lastSeen>` — the browser's native same-URL
+ * `?sinceEventCursor=<maxSeen>` — the browser's native same-URL
  * auto-reconnect is never relied on, since this endpoint's reconnect
  * contract is the query parameter, not `Last-Event-ID`.
  *
  * This means the interface's caller (e.g. `ActivityFeed`) calls this
  * function exactly ONCE and keeps receiving events across any number of
  * reconnects — the returned unsubscribe function is the only handle it
- * needs. `onEvent`'s (sinceSequenceNo, onEvent) signature has no "connection
+ * needs. The `(sinceEventCursor, onEvent)` signature has no "connection
  * dropped" callback, so there is no way for a CALLER to itself decide when
  * to re-subscribe; ownership of reconnect has to live here.
+ *
+ * ---------------------------------------------------------------------------
+ * Two Finding-3 corrections, both load-bearing
+ * ---------------------------------------------------------------------------
+ * 1. The cursor is `eventCursor` (globally monotonic across every Run), NOT
+ *    the envelope's `sequenceNo` (monotonic only per `run_id` — Phase 8.1).
+ *    A single `POST /goals` creates TWO Runs, and the second Run's events
+ *    start back at `sequenceNo: 1`. Resuming from a per-run counter therefore
+ *    both skipped whole Runs and re-delivered already-rendered events.
+ * 2. `maxSeen`, not "last received". Tracking the last-received value lets
+ *    the cursor be driven BACKWARDS by any event that arrives out of cursor
+ *    order, after which the next reconnect re-replays everything in between —
+ *    and the server's per-connection `sentEventIds` de-dup set cannot catch
+ *    it, because a reconnect is a brand new connection with a brand new,
+ *    empty set, and this client does no de-duplication of its own. Under the
+ *    old per-run `sequenceNo` this regression was routine (every new Run
+ *    restarted at 1); with a global cursor it is rare but still reachable,
+ *    since a sequence guarantees monotonic ASSIGNMENT, not monotonic COMMIT
+ *    order. `Math.max` is correct under both, and never regresses.
  */
-export function subscribeToActivity(sinceSequenceNo: number | null, onEvent: (e: EventDisplayItem) => void): () => void {
+export function subscribeToActivity(sinceEventCursor: number | null, onEvent: (e: EventDisplayItem) => void): () => void {
   let closed = false;
   let currentSource: EventSource | null = null;
-  let lastSeen = sinceSequenceNo ?? 0;
+  let maxSeen = sinceEventCursor ?? 0;
 
   function connect(since: number): void {
     if (closed) return;
 
-    const source = new EventSource(`${API_BASE_URL}/events/stream?sinceSequenceNo=${since}`);
+    const source = new EventSource(`${API_BASE_URL}/events/stream?sinceEventCursor=${since}`);
     currentSource = source;
 
     source.onmessage = (message: MessageEvent<string>) => {
       const raw = JSON.parse(message.data) as RawEventEnvelope;
-      lastSeen = raw.sequenceNo;
+      // The HIGHEST cursor seen so far — never merely the most recent one.
+      maxSeen = Math.max(maxSeen, raw.eventCursor);
       onEvent(toEventDisplayItem(raw));
     };
 
     source.onerror = () => {
       source.close();
       if (!closed) {
-        connect(lastSeen);
+        connect(maxSeen);
       }
     };
   }
 
-  connect(lastSeen);
+  connect(maxSeen);
 
   return () => {
     closed = true;

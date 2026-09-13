@@ -13,11 +13,40 @@
  * SSE replay-then-live de-duplication to be meaningful: de-dup compares
  * `eventId`s, but a UI consuming the stream should never observe two
  * differently-shaped payloads for what is otherwise the same event).
+ *
+ * ---------------------------------------------------------------------------
+ * `eventCursor` — why it lives HERE and not on `EventEnvelope` (Finding 3)
+ * ---------------------------------------------------------------------------
+ * `EventEnvelope` (`../events/types.js`) is the FROZEN Phase 8.1 contract and
+ * carries no cursor; its own header forbids adding fields without amending
+ * the spec first. Nor should it have one: a resume cursor is a DELIVERY
+ * concern, and Phase 15.3 states plainly that the SSE feed is "a delivery
+ * mechanism, not a second source of truth". So the cursor is added at the
+ * WIRE boundary — this mapper — as `WireEventEnvelope`, and the domain
+ * envelope every other module emits and consumes is left untouched.
+ *
+ * Its value is `events.global_seq`, the globally-monotonic column added for
+ * Finding 3. It is deliberately a SEPARATE field from `sequenceNo`, which
+ * stays on the wire unchanged and still means exactly what Phase 8.1 says it
+ * means (monotonic per `run_id`, authoritative for causal ordering WITHIN one
+ * run). Anything resuming a stream must use `eventCursor`; anything ordering
+ * one run's trace must use `sequenceNo`. Conflating the two is the bug this
+ * field exists to make unrepresentable.
  */
 import type { events } from "../db/schema.js";
 import type { EventEnvelope } from "../events/types.js";
 
-export function rowToEventEnvelope(row: typeof events.$inferSelect): EventEnvelope {
+/**
+ * The SSE wire shape: the frozen domain envelope plus the transport-only
+ * replay/reconnect cursor. `web/lib/api.ts`'s `RawEventEnvelope` mirrors the
+ * subset of this that the UI actually reads.
+ */
+export type WireEventEnvelope = EventEnvelope & {
+  /** Globally monotonic across ALL runs — the ONLY sound `?sinceEventCursor=` value. Never per-run; see this module's header. */
+  eventCursor: number;
+};
+
+export function rowToEventEnvelope(row: typeof events.$inferSelect): WireEventEnvelope {
   const hasUsage =
     row.tokensIn !== null || row.tokensOut !== null || row.cacheHit !== null || row.costAmount !== null || row.modelId !== null;
 
@@ -28,6 +57,7 @@ export function rowToEventEnvelope(row: typeof events.$inferSelect): EventEnvelo
     eventVersion: row.eventVersion,
     occurredAt: row.occurredAt,
     sequenceNo: row.sequenceNo,
+    eventCursor: row.globalSeq,
     causationId: row.causationId,
     correlation: {
       goalId: row.goalId,

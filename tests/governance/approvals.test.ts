@@ -14,6 +14,7 @@ import {
   runs,
   invocations,
   approvals,
+  events,
 } from "../../src/db/schema.js";
 import { createApproval, resolveApproval, reauthorize } from "../../src/governance/approvals.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
@@ -216,6 +217,114 @@ describe("resolveApproval", () => {
   it("throws when the approval does not exist", async () => {
     await withRollback(async (tx) => {
       await expect(resolveApproval(tx, randomUUID(), "approved", "reviewer")).rejects.toThrow();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Final-review Finding 1: Phase 9.5's "resolution event recorded" step.
+//
+// Before this fix `approvals.ts` never called `emitEvent` at all, so the
+// Activity feed (Phase 18.1a, "a direct tail of Events") could not show an
+// approval being granted or rejected — the MVP's flagship governance moment
+// was invisible in the one screen designed to surface it.
+// ---------------------------------------------------------------------------
+
+describe("resolveApproval emits the Phase 9.5 resolution event", () => {
+  it("emits exactly one approval_granted (and no approval_rejected) on the approve path, in the same transaction as the status update", async () => {
+    await withRollback(async (tx) => {
+      const { invocation, run } = await seedInvocationChain(tx);
+      const created = await createApproval(tx, invocation.id, { action: "spend" }, "high", 3600);
+
+      await resolveApproval(tx, created.id, "approved", "human:reviewer");
+
+      const resolutionEvents = await tx.query.events.findMany({ where: eq(events.invocationId, invocation.id) });
+      const granted = resolutionEvents.filter((e) => e.eventType === "approval_granted");
+      expect(granted).toHaveLength(1);
+      expect(resolutionEvents.filter((e) => e.eventType === "approval_rejected")).toHaveLength(0);
+
+      // Same transaction as the status update: the row and the event are both
+      // visible on `tx` before it commits.
+      const row = await tx.query.approvals.findFirst({ where: eq(approvals.id, created.id) });
+      expect(row?.status).toBe("approved");
+
+      // Correlation is populated by walking approval -> invocation -> run, so
+      // the Activity feed can attribute the resolution to the right Run.
+      expect(granted[0]!.invocationId).toBe(invocation.id);
+      expect(granted[0]!.runId).toBe(run.id);
+      expect(granted[0]!.taskInstanceId).toBe(run.taskInstanceId);
+      expect(granted[0]!.goalId).toBeNull();
+      expect(granted[0]!.workflowRunId).toBeNull();
+      expect(granted[0]!.causationId).toBeNull();
+
+      expect(granted[0]!.producer).toBe("governance");
+      // The actor genuinely IS the human here — the one place in this codebase
+      // that is true — so it is recorded as such rather than as "system".
+      expect(granted[0]!.actor).toBe("human:reviewer");
+      expect(granted[0]!.eventVersion).toBe(1);
+      // Not an LLM event — no usage/cost columns, exactly like the existing
+      // invocation_* emissions.
+      expect(granted[0]!.tokensIn).toBeNull();
+      expect(granted[0]!.costAmount).toBeNull();
+      expect(granted[0]!.payload).toEqual({
+        approvalId: created.id,
+        riskTier: "high",
+        resolvedBy: "human:reviewer",
+      });
+    });
+  });
+
+  it("emits exactly one approval_rejected (and no approval_granted) on the reject path", async () => {
+    await withRollback(async (tx) => {
+      const { invocation } = await seedInvocationChain(tx);
+      const created = await createApproval(tx, invocation.id, { action: "spend" }, "medium", 3600);
+
+      await resolveApproval(tx, created.id, "rejected", "human:reviewer");
+
+      const resolutionEvents = await tx.query.events.findMany({ where: eq(events.invocationId, invocation.id) });
+      const rejected = resolutionEvents.filter((e) => e.eventType === "approval_rejected");
+      expect(rejected).toHaveLength(1);
+      expect(resolutionEvents.filter((e) => e.eventType === "approval_granted")).toHaveLength(0);
+
+      expect(rejected[0]!.payload).toEqual({
+        approvalId: created.id,
+        riskTier: "medium",
+        resolvedBy: "human:reviewer",
+      });
+    });
+  });
+
+  it("does not double-emit when the same resolution is applied twice (emitEvent idempotency, keyed per approval + decision)", async () => {
+    await withRollback(async (tx) => {
+      const { invocation } = await seedInvocationChain(tx);
+      const created = await createApproval(tx, invocation.id, { action: "spend" }, "low", 3600);
+
+      await resolveApproval(tx, created.id, "approved", "human:reviewer");
+      await resolveApproval(tx, created.id, "approved", "human:reviewer");
+
+      const granted = await tx.query.events.findMany({ where: eq(events.eventType, "approval_granted") });
+      expect(granted).toHaveLength(1);
+    });
+  });
+
+  it("leaves resolveApproval's failure contract unchanged: a missing approval still throws, and that is still the ONLY throw path", async () => {
+    // The correlation lookup added for Finding 1 walks approval ->
+    // invocation -> run. Every link in that chain is NOT NULL and
+    // FK-constrained (`../../src/db/schema.ts`), so it cannot actually break
+    // — but the implementation still degrades to null correlation fields
+    // instead of throwing if one ever did. That is deliberate: emitting the
+    // audit event (Phase 8.7) must never be able to fail a governance
+    // decision that has already been made. This test pins the contract that
+    // matters and is testable — no NEW throw path was introduced.
+    await withRollback(async (tx) => {
+      const { invocation } = await seedInvocationChain(tx);
+      const created = await createApproval(tx, invocation.id, { action: "spend" }, "low", 3600);
+
+      await expect(resolveApproval(tx, randomUUID(), "approved", "human:reviewer")).rejects.toThrow();
+      await expect(resolveApproval(tx, created.id, "approved", "human:reviewer")).resolves.toEqual({
+        id: created.id,
+        status: "approved",
+      });
     });
   });
 });

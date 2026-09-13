@@ -314,6 +314,26 @@ describe("POST /approvals/:id/reject", () => {
     const res = await app.inject({ method: "POST", url: "/approvals/00000000-0000-0000-0000-000000000000/reject", payload: {} });
     expect(res.statusCode).toBe(404);
   });
+
+  it("returns 409 (not a second resolution) when rejecting an approval already resolved by a prior approve (final-review Minor 1)", async () => {
+    const created = await driveToTaskBAwaitingApproval("Double-resolve Goal", "double resolve report content");
+    const approvalId = await findPendingApprovalId(created.workflowRunId);
+
+    const first = await app.inject({ method: "POST", url: `/approvals/${approvalId}/approve`, payload: {} });
+    expect(first.statusCode).toBe(200);
+
+    const second = await app.inject({ method: "POST", url: `/approvals/${approvalId}/reject`, payload: {} });
+    expect(second.statusCode).toBe(409);
+
+    // The approval must still read as "approved" — the rejected 409 call must not have overwritten it.
+    const approvalRow = await testDb.query.approvals.findFirst({ where: eq(schema.approvals.id, approvalId) });
+    expect(approvalRow?.status).toBe("approved");
+
+    // Exactly one resolution event exists for this approval — no approval_rejected was ever emitted.
+    const events = await testDb.query.events.findMany({ where: eq(schema.events.invocationId, approvalRow!.invocationId) });
+    const resolutionEvents = events.filter((e) => e.eventType === "approval_granted" || e.eventType === "approval_rejected");
+    expect(resolutionEvents.map((e) => e.eventType)).toEqual(["approval_granted"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

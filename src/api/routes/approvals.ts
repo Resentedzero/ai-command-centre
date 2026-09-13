@@ -26,18 +26,21 @@ import { runWorkflowMutationAndRelay } from "../liveEventRelay.js";
 type ResolveBody = { resolvedBy?: string };
 
 /** Approval -> Invocation -> Run -> Task Instance -> workflowRunId (Ruling 3's own stated lookup path), read-only, BEFORE any mutation. */
-async function lookupApprovalWorkflowRunId(deps: ApiDeps, approvalId: string): Promise<{ found: true; workflowRunId: string | null } | { found: false }> {
+async function lookupApprovalWorkflowRunId(
+  deps: ApiDeps,
+  approvalId: string
+): Promise<{ found: true; status: string; workflowRunId: string | null } | { found: false }> {
   const approval = await deps.db.query.approvals.findFirst({ where: eq(approvals.id, approvalId) });
   if (!approval) return { found: false };
 
   const invocation = await deps.db.query.invocations.findFirst({ where: eq(invocations.id, approval.invocationId) });
-  if (!invocation) return { found: true, workflowRunId: null };
+  if (!invocation) return { found: true, status: approval.status, workflowRunId: null };
 
   const run = await deps.db.query.runs.findFirst({ where: eq(runs.id, invocation.runId) });
-  if (!run) return { found: true, workflowRunId: null };
+  if (!run) return { found: true, status: approval.status, workflowRunId: null };
 
   const taskInstance = await deps.db.query.taskInstances.findFirst({ where: eq(taskInstances.id, run.taskInstanceId) });
-  return { found: true, workflowRunId: taskInstance?.workflowRunId ?? null };
+  return { found: true, status: approval.status, workflowRunId: taskInstance?.workflowRunId ?? null };
 }
 
 function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "approved" | "rejected", path: string): void {
@@ -48,6 +51,18 @@ function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "ap
     const lookup = await lookupApprovalWorkflowRunId(deps, approvalId);
     if (!lookup.found) {
       return reply.status(404).send({ error: `No approval found for id "${approvalId}"` });
+    }
+
+    // Final-review Minor 1: resolveApproval itself has no status precondition
+    // (deliberately — see its own header on why no new throw path was added
+    // there). A second resolution of an already-resolved Approval must not
+    // reach it at all, or the immutable Event log would record two
+    // contradictory resolution facts for one already-executed-or-cancelled
+    // action. Checked here, read-only, before any mutation — never as a
+    // `.where()` addition on the update itself, which would collapse this
+    // into the unrelated "no approval found" 404 contract.
+    if (lookup.status !== "pending") {
+      return reply.status(409).send({ error: `Approval "${approvalId}" is already resolved (status: "${lookup.status}")` });
     }
 
     if (!lookup.workflowRunId) {

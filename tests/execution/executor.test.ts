@@ -62,6 +62,7 @@ async function seedToolRunFixture(
     grantPermissions?: CapabilityPermission[];
     staticRiskTag?: string;
     trustLevel?: number;
+    maxTrustLevelRequired?: number;
     limitAmount?: string;
     withGrant?: boolean;
   } = {}
@@ -89,7 +90,7 @@ async function seedToolRunFixture(
       agentDefinitionVersion: agentDefinition!.version,
       capabilityId: capability!.id,
       permissions: opts.grantPermissions ?? [permission],
-      maxTrustLevelRequired: 1,
+      maxTrustLevelRequired: opts.maxTrustLevelRequired ?? 1,
       autonomyState: opts.autonomyState ?? "AUTONOMOUS",
     });
   }
@@ -327,6 +328,130 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
 
       const finalRun = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
       expect(finalRun?.status).toBe("failed");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Final-review Finding 1: Phase 9.5's Approval lifecycle must be VISIBLE in
+  // the Activity feed (Phase 18.1a, "a direct tail of Events"). Before this
+  // fix the Executor created the Approval row and halted without emitting
+  // anything at all, so the whole REQUIRE_APPROVAL moment — the MVP's
+  // flagship governance behaviour — left no trace in the event stream.
+  // -------------------------------------------------------------------------
+
+  it("emits approval_required in the same transaction that creates the Approval row, correlated like the other executor events", async () => {
+    await withRollback(async (tx) => {
+      const { runId, taskInstanceId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+        staticRiskTag: "high",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+
+      const outcome = await executeRun(tx, runId, [spec]);
+      expect(outcome).toEqual({ status: "awaiting_approval", runId });
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      expect(approval).toBeDefined();
+
+      const required = await tx.query.events.findMany({ where: eq(schema.events.eventType, "approval_required") });
+      expect(required).toHaveLength(1);
+
+      // Same correlation shape as the invocation_* events this executor
+      // already emits: goalId/workflowRunId null, the rest populated.
+      expect(required[0]!.goalId).toBeNull();
+      expect(required[0]!.workflowRunId).toBeNull();
+      expect(required[0]!.taskInstanceId).toBe(taskInstanceId);
+      expect(required[0]!.runId).toBe(runId);
+      expect(required[0]!.invocationId).toBe(invocation!.id);
+      expect(required[0]!.causationId).toBeNull();
+      expect(required[0]!.actor).toBe("system");
+      expect(required[0]!.producer).toBe("executor");
+      expect(required[0]!.eventVersion).toBe(1);
+
+      // Identifies WHAT is gated, per Phase 9.5 — and the risk tier the
+      // Policy engine actually computed, so the feed can show it without
+      // re-deriving anything.
+      expect(required[0]!.payload).toEqual({
+        approvalId: approval!.id,
+        riskTier: approval!.riskTier,
+        capabilityId,
+        permission,
+      });
+    });
+  });
+
+  it("the ALLOW path never emits approval_required", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "AUTONOMOUS",
+      });
+      await executeRun(tx, runId, [buildToolSpec({ capabilityId, toolBindingId, permission })]);
+
+      const required = await tx.query.events.findMany({ where: eq(schema.events.eventType, "approval_required") });
+      expect(required).toHaveLength(0);
+    });
+  });
+
+  it("orders approval_required / approval_granted / invocation_* correctly by sequenceNo across a full approve-then-resume flow", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+
+      await executeRun(tx, runId, [spec]);
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      await resolveApproval(tx, approval!.id, "approved", "human:reviewer");
+      await executeRun(tx, runId, [spec]);
+
+      // `sequenceNo` is monotonic per runId and authoritative for ordering
+      // (Phase 8.1) — this is exactly the order the Activity feed renders.
+      const runEvents = await tx.query.events.findMany({
+        where: eq(schema.events.runId, runId),
+        orderBy: (e, { asc }) => asc(e.sequenceNo),
+      });
+      expect(runEvents.map((e) => e.eventType)).toEqual([
+        "invocation_started",
+        "approval_required",
+        "approval_granted",
+        "invocation_completed",
+      ]);
+      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4]);
+
+      // The resolution event really is interleaved into the SAME per-run
+      // counter as the invocation events — not a separate, unordered stream.
+      const granted = runEvents.find((e) => e.eventType === "approval_granted");
+      expect(granted!.runId).toBe(runId);
+      expect(granted!.actor).toBe("human:reviewer");
+    });
+  });
+
+  it("orders approval_required / approval_rejected / invocation_failed correctly on the reject path", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+
+      await executeRun(tx, runId, [spec]);
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      await resolveApproval(tx, approval!.id, "rejected", "human:reviewer");
+      await executeRun(tx, runId, [spec]);
+
+      const runEvents = await tx.query.events.findMany({
+        where: eq(schema.events.runId, runId),
+        orderBy: (e, { asc }) => asc(e.sequenceNo),
+      });
+      expect(runEvents.map((e) => e.eventType)).toEqual([
+        "invocation_started",
+        "approval_required",
+        "approval_rejected",
+        "invocation_failed",
+      ]);
+      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4]);
     });
   });
 
@@ -675,6 +800,101 @@ describe("tool invocation DENY / insufficient budget", () => {
       expect(Number(counter!.reservedAmount)).toBe(0);
       expect(Number(counter!.consumedAmount)).toBe(0);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5b. Final-review Finding 2: the Grant's trust bar, enforced end-to-end
+// through the real executor path (no mocked Policy).
+// ---------------------------------------------------------------------------
+
+describe("tool invocation trust-level enforcement (Finding 2)", () => {
+  it("a binding BELOW the Grant's maxTrustLevelRequired fails the invocation and Run, without reserving budget", async () => {
+    const budgetSpy = vi.spyOn(budgetModule, "reserveBudget");
+    try {
+      await withRollback(async (tx) => {
+        const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+          autonomyState: "AUTONOMOUS",
+          trustLevel: 0, // unverified_third_party
+          maxTrustLevelRequired: 1, // Grant demands at least verified
+        });
+        const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+        const outcome = await executeRun(tx, runId, [spec]);
+
+        expect(outcome).toEqual({ status: "failed", runId });
+        expect(spec.execute).not.toHaveBeenCalled();
+
+        const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+        expect(invocation?.status).toBe("failed");
+        const failedEvent = await tx.query.events.findFirst({
+          where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_failed")),
+        });
+        expect(failedEvent?.payload).toMatchObject({ reason: "policy_denied" });
+      });
+      expect(budgetSpy).not.toHaveBeenCalled();
+    } finally {
+      budgetSpy.mockRestore();
+    }
+  });
+
+  it("an unverified binding whose bar IS met halts for approval instead of executing autonomously", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "AUTONOMOUS",
+        trustLevel: 0,
+        maxTrustLevelRequired: 0, // bar met, so the DENY rule cannot be what fires
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+      const outcome = await executeRun(tx, runId, [spec]);
+
+      expect(outcome).toEqual({ status: "awaiting_approval", runId });
+      expect(spec.execute).not.toHaveBeenCalled();
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({
+        where: eq(schema.approvals.invocationId, invocation!.id),
+      });
+      expect(approval?.status).toBe("pending");
+    });
+  });
+
+  it("the trust values Policy receives come from the tool_bindings/capability_grants rows, never from the proposed action snapshot", async () => {
+    const policySpy = vi.spyOn(policyModule, "evaluatePolicy");
+    try {
+      await withRollback(async (tx) => {
+        const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+          autonomyState: "AUTONOMOUS",
+          trustLevel: 0,
+          maxTrustLevelRequired: 1,
+        });
+        // The snapshot is the only evaluatePolicy input a model's output can
+        // reach. Here it lies in every direction at once: maximal binding
+        // trust, a zero bar, and a first_party classification.
+        const spec = buildToolSpec({
+          capabilityId,
+          toolBindingId,
+          permission,
+          proposedActionSnapshot: {
+            action: "do-thing",
+            trustLevel: "first_party",
+            bindingTrustLevel: 9_000,
+            maxTrustLevelRequired: 0,
+          },
+        });
+        const outcome = await executeRun(tx, runId, [spec]);
+        expect(outcome).toEqual({ status: "failed", runId });
+
+        expect(policySpy).toHaveBeenCalledTimes(1);
+        const received = policySpy.mock.calls[0]![1];
+        // Server-resolved row values won, verbatim — not the snapshot's claims.
+        expect(received.bindingTrustLevel).toBe(0);
+        expect(received.trustLevel).toBe("unverified_third_party");
+        expect(received.grant?.maxTrustLevelRequired).toBe(1);
+        expect(await policySpy.mock.results[0]!.value).toMatchObject({ decision: "DENY" });
+      });
+    } finally {
+      policySpy.mockRestore();
+    }
   });
 });
 

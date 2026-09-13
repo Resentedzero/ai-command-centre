@@ -24,6 +24,25 @@
  * ("failed"/"completed") so a call after the Run is already finished is a
  * cheap no-op read rather than re-walking every spec.
  *
+ * Deferred spec positions (final-review Finding 4): `invocationSpecs` accepts
+ * `PlannedInvocationSpec[]` — each position is EITHER a ready-made
+ * `InvocationSpec` or a thunk resolved by `resolvePlannedSpec` below
+ * immediately before that position is processed, against the artifact ids this
+ * Run's EARLIER Invocations actually produced. That is the only way to satisfy
+ * Phase 5.8 ("a prior Tool Invocation's structured output becomes a new
+ * high-priority candidate for the next compilation"), since the whole plan is
+ * otherwise materialized before the Run's first Invocation runs. It replaced a
+ * capability module calling `executeRun` twice and reverting `runs.status`
+ * in between to defeat the re-entry guard above.
+ *
+ * What this deliberately does NOT do: the plan's LENGTH and ORDER remain fixed
+ * by the caller before `executeRun` starts, so a thunk changes WHAT an
+ * already-decided position is, never WHETHER or HOW MANY positions exist.
+ * Workflow topology stays the Workflow Interpreter's deterministic decision,
+ * and this module gains no topology, capability, policy, or context-compilation
+ * logic (Phase 4) — it passes opaque ids through and never reads an artifact's
+ * content.
+ *
  * Reservation bookkeeping across the awaiting_approval halt (a gap the
  * brief's interfaces don't cover): Unit 2's `budget.ts` states explicitly
  * there is no reservations ledger table — a `reservationId` is a
@@ -39,9 +58,11 @@
  * anything extra there would break material-change detection.
  */
 import { isDeepStrictEqual } from "node:util";
-import { and, eq } from "drizzle-orm";
-import { approvals, invocations, runs } from "../db/schema.js";
+import { and, asc, eq, lt } from "drizzle-orm";
+import { approvals, artifacts, invocations, runs } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
+import { emitEvent } from "../events/emit.js";
+import type { ApprovalRequiredPayload } from "../events/types.js";
 import { NOOP_RESERVATION_ID, reconcileBudget, releaseReservation, reserveBudget } from "../governance/budget.js";
 import { createApproval, reauthorize } from "../governance/approvals.js";
 import { compileContext } from "../context/compiler.js";
@@ -58,7 +79,10 @@ import { persistInvocationResultAsArtifact } from "./invocationResults.js";
 import type {
   DeterministicInvocationSpec,
   InvocationSpec,
+  InvocationSpecContext,
   LlmInvocationSpec,
+  PlannedInvocationSpec,
+  PriorInvocationArtifact,
   RetrievalInvocationSpec,
   RunOutcome,
   ToolInvocationSpec,
@@ -223,14 +247,18 @@ async function processToolSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: nu
 
   // Steps 2-3: resolve Grant, resolve Tool Binding's trustLevel.
   const grant = await resolveCapabilityGrant(tx, { runId, capabilityId: spec.capabilityId, permission: spec.permission });
-  const trustLevel = await resolveToolBindingTrustLevel(tx, spec.toolBindingId);
+  const { trustLevel, bindingTrustLevel } = await resolveToolBindingTrustLevel(tx, spec.toolBindingId);
 
-  // Step 4: evaluatePolicy.
+  // Step 4: evaluatePolicy. Both trust values come from the tool_bindings row
+  // resolved above, and the Grant's bar from the capability_grants row — never
+  // from `spec.proposedActionSnapshot`, which is the only input here a model's
+  // output can reach (Finding 2).
   const { decision, riskTier } = await authorizeInvocation(tx, {
     grant,
     permission: spec.permission,
     proposedActionSnapshot: spec.proposedActionSnapshot,
     trustLevel,
+    bindingTrustLevel,
   });
 
   // Step 5: DENY fails this invocation AND the whole Run.
@@ -254,7 +282,47 @@ async function processToolSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: nu
   }
 
   // Step 8: REQUIRE_APPROVAL -> create Approval, halt at awaiting_approval.
-  await createApproval(tx, invocationId, spec.proposedActionSnapshot, riskTier, APPROVAL_TTL_SECONDS);
+  //
+  // Final-review Finding 1: `approval_required` is emitted in the SAME
+  // transaction that creates the Approval row — Phase 9.5's "Approval
+  // created ... status: pending" step, which previously left no trace at all
+  // in the event stream, making the whole REQUIRE_APPROVAL halt invisible to
+  // the Activity feed (Phase 18.1a, "a direct tail of Events"). Envelope
+  // conventions are identical to this unit's other emissions (see
+  // `./invocationLifecycle.ts`): eventVersion 1, causationId null, usage
+  // null, `<eventType>:<id>` idempotency key, goalId/workflowRunId null,
+  // actor "system", producer "executor". Unlike the resolution events
+  // (`../governance/approvals.ts`), the actor here really is the system — no
+  // human has acted yet; that is the entire point of the halt.
+  //
+  // The payload names WHAT is gated (capability + permission) and the risk
+  // tier Policy actually computed, so the feed can render the decision
+  // without re-deriving any of it — Phase 9.5 requires the exact action be
+  // identifiable, never just a category.
+  const approval = await createApproval(tx, invocationId, spec.proposedActionSnapshot, riskTier, APPROVAL_TTL_SECONDS);
+  const approvalRequiredPayload: ApprovalRequiredPayload = {
+    approvalId: approval.id,
+    riskTier,
+    capabilityId: spec.capabilityId,
+    permission: spec.permission,
+  };
+  await emitEvent(tx, {
+    idempotencyKey: `approval_required:${approval.id}`,
+    eventType: "approval_required",
+    eventVersion: 1,
+    causationId: null,
+    correlation: {
+      goalId: null,
+      workflowRunId: null,
+      taskInstanceId: runRow.taskInstanceId,
+      runId,
+      invocationId,
+    },
+    actor: "system",
+    producer: "executor",
+    payload: approvalRequiredPayload,
+    usage: null,
+  });
   await tx.update(invocations).set({ status: "awaiting_approval" }).where(eq(invocations.id, invocationId));
   await savePendingReservation(tx, runId, seqNo, reservation.reservationId);
   await tx.update(runs).set({ status: "awaiting_approval" }).where(eq(runs.id, runId));
@@ -553,6 +621,58 @@ async function processGenericSpec(
 // executeRun
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Deferred spec resolution (final-review Finding 4) — see ./types.ts's
+// `DeferredInvocationSpec` for the contract and the architectural bounds.
+// ---------------------------------------------------------------------------
+
+/**
+ * The Run's own ledger of what its EARLIER Invocations produced (Phase 3a: "a
+ * container/ledger holding an ordered sequence of Invocations"; Phase 5.6's Run
+ * State: "only prior Invocation outputs within this Run").
+ *
+ * Generic and capability-agnostic by construction: it selects ids for one
+ * `runId` below one `seqNo` and interprets nothing. The Executor never reads an
+ * artifact's content — Phase 5.5 leaves reference-vs-content to the Context
+ * Compiler, and Phase 4 keeps context compilation out of this module.
+ *
+ * Ordering is `invocations.seqNo` (Phase 3e's authoritative causal order) with
+ * `artifacts.id` as a stable tiebreak for the case of one Invocation producing
+ * several artifacts. Deliberately NOT `artifacts.createdAt`: that column is
+ * `defaultNow()` and Postgres `now()` is transaction-stable, so every artifact
+ * written inside one transaction (which is how this whole codebase's tests, and
+ * one `advanceWorkflowRun` call, run) carries an identical timestamp.
+ */
+async function collectPriorArtifacts(tx: DrizzleTransaction, runId: string, seqNo: number): Promise<PriorInvocationArtifact[]> {
+  return tx
+    .select({ seqNo: invocations.seqNo, invocationId: invocations.id, artifactId: artifacts.id })
+    .from(artifacts)
+    .innerJoin(invocations, eq(artifacts.producingInvocationId, invocations.id))
+    .where(and(eq(invocations.runId, runId), lt(invocations.seqNo, seqNo)))
+    .orderBy(asc(invocations.seqNo), asc(artifacts.id));
+}
+
+/**
+ * Resolves one plan position to a concrete spec, building the resolution
+ * context lazily — the join above runs only for a position that is actually
+ * deferred AND actually needs processing.
+ *
+ * `typeof planned === "function"` is a safe discriminator: all four
+ * `InvocationSpec` variants are object literals, and `execute` is a PROPERTY of
+ * a spec, never the spec itself. (Worth stating explicitly — it is a
+ * structural-typing judgement rather than a tagged-union check.)
+ */
+async function resolvePlannedSpec(
+  tx: DrizzleTransaction,
+  runId: string,
+  seqNo: number,
+  planned: PlannedInvocationSpec
+): Promise<InvocationSpec> {
+  if (typeof planned !== "function") return planned;
+  const ctx: InvocationSpecContext = { priorArtifacts: await collectPriorArtifacts(tx, runId, seqNo) };
+  return planned(ctx);
+}
+
 function assertToolSpec(spec: InvocationSpec): asserts spec is ToolInvocationSpec {
   if (spec.kind !== "tool") {
     throw new Error(`executeRun: expected a "tool" spec while resuming an awaiting_approval invocation, got "${spec.kind}".`);
@@ -574,7 +694,7 @@ async function processFreshSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: n
 export async function executeRun(
   tx: DrizzleTransaction,
   runId: string,
-  invocationSpecs: InvocationSpec[]
+  invocationSpecs: PlannedInvocationSpec[]
 ): Promise<RunOutcome> {
   const runRow = await tx.query.runs.findFirst({ where: eq(runs.id, runId) });
   if (!runRow) {
@@ -587,7 +707,7 @@ export async function executeRun(
 
   for (let i = 0; i < invocationSpecs.length; i++) {
     const seqNo = i + 1;
-    const spec = invocationSpecs[i]!;
+    const planned = invocationSpecs[i]!;
 
     const existing = await tx.query.invocations.findFirst({
       where: and(eq(invocations.runId, runId), eq(invocations.seqNo, seqNo)),
@@ -595,9 +715,16 @@ export async function executeRun(
 
     if (existing) {
       if (existing.status === "completed") {
-        continue; // never re-execute an already-completed invocation
+        // Never re-execute an already-completed invocation — and note this
+        // `continue` comes BEFORE any deferred-spec resolution, so a completed
+        // position's thunk is never called either. That ordering is what keeps
+        // the deferred-spec primitive incapable of defeating either re-entry
+        // guard (this one, or the terminal `runs.status` check above); it is
+        // pinned by tests/execution/deferredInvocationSpecs.test.ts.
+        continue;
       }
       if (existing.status === "awaiting_approval") {
+        const spec = await resolvePlannedSpec(tx, runId, seqNo, planned);
         assertToolSpec(spec); // only "tool" specs ever reach awaiting_approval
         const outcome = await resumeToolSpec(tx, runRow, seqNo, spec, existing);
         if (outcome.status !== "completed") return outcome;
@@ -613,6 +740,7 @@ export async function executeRun(
       );
     }
 
+    const spec = await resolvePlannedSpec(tx, runId, seqNo, planned);
     const outcome = await processFreshSpec(tx, runRow, seqNo, spec);
     if (outcome.status !== "completed") return outcome;
   }

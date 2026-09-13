@@ -21,6 +21,13 @@
  *     created since I looked?") would silently miss an entire new Run's
  *     events whenever its `sequenceNo`s happen to be <= the last global
  *     value observed — scoping per-`runId` is the only sound choice.
+ *     (The final whole-branch review's Finding 3 confirmed this reasoning
+ *     empirically: `./routes/events.ts`'s REPLAY path had not followed it and
+ *     really did compare one global watermark against this per-run counter.
+ *     That path now uses `events.global_seq` instead. This relay's own
+ *     watermark diff is unaffected and stays per-`runId` — it asks "what did
+ *     THIS transaction just add to THIS run?", which is a genuinely per-run
+ *     question, unlike "where should a client resume the whole stream?")
  *
  * Scoped per-WORKFLOW-RUN (enumerate every `runs` row under it), NOT per a
  * single known `runs` row — deliberately, and this is load-bearing, not
@@ -63,8 +70,14 @@
  * try/catch around the enumeration/publish loop below: any error there is
  * logged and swallowed, and the caller still gets back the successful
  * `result`. The affected events are not lost — Postgres already has them
- * durably, and the next SSE reconnect's replay (`../routes/events.ts`)
+ * durably, and the next SSE reconnect's replay (`./routes/events.ts`)
  * picks them up from there; only the LIVE delivery of them was delayed.
+ *
+ * The rows that diff finds are published via `./eventEnvelopeRow.ts`'s
+ * `rowToEventEnvelope`, so every live event carries the same `eventCursor` a
+ * replayed copy of it would (Finding 3) — without which a client that only
+ * ever received an event live would have no valid position to resume from
+ * after a drop.
  */
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { events, runs, taskInstances } from "../db/schema.js";

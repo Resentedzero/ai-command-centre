@@ -149,7 +149,7 @@ import { goals, runs, taskInstances, workflowDefinitions, workflowRuns } from ".
 import type { DrizzleTransaction } from "../events/emit.js";
 import { createWorkflowTaskInstance } from "../execution/taskInstance.js";
 import { executeRun } from "../execution/executor.js";
-import type { InvocationSpec, RunOutcome } from "../execution/types.js";
+import type { PlannedInvocationSpec, RunOutcome } from "../execution/types.js";
 import { isLinearGraphDefinition, type LinearGraphDefinition } from "./graphTypes.js";
 
 /**
@@ -159,13 +159,23 @@ import { isLinearGraphDefinition, type LinearGraphDefinition } from "./graphType
  * Instance, produces the `InvocationSpec[]` Unit 6's `executeRun` will run.
  * MUST be deterministic/idempotent for the same inputs (called again,
  * unchanged, on every resume of an `awaiting_approval` step).
+ *
+ * Returns `PlannedInvocationSpec[]`, not `InvocationSpec[]` (final-review
+ * Finding 4): an individual position may be a thunk the Executor resolves
+ * against earlier positions' actual Artifact ids — see
+ * `../execution/types.js`'s `DeferredInvocationSpec`. This widening is a
+ * CONSEQUENCE of the Executor's parameter type, not a change to this module's
+ * role: the builder is still called exactly ONCE per step, still returns that
+ * step's whole plan up front, and the plan's length and order are still fixed
+ * before `executeRun` runs. Nothing about WHICH steps run, or in what order,
+ * moves out of this module.
  */
 export type InvocationSpecBuilder = (params: {
   taskDefinitionId: string;
   taskDefinitionVersion: number;
   taskInstanceId: string;
   input: Record<string, unknown>;
-}) => Promise<InvocationSpec[]>;
+}) => Promise<PlannedInvocationSpec[]>;
 
 type AdvanceResult = { status: "in_progress" | "completed" | "failed" | "paused" };
 type WorkflowRunRow = typeof workflowRuns.$inferSelect;

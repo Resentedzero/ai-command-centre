@@ -52,6 +52,17 @@ export type CapabilityGrant = {
   agentDefinitionVersion: number;
   capabilityId: string;
   permissions: CapabilityPermission[];
+  /**
+   * Phase 9.2's `max_trust_level_required` (`capability_grants`): the Grant's
+   * declared MINIMUM `tool_bindings.trust_level` — the trust bar a binding
+   * must clear for this Grant to authorize it at all. Same integer space as
+   * `tool_bindings.trust_level`; higher is more trusted (see
+   * `../execution/invocationLifecycle.ts`'s `mapTrustLevel`). Required, not
+   * optional: the column is NOT NULL, so every Grant value carries a bar, and
+   * making it required means every construction site is a compile error until
+   * it supplies one — no Grant can silently reach Policy with "no bar".
+   */
+  maxTrustLevelRequired: number;
   autonomyState: "ALWAYS_APPROVE" | "CONDITIONAL" | "AUTONOMOUS";
 };
 
@@ -135,9 +146,68 @@ function readIsNovelAction(snapshot: Record<string, unknown>): boolean {
 }
 
 /**
+ * Does the binding clear the Grant's declared trust bar (Phase 6 / 9.2)?
+ *
+ * Both values are raw integers straight off their respective rows
+ * (`tool_bindings.trust_level`, `capability_grants.max_trust_level_required`),
+ * so this comparison needs no knowledge of the integer -> category mapping and
+ * cannot drift from it. Fails closed on anything non-finite — an unreadable
+ * trust level is never read as "trusted enough", matching this module's
+ * existing `readAmountOrScope`/`readIsNovelAction` convention of refusing to
+ * silently default toward less governance.
+ */
+function meetsGrantTrustBar(bindingTrustLevel: number, maxTrustLevelRequired: number): boolean {
+  if (!Number.isFinite(bindingTrustLevel) || !Number.isFinite(maxTrustLevelRequired)) {
+    return false;
+  }
+  return bindingTrustLevel >= maxTrustLevelRequired;
+}
+
+/**
  * Inputs deliberately exclude budget state. Reads autonomyState generically:
  * ALWAYS_APPROVE -> REQUIRE_APPROVAL; CONDITIONAL -> REQUIRE_APPROVAL for V1
  * (performance-driven relaxation deferred, Phase 18.1); AUTONOMOUS -> ALLOW.
+ *
+ * Final-review Finding 2 — trust level is now an ACTED-ON input, not just a
+ * risk-computation factor. Two rules, both funnelled through this function's
+ * existing `ALLOW | DENY | REQUIRE_APPROVAL` contract (never a side-channel
+ * gate that runs before or after Policy; Phase 9.3's "never a substitute for
+ * Policy/Approval gating" applied to trust exactly as it is to risk):
+ *
+ *   1. Binding below the Grant's `maxTrustLevelRequired` -> DENY. Phase 9.3
+ *      defines DENY as "the Grant doesn't cover the action at all (a
+ *      configuration fact, not a judgment call)" — a Grant that declares a bar
+ *      the binding does not clear does not cover that binding, and the two
+ *      stored integers make it a fact rather than a judgment. Placed with the
+ *      other DENY paths, above the snapshot reads and the capability lookup,
+ *      so it keeps their structural property: it never touches `tx` and never
+ *      reaches risk computation.
+ *
+ *   2. An `unverified_third_party` binding is never ALLOW -> escalate to
+ *      REQUIRE_APPROVAL. Phase 6: "REQUIRE_APPROVAL on first use per
+ *      capability; never eligible for autonomous EXECUTE-class permissions
+ *      until explicitly upgraded". Deliberately stricter than the letter of
+ *      that sentence in two directions, both fail-closed: it applies on EVERY
+ *      use, not just the first (a strict superset of the requirement that
+ *      needs no first-use state, and therefore no new query, inside Policy),
+ *      and to every permission type generically rather than via an
+ *      EXECUTE-specific branch (this module's standing rule: `evaluatePolicy`
+ *      reads `autonomyState` generically and carries no permission-type
+ *      branch). The escalation is one-directional — it can only turn ALLOW
+ *      into REQUIRE_APPROVAL, never relax a REQUIRE_APPROVAL into ALLOW.
+ *
+ * Trust only ever narrows what a Grant authorizes. There is no path by which a
+ * higher trust level adds a permission, promotes an autonomyState, or relaxes
+ * Phase 9.4's structural ceiling — those remain `validateCapabilityGrant`'s
+ * and the `permissions[]` check's business, enforced independently.
+ *
+ * `bindingTrustLevel` (raw integer) and `trustLevel` (the three-category
+ * classification) are two projections of ONE source of truth — the
+ * `tool_bindings` row — and callers derive both from a single read of that row
+ * (`resolveToolBindingTrustLevel`), which is what keeps them consistent by
+ * construction. Neither is derivable from, or influenceable by, anything a
+ * model produced: `proposedActionSnapshot` is the only model-reachable input
+ * here, and nothing in this function reads a trust value out of it.
  */
 export async function evaluatePolicy(
   tx: DrizzleTransaction,
@@ -146,15 +216,28 @@ export async function evaluatePolicy(
     permission: CapabilityPermission;
     proposedActionSnapshot: Record<string, unknown>;
     trustLevel: "first_party" | "verified_third_party" | "unverified_third_party";
+    /**
+     * The resolved Tool Binding's raw `tool_bindings.trust_level`, read
+     * server-side from the binding row — the same row `trustLevel` above is
+     * classified from. Compared against the Grant's own
+     * `maxTrustLevelRequired`.
+     */
+    bindingTrustLevel: number;
   }
 ): Promise<{ decision: PolicyDecision; riskTier: RiskTier }> {
-  const { grant, permission, proposedActionSnapshot, trustLevel } = input;
+  const { grant, permission, proposedActionSnapshot, trustLevel, bindingTrustLevel } = input;
 
   if (grant === null) {
     return { decision: "DENY", riskTier: NO_RISK_COMPUTED };
   }
 
   if (!grant.permissions.includes(permission)) {
+    return { decision: "DENY", riskTier: NO_RISK_COMPUTED };
+  }
+
+  // Rule 1 (see header): the Grant declares a trust bar this binding does not
+  // clear, so the Grant does not cover this action — a configuration fact.
+  if (!meetsGrantTrustBar(bindingTrustLevel, grant.maxTrustLevelRequired)) {
     return { decision: "DENY", riskTier: NO_RISK_COMPUTED };
   }
 
@@ -175,7 +258,13 @@ export async function evaluatePolicy(
     trustLevel,
   });
 
-  const decision: PolicyDecision = grant.autonomyState === "AUTONOMOUS" ? "ALLOW" : "REQUIRE_APPROVAL";
+  const autonomyDecision: PolicyDecision = grant.autonomyState === "AUTONOMOUS" ? "ALLOW" : "REQUIRE_APPROVAL";
+
+  // Rule 2 (see header): an unverified binding is never autonomously ALLOWed.
+  // One-directional — the only transition this can make is ALLOW ->
+  // REQUIRE_APPROVAL.
+  const decision: PolicyDecision =
+    autonomyDecision === "ALLOW" && trustLevel === "unverified_third_party" ? "REQUIRE_APPROVAL" : autonomyDecision;
 
   return { decision, riskTier };
 }

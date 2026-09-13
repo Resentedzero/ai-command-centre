@@ -12,10 +12,17 @@
  *
  * Each `it()` gets a FRESH, empty `events` table (`resetTestSchema()` in
  * `beforeEach`) rather than sharing one across the file: this route's
- * Postgres replay query is intentionally GLOBAL (`sequenceNo > N`, no
- * `runId` scoping — see `../../src/api/routes/events.ts`'s header for why
- * that is the documented MVP scope), so two tests sharing one events table
- * would otherwise contaminate each other's `sequenceNo` ranges.
+ * Postgres replay query is global (`globalSeq > N` — see
+ * `../../src/api/routes/events.ts`'s header), so two tests sharing one
+ * events table would otherwise contaminate each other's cursor ranges.
+ * `resetTestSchema()` drops the `public` schema outright, which drops the
+ * `events_global_seq_seq` sequence with it, so every test's cursors really
+ * do start back at 1.
+ *
+ * Final-review Finding 3 (see the last two `describe` blocks): the replay
+ * cursor is `globalSeq`, a genuinely globally-monotonic column, NOT the
+ * per-`runId` `sequenceNo`. The two-run tests at the bottom of this file are
+ * regression tests for the exact bug that distinction fixes.
  *
  * The mid-replay race is driven through `sseTestHooks.afterReplayRow`
  * (`../../src/api/routes/events.ts`) — a deterministic synchronization seam,
@@ -36,6 +43,7 @@ import { events } from "../../src/db/schema.js";
 import { emitEvent } from "../../src/events/emit.js";
 import type { EventEnvelope } from "../../src/events/types.js";
 import { publishLiveEvent } from "../../src/api/eventBus.js";
+import { rowToEventEnvelope } from "../../src/api/eventEnvelopeRow.js";
 import { buildServer } from "../../src/api/server.js";
 import { sseTestHooks } from "../../src/api/routes/events.js";
 
@@ -107,34 +115,106 @@ async function seedEvents(count: number): Promise<void> {
   });
 }
 
-/** Mirrors what `../../src/api/liveEventRelay.ts` does in production: publish only AFTER the emitting transaction has committed. */
-async function emitAndPublishLive(n: number): Promise<EventEnvelope> {
+/**
+ * Mirrors what `../../src/api/liveEventRelay.ts` does in production: publish
+ * only AFTER the emitting transaction has committed, and publish the envelope
+ * produced by re-reading the committed ROW through `rowToEventEnvelope` —
+ * not `emitEvent`'s own return value.
+ *
+ * Finding 3 note: that re-read is now load-bearing rather than cosmetic.
+ * `emitEvent` returns a plain `EventEnvelope` (Unit 1, frozen — it has no
+ * `eventCursor`), while the live/replay WIRE envelope carries the cursor;
+ * only `rowToEventEnvelope` produces the latter. Publishing `emitEvent`'s
+ * return value directly, as this helper used to, would put a cursor-less
+ * envelope on the live bus — which is precisely the divergence between the
+ * live path and the replay path that this test file exists to catch.
+ */
+async function emitAndPublishLive(n: number, runId: string | null = null): Promise<EventEnvelope> {
   const envelope = await testDb.transaction((tx) =>
     emitEvent(tx, {
       idempotencyKey: `sse-live-${n}-${randomUUID()}`,
       eventType: "test_live_event",
       eventVersion: 1,
       causationId: null,
-      correlation: { goalId: null, workflowRunId: null, taskInstanceId: null, runId: null, invocationId: null },
+      correlation: { goalId: null, workflowRunId: null, taskInstanceId: null, runId, invocationId: null },
       actor: "system",
       producer: "test",
       payload: { n },
       usage: null,
     })
   );
-  publishLiveEvent(envelope);
+  const row = await testDb.query.events.findFirst({ where: eq(events.id, envelope.eventId) });
+  publishLiveEvent(rowToEventEnvelope(row!));
   return envelope;
 }
 
 /** The strong "no duplication, nothing missing" check: the client's received count must equal the DB's own count of everything past the cursor, not merely "nothing more arrived within a timeout." */
-async function countEventsSince(sinceSequenceNo: number): Promise<number> {
-  const rows = await testDb.select({ id: events.id }).from(events).where(gt(events.sequenceNo, sinceSequenceNo));
+async function countEventsSince(sinceEventCursor: number): Promise<number> {
+  const rows = await testDb.select({ id: events.id }).from(events).where(gt(events.globalSeq, sinceEventCursor));
   return rows.length;
+}
+
+/** The `globalSeq` cursor Postgres actually assigned to a committed event — the value a client would resume from. */
+async function cursorOf(eventId: string): Promise<number> {
+  const row = await testDb.query.events.findFirst({ where: eq(events.id, eventId) });
+  if (!row) throw new Error(`cursorOf: no events row for id "${eventId}"`);
+  return row.globalSeq;
+}
+
+/** One FK-valid `runs` row (project -> taskDefinition -> taskInstance -> run), so events can carry a real, non-null `runId`. */
+async function seedRunChain(label: string): Promise<string> {
+  return testDb.transaction(async (tx) => {
+    const [project] = await tx.insert(schema.projects).values({ name: `sse-project-${label}` }).returning();
+    const [taskDefinition] = await tx
+      .insert(schema.taskDefinitions)
+      .values({ name: `sse-task-${label}`, kind: "standalone", version: 1 })
+      .returning();
+    const [taskInstance] = await tx
+      .insert(schema.taskInstances)
+      .values({
+        taskDefinitionId: taskDefinition!.id,
+        taskDefinitionVersion: 1,
+        projectId: project!.id,
+        status: "pending",
+      })
+      .returning();
+    const [run] = await tx.insert(schema.runs).values({ taskInstanceId: taskInstance!.id, status: "active" }).returning();
+    return run!.id;
+  });
+}
+
+/**
+ * Emits `count` events correlated to `runId`. Each run gets its OWN
+ * `sequenceNo` counter starting back at 1 (Phase 8.1, `emitEvent`'s
+ * documented per-`runId` scoping) — which is exactly the precondition
+ * Finding 3's bug depends on.
+ */
+async function seedRunEvents(runId: string, count: number): Promise<EventEnvelope[]> {
+  return testDb.transaction(async (tx) => {
+    const emitted: EventEnvelope[] = [];
+    for (let i = 1; i <= count; i++) {
+      emitted.push(
+        await emitEvent(tx, {
+          idempotencyKey: `sse-run-${runId}-${i}`,
+          eventType: "test_run_event",
+          eventVersion: 1,
+          causationId: null,
+          correlation: { goalId: null, workflowRunId: null, taskInstanceId: null, runId, invocationId: null },
+          actor: "system",
+          producer: "test",
+          payload: { n: i },
+          usage: null,
+        })
+      );
+    }
+    return emitted;
+  });
 }
 
 type ParsedMessage = {
   eventId: string;
   sequenceNo: number;
+  eventCursor: number;
   eventType: string;
   correlation: { runId: string | null; workflowRunId: string | null; taskInstanceId: string | null; invocationId: string | null };
   payload: Record<string, unknown>;
@@ -203,11 +283,22 @@ class SseClient {
 // Tests
 // ---------------------------------------------------------------------------
 
+// NOTE on the two `seedEvents(10)` suites below: they emit every event with
+// `runId: null`, i.e. into `emitEvent`'s single shared "no run" bucket, so
+// each event's per-run `sequenceNo` and its global `eventCursor` coincide
+// (1..10) on a freshly reset schema. Their `sequenceNo` assertions are
+// therefore still exactly as meaningful as before Finding 3's fix; only the
+// query-parameter NAME changed (`sinceSequenceNo` -> `sinceEventCursor`),
+// which is a mechanical adaptation to the renamed route contract, not a
+// relaxation of what these two tests prove. The genuinely cross-run cases —
+// where the two values diverge and the old behaviour was wrong — are the two
+// new suites at the bottom of this file.
+
 describe("GET /events/stream — replay then live (simple case)", () => {
-  it("replays events 6-10 for sinceSequenceNo=5, then delivers a new live event exactly once", async () => {
+  it("replays events 6-10 for sinceEventCursor=5, then delivers a new live event exactly once", async () => {
     await seedEvents(10);
 
-    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceSequenceNo=5`);
+    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=5`);
     try {
       await client.waitForCount(5);
       expect(client.events.map((e) => e.sequenceNo)).toEqual([6, 7, 8, 9, 10]);
@@ -247,7 +338,7 @@ describe("GET /events/stream — mid-replay race (subscribe-then-query correctne
       }
     };
 
-    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceSequenceNo=5`);
+    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=5`);
     try {
       await client.waitForCount(6); // 6,7,8,9,10 replayed + 11 delivered live, flushed after replay
       expect(client.events.map((e) => e.sequenceNo)).toEqual([6, 7, 8, 9, 10, 11]);
@@ -287,7 +378,7 @@ describe("GET /events/stream — real relay path (runWorkflowMutationAndRelay, n
     await testDb.transaction((tx) => seedPublishWorkflow(tx));
     mockLlmOnce("live relay path report");
 
-    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceSequenceNo=0`);
+    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=0`);
     try {
       const goalRes = await fetch(`${baseUrl}/goals`, {
         method: "POST",
@@ -341,6 +432,113 @@ describe("GET /events/stream — real relay path (runWorkflowMutationAndRelay, n
       }
     } finally {
       client.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Final-review Finding 3: the replay cursor must be globally monotonic, NOT
+// the per-`runId` `sequenceNo`.
+//
+// Both suites below seed TWO runs, each with its own `sequenceNo` counter
+// restarting at 1 — the situation a single `POST /goals` really produces (one
+// request drives `advanceWorkflowRunUntilBlocked`, which creates Task A's run
+// AND Task B's run). Against the old `gt(events.sequenceNo, N)` replay query
+// these fail outright; they are regression tests for that exact query, not
+// tests of code written alongside them.
+// ---------------------------------------------------------------------------
+
+describe("GET /events/stream — Finding 3: replay across two runs whose sequenceNos collide", () => {
+  it("replays ALL of run 2's events for a cursor positioned after run 1's last event, skipping none", async () => {
+    const runA = await seedRunChain("a");
+    const runB = await seedRunChain("b");
+    const aEvents = await seedRunEvents(runA, 3);
+    const bEvents = await seedRunEvents(runB, 3);
+
+    // The precondition the whole bug rests on: run B's events carry per-run
+    // sequence numbers 1,2,3 — identical to run A's, and all <= the cursor a
+    // client would hold after run A. A `sequenceNo > 3` query returns NONE of
+    // them; every one of run B's events would be silently lost forever.
+    expect(aEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3]);
+    expect(bEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3]);
+
+    const cursorAfterRunA = await cursorOf(aEvents[2]!.eventId);
+
+    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=${cursorAfterRunA}`);
+    try {
+      await client.waitForCount(3);
+
+      // Exactly run B's three events, in order, and nothing else.
+      expect(client.events.map((e) => e.eventId)).toEqual(bEvents.map((e) => e.eventId));
+      expect(client.events.map((e) => e.correlation.runId)).toEqual([runB, runB, runB]);
+
+      // None of run A's events were re-delivered...
+      const aIds = new Set(aEvents.map((e) => e.eventId));
+      expect(client.events.some((e) => aIds.has(e.eventId))).toBe(false);
+
+      // ...and the cursor really is the globally-monotonic column, not
+      // `sequenceNo`: run B's events still report per-run sequenceNo 1,2,3
+      // (unchanged, per Phase 8.1) while their cursors strictly increase past
+      // run A's. These two fields are deliberately NOT the same number.
+      expect(client.events.map((e) => e.sequenceNo)).toEqual([1, 2, 3]);
+      for (const event of client.events) {
+        expect(event.eventCursor).toBeGreaterThan(cursorAfterRunA);
+      }
+
+      // Strong "nothing missing, nothing duplicated" check against the DB's
+      // own count past that cursor.
+      const expectedTotal = await countEventsSince(cursorAfterRunA);
+      expect(client.events).toHaveLength(expectedTotal);
+      expect(new Set(client.events.map((e) => e.eventId)).size).toBe(expectedTotal);
+    } finally {
+      client.close();
+    }
+  });
+});
+
+describe("GET /events/stream — Finding 3: reconnect mid-way through run 2 re-delivers nothing", () => {
+  it("resuming at the max cursor seen delivers only what follows it — never run 1's already-seen events again", async () => {
+    const runA = await seedRunChain("a");
+    const runB = await seedRunChain("b");
+    const aEvents = await seedRunEvents(runA, 3);
+    const bEvents = await seedRunEvents(runB, 3);
+
+    // First connection: the client sees everything up to and including run
+    // B's SECOND event, then the connection drops.
+    const firstClient = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=0`);
+    let seenIds: string[];
+    let resumeCursor: number;
+    try {
+      await firstClient.waitForCount(6);
+      seenIds = firstClient.events.slice(0, 5).map((e) => e.eventId);
+      // The max cursor across everything actually rendered — which is what
+      // `web/lib/api.ts`'s `subscribeToActivity` now tracks.
+      resumeCursor = Math.max(...firstClient.events.slice(0, 5).map((e) => e.eventCursor));
+    } finally {
+      firstClient.close();
+    }
+
+    expect(seenIds).toEqual([...aEvents.map((e) => e.eventId), bEvents[0]!.eventId, bEvents[1]!.eventId]);
+    // A client tracking the per-run `sequenceNo` of the last event it received
+    // would be holding 2 here (run B's second event) — and a `sequenceNo > 2`
+    // replay would hand back run A's THIRD event all over again. That is the
+    // duplication half of Finding 3.
+    expect(bEvents[1]!.sequenceNo).toBe(2);
+
+    const secondClient = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=${resumeCursor}`);
+    try {
+      await secondClient.waitForCount(1);
+
+      expect(secondClient.events.map((e) => e.eventId)).toEqual([bEvents[2]!.eventId]);
+
+      // Nothing the first connection already rendered came back.
+      const alreadySeen = new Set(seenIds);
+      expect(secondClient.events.some((e) => alreadySeen.has(e.eventId))).toBe(false);
+
+      const expectedTotal = await countEventsSince(resumeCursor);
+      expect(secondClient.events).toHaveLength(expectedTotal);
+    } finally {
+      secondClient.close();
     }
   });
 });

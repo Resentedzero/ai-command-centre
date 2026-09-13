@@ -168,6 +168,10 @@ export async function resolveCapabilityGrant(
     agentDefinitionVersion: match.agentDefinitionVersion,
     capabilityId: match.capabilityId,
     permissions: match.permissions as CapabilityPermission[],
+    // Finding 2: the Grant's declared trust bar, previously dropped here and
+    // therefore never enforceable by Policy. Passed through verbatim from the
+    // row — never defaulted, never recomputed.
+    maxTrustLevelRequired: match.maxTrustLevelRequired,
     autonomyState: match.autonomyState as CapabilityGrant["autonomyState"],
   };
 }
@@ -182,15 +186,34 @@ export function mapTrustLevel(trustLevel: number): PolicyTrustLevel {
   return "unverified_third_party"; // trustLevel <= 0, or anything else unrecognized
 }
 
+export type ResolvedToolBindingTrust = {
+  /** The three-category classification Policy/risk speak (Phase 6). */
+  trustLevel: PolicyTrustLevel;
+  /**
+   * The raw `tool_bindings.trust_level` integer, for Policy's comparison
+   * against the Grant's `max_trust_level_required` (Finding 2).
+   */
+  bindingTrustLevel: number;
+};
+
+/**
+ * Returns BOTH projections of the binding's trust from a SINGLE read of the
+ * `tool_bindings` row: the raw integer (what Policy compares against the
+ * Grant's bar) and its category (what Policy/risk classify by). Returning
+ * them together, rather than exposing two functions or two reads, is what
+ * makes them consistent by construction — there is no window in which a
+ * caller can pair one binding's integer with another binding's category, and
+ * no path by which either value originates anywhere but this row.
+ */
 export async function resolveToolBindingTrustLevel(
   tx: DrizzleTransaction,
   toolBindingId: string
-): Promise<PolicyTrustLevel> {
+): Promise<ResolvedToolBindingTrust> {
   const row = await tx.query.toolBindings.findFirst({ where: eq(toolBindings.id, toolBindingId) });
   if (!row) {
     throw new Error(`resolveToolBindingTrustLevel: no tool_bindings row found for id "${toolBindingId}"`);
   }
-  return mapTrustLevel(row.trustLevel);
+  return { trustLevel: mapTrustLevel(row.trustLevel), bindingTrustLevel: row.trustLevel };
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +233,7 @@ export async function authorizeInvocation(
     permission: CapabilityPermission;
     proposedActionSnapshot: Record<string, unknown>;
     trustLevel: PolicyTrustLevel;
+    bindingTrustLevel: number;
   }
 ): Promise<{ decision: PolicyDecision; riskTier: RiskTier }> {
   return evaluatePolicy(tx, params);

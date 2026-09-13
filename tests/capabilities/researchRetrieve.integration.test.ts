@@ -192,6 +192,7 @@ describe("seedResearchWorkflow", () => {
         agentDefinitionVersion: grantRow!.agentDefinitionVersion,
         capabilityId: grantRow!.capabilityId,
         permissions: grantRow!.permissions as CapabilityPermission[],
+        maxTrustLevelRequired: grantRow!.maxTrustLevelRequired,
         autonomyState: grantRow!.autonomyState as CapabilityGrant["autonomyState"],
       };
       expect(validateCapabilityGrant(grant)).toEqual({ valid: true });

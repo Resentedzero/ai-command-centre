@@ -56,6 +56,8 @@ import { isDeepStrictEqual } from "node:util";
 import { and, eq } from "drizzle-orm";
 import { approvals, capabilityGrants, invocations, runs } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
+import { emitEvent } from "../events/emit.js";
+import type { ApprovalResolvedPayload } from "../events/types.js";
 import type { RiskTier } from "./risk.js";
 
 export async function createApproval(
@@ -91,6 +93,40 @@ export async function createApproval(
   return { id: row!.id, status: "pending" };
 }
 
+/**
+ * Applies a human's approve/reject decision AND records Phase 9.5's explicit
+ * "resolution event recorded" step — `approval_granted` on the approve path,
+ * `approval_rejected` on the reject path, exactly one of the two, in the SAME
+ * transaction as the `approvals.status` update. Without this the Activity
+ * feed (Phase 18.1a, "a direct tail of Events") could not show the MVP's
+ * flagship governance moment at all; it was the one step of the Phase 9.5
+ * lifecycle with no event behind it (final-review Finding 1).
+ *
+ * Envelope conventions follow the existing `invocation_started` /
+ * `invocation_completed` / `invocation_failed` emissions verbatim
+ * (`../execution/invocationLifecycle.ts`): `eventVersion: 1`,
+ * `causationId: null`, `usage: null`, an `<eventType>:<id>` idempotency key,
+ * and `goalId`/`workflowRunId` left null because no `emitEvent` call site
+ * reachable from a Run populates them.
+ *
+ * Two deliberate departures from those call sites, both because this is the
+ * one place a HUMAN, not the system, is acting:
+ *   - `actor` is `resolvedBy` (the route defaults it to `"human:api"`, which
+ *     fits the envelope's documented `"human:<id>"` form) rather than
+ *     `"system"`. Phase 8.7 makes the raw Event table the audit trail; an
+ *     audit trail that records every approval as having been granted by
+ *     "system" would be worse than useless.
+ *   - `producer` is `"governance"` (this module), not `"executor"`.
+ *
+ * Correlation is resolved by walking approval -> invocation -> run, so the
+ * event lands in the right Run's `sequenceNo` stream and the feed can
+ * attribute it. Every link is NOT NULL and FK-constrained, so the walk cannot
+ * actually fail — but it degrades to null correlation fields rather than
+ * throwing if one ever did. That is deliberate and is why NO new throw path
+ * was added here: `resolveApproval` still throws for exactly one reason (a
+ * missing Approval), and recording the audit event must never be able to fail
+ * a governance decision that has already been made and committed.
+ */
 export async function resolveApproval(
   tx: DrizzleTransaction,
   approvalId: string,
@@ -106,6 +142,37 @@ export async function resolveApproval(
   if (!row) {
     throw new Error(`resolveApproval: no approval found for id "${approvalId}"`);
   }
+
+  const invocation = await tx.query.invocations.findFirst({ where: eq(invocations.id, row.invocationId) });
+  const run = invocation ? await tx.query.runs.findFirst({ where: eq(runs.id, invocation.runId) }) : undefined;
+
+  const eventType = decision === "approved" ? "approval_granted" : "approval_rejected";
+  const payload: ApprovalResolvedPayload = {
+    approvalId: row.id,
+    riskTier: row.riskTier,
+    resolvedBy,
+  };
+
+  await emitEvent(tx, {
+    // Keyed per approval AND decision: re-applying the same decision is a
+    // no-op (emitEvent's idempotency), while the two decisions remain
+    // distinct keys so a genuine approve-then-reject records both.
+    idempotencyKey: `${eventType}:${row.id}`,
+    eventType,
+    eventVersion: 1,
+    causationId: null,
+    correlation: {
+      goalId: null,
+      workflowRunId: null,
+      taskInstanceId: run?.taskInstanceId ?? null,
+      runId: invocation?.runId ?? null,
+      invocationId: invocation?.id ?? null,
+    },
+    actor: resolvedBy,
+    producer: "governance",
+    payload,
+    usage: null,
+  });
 
   return { id: row.id, status: decision as "approved" | "rejected" };
 }

@@ -18,5 +18,6 @@ export async function callEvaluatePolicyForTest(tx: DrizzleTransaction) {
     permission: "READ",
     proposedActionSnapshot: {},
     trustLevel: "first_party",
+    bindingTrustLevel: 2,
   });
 }

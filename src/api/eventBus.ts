@@ -5,7 +5,7 @@
  * `events` table (frozen, Unit 1). If this process restarts, every live
  * subscriber and anything buffered in `routes/events.ts` is gone; a
  * reconnecting SSE client simply replays from Postgres via
- * `?sinceSequenceNo=N` (`routes/events.ts`) and resumes live delivery from
+ * `?sinceEventCursor=N` (`routes/events.ts`) and resumes live delivery from
  * here — nothing is permanently lost because nothing here is ever the only
  * copy of an event.
  *
@@ -49,7 +49,7 @@
  * requests.
  */
 import { EventEmitter } from "node:events";
-import type { EventEnvelope } from "../events/types.js";
+import type { WireEventEnvelope } from "./eventEnvelopeRow.js";
 
 const emitter = new EventEmitter();
 // An unbounded number of concurrent SSE connections is expected (each one
@@ -59,11 +59,20 @@ emitter.setMaxListeners(0);
 
 const LIVE_EVENT = "live-event";
 
-export function publishLiveEvent(event: EventEnvelope): void {
+/**
+ * Takes a `WireEventEnvelope`, NOT the domain `EventEnvelope` — i.e. a row
+ * already mapped through `./eventEnvelopeRow.js` (Finding 3). A live event
+ * and a replayed event must be indistinguishable on the wire, and only that
+ * mapper attaches the `eventCursor` a reconnecting client resumes from;
+ * publishing `emitEvent`'s own return value here would put a cursor-less
+ * envelope on the bus and silently break reconnects for exactly the events
+ * delivered live. The type makes that mistake a compile error.
+ */
+export function publishLiveEvent(event: WireEventEnvelope): void {
   emitter.emit(LIVE_EVENT, event);
 }
 
-export function subscribeToLiveEvents(handler: (e: EventEnvelope) => void): () => void {
+export function subscribeToLiveEvents(handler: (e: WireEventEnvelope) => void): () => void {
   emitter.on(LIVE_EVENT, handler);
   return () => emitter.off(LIVE_EVENT, handler);
 }

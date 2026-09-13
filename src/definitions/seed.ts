@@ -29,12 +29,15 @@
  *      `DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET` (a real `ContextBudget`
  *      shape, not a placeholder `{}`) in `default_context_budget`.
  *
- * `maxTrustLevelRequired: 1` (capability_grants) is an MVP placeholder with
- * the same status as elsewhere in this codebase (`tests/fixtures.ts`,
- * `executor.test.ts`): the column exists in the schema, but no unit built so
- * far (Policy, Budget, the Executor) actually reads it — confirmed by a
- * repo-wide grep turning up only test/seed fixture writes, never a read.
- * Documented here rather than silently relied upon as meaningful.
+ * `MVP_MAX_TRUST_LEVEL_REQUIRED` (`capability_grants.max_trust_level_required`)
+ * is the Grant's declared MINIMUM binding trust level. As of final-review
+ * Finding 2 this field is load-bearing: `evaluatePolicy` compares it against
+ * the resolved Tool Binding's `trust_level` and DENYs when the binding falls
+ * short (Phase 6 / 9.2) — it is no longer the inert placeholder this header
+ * previously described. The value 1 ("verified third-party") remains an MVP
+ * choice, but it is now a real bar: both seeded bindings are `trustLevel: 2`
+ * ("first party"), so both clear it, and lowering a binding below 1 without
+ * lowering the Grant would correctly deny it.
  */
 import {
   agentDefinitions,
@@ -76,6 +79,16 @@ import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capabil
  *   - `freshnessRequirementSeconds: 0`: no staleness requirement — the
  *     artifact is produced and consumed within the same Run.
  */
+/**
+ * The trust bar both seeded V1 Grants declare (see this module's header). A
+ * single constant, not a literal repeated per call site, because the same
+ * value must reach BOTH the `CapabilityGrant` passed to
+ * `validateCapabilityGrant` and the `capability_grants` row inserted — now
+ * that Policy enforces it, the two drifting apart would mean validating a
+ * different bar from the one actually stored.
+ */
+const MVP_MAX_TRUST_LEVEL_REQUIRED = 1;
+
 export const DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET: ContextBudget = {
   maxInputTokens: 8_000,
   maxArtifactTokens: 2_000,
@@ -166,6 +179,7 @@ export async function seedResearchWorkflow(tx: DrizzleTransaction): Promise<Seed
     agentDefinitionVersion,
     capabilityId,
     permissions: RESEARCH_RETRIEVE_PERMISSIONS,
+    maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED,
     autonomyState: RESEARCH_RETRIEVE_AUTONOMY_STATE,
   };
   const validation = validateCapabilityGrant(grantToValidate);
@@ -181,7 +195,7 @@ export async function seedResearchWorkflow(tx: DrizzleTransaction): Promise<Seed
       capabilityId,
       permissions: RESEARCH_RETRIEVE_PERMISSIONS,
       scope: {},
-      maxTrustLevelRequired: 1,
+      maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED,
       autonomyState: RESEARCH_RETRIEVE_AUTONOMY_STATE,
     })
     .returning();
@@ -329,6 +343,7 @@ export async function seedPublishWorkflow(tx: DrizzleTransaction): Promise<SeedP
     agentDefinitionVersion: publisherAgentDefinitionVersion,
     capabilityId: publishCapabilityId,
     permissions: PUBLISH_REPORT_PERMISSIONS,
+    maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED,
     autonomyState: PUBLISH_REPORT_AUTONOMY_STATE,
   };
   const validation = validateCapabilityGrant(grantToValidate);
@@ -344,7 +359,7 @@ export async function seedPublishWorkflow(tx: DrizzleTransaction): Promise<SeedP
       capabilityId: publishCapabilityId,
       permissions: PUBLISH_REPORT_PERMISSIONS,
       scope: {},
-      maxTrustLevelRequired: 1,
+      maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED,
       autonomyState: PUBLISH_REPORT_AUTONOMY_STATE,
     })
     .returning();
