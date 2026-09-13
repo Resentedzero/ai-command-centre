@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,27 @@ import * as schema from "../../src/db/schema.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
 import type { CapabilityPermission } from "../../src/governance/policy.js";
 import { resolveApproval } from "../../src/governance/approvals.js";
+
+// ---------------------------------------------------------------------------
+// PROVIDER MOCKS — defence in depth, not decoration.
+//
+// `advanceWorkflowRun` reaches `executeRun` -> `callModel` -> a real provider
+// adapter. Today every spec this file's builders produce is "deterministic" or
+// "tool", so no dispatch happens — but `advanceWorkflowRun` takes a
+// CALLER-SUPPLIED spec builder, so the only thing standing between this file
+// and a real `claude` CLI subprocess is that nobody has yet written an "llm"
+// spec in it. That is a convention, not a barrier.
+//
+// Since Claude Max became the routed default, an accidental llm spec here would
+// spawn the real CLI and spend subscription entitlement during `npm test`.
+// Mocking all three adapters makes that impossible rather than unlikely.
+// ---------------------------------------------------------------------------
+vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: vi.fn() }));
+vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
+vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
+  callClaudeSubscriptionModel: vi.fn(),
+}));
+
 import {
   startWorkflowRun,
   advanceWorkflowRun,

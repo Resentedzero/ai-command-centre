@@ -47,7 +47,7 @@
  * same params (`resumeStep` in `interpreter.ts`). Every step here is either
  * a pure read of already-persisted, immutable data (Task A's report Artifact
  * never changes) or an idempotent write (`bindRunAgent` is a bare `UPDATE`;
- * `ensureRunBudgetCounter` no-ops once a counter row exists) — so the
+ * `provisionRunBudgets` no-ops once a counter row exists) — so the
  * returned `proposedActionSnapshot` is BYTE-IDENTICAL across every call for
  * the same run, which `executeRun`'s own resume-time spec-vs-stored
  * validation (`resumeToolSpec`, `executor.ts`) requires: any mismatch there
@@ -58,7 +58,8 @@ import { and, eq } from "drizzle-orm";
 import { artifacts, invocations, runs, taskInstances } from "../../db/schema.js";
 import type { DrizzleTransaction } from "../../events/emit.js";
 import type { InvocationSpec, ToolInvocationSpec } from "../../execution/types.js";
-import { bindRunAgent, ensureRunBudgetCounter, findRunByTaskInstanceId } from "../shared/runProvisioning.js";
+import { bindRunAgent, findRunByTaskInstanceId } from "../shared/runProvisioning.js";
+import { provisionRunBudgets } from "../../governance/runBudgetPolicy.js";
 import { publishReport } from "./toolBinding.js";
 
 export type PublishReportBuilderConfig = {
@@ -72,7 +73,6 @@ export type PublishReportBuilderConfig = {
   destinationRelativePath: string;
   /** MVP placeholder cost for the local proof-of-governance write; see `./toolBinding.ts`'s header for why this is not a real external cost. */
   estimatedCost?: number;
-  runBudgetLimit?: string;
 };
 
 export type BuilderParams = {
@@ -126,7 +126,9 @@ export async function buildPublishReportInvocationSpecs(
 
   // Ruling 3: agent-binding + budget provisioning are this builder's job.
   await bindRunAgent(tx, runId, config.agentDefinitionId, config.agentDefinitionVersion);
-  await ensureRunBudgetCounter(tx, runId, config.runBudgetLimit ?? "1.00");
+  // Governance owns the ceilings; this builder can request provisioning for its
+  // Run but cannot choose, raise, or pass a limit (Phase 8).
+  await provisionRunBudgets(tx, runId);
 
   const ownTaskInstance = await tx.query.taskInstances.findFirst({ where: eq(taskInstances.id, params.taskInstanceId) });
   if (!ownTaskInstance?.workflowRunId) {

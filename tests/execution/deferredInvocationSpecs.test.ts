@@ -40,13 +40,19 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({
 vi.mock("../../src/router/providers/openai.js", () => ({
   callOpenAiModel: vi.fn(),
 }));
+vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
+  // MANDATORY since Phase 7F made Claude Max the routed default: without this
+  // mock these tests would dispatch to the REAL adapter, spawn the Claude CLI,
+  // and consume subscription entitlement on every `npm test`.
+  callClaudeSubscriptionModel: vi.fn(),
+}));
 
 import { executeRun } from "../../src/execution/executor.js";
 import { createStandaloneTaskInstance } from "../../src/execution/taskInstance.js";
 import { buildResearchReportInvocationSpecs } from "../../src/capabilities/researchRetrieve/buildInvocationSpecs.js";
 import { seedResearchWorkflow, DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET } from "../../src/definitions/seed.js";
 import * as compilerModule from "../../src/context/compiler.js";
-import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
+import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -122,6 +128,18 @@ async function seedRunFixture(tx: DrizzleTransaction): Promise<{
     reservedAmount: "0",
     consumedAmount: "0",
   });
+  // Mirrors production provisioning (`provisionRunBudgets` creates one counter per
+  // unit): an independent subscription_tokens counter alongside the USD one, now
+  // that Claude Max is the primary candidate. NOT a conversion of the dollar
+  // limit — a separate ceiling in a separate unit.
+  await tx.insert(schema.budgetCounters).values({
+    scope: "run",
+    scopeRefId: run!.id,
+    resourceUnit: "subscription_tokens",
+    limitAmount: "200000",
+    reservedAmount: "0",
+    consumedAmount: "0",
+  });
 
   return { runId: run!.id, capabilityId: capability!.id, toolBindingId: toolBinding!.id };
 }
@@ -170,9 +188,9 @@ describe("deferred spec receives an earlier position's real Artifact id (Phase 5
     await withRollback(async (tx) => {
       const { runId, capabilityId, toolBindingId } = await seedRunFixture(tx);
 
-      vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+      vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
         result: { report: "synthesized" },
-        usage: { tokensIn: 100, tokensOut: 50, costAmount: 0.001 },
+        usage: { tokensIn: 100, tokensOut: 50, costAmount: 150, costUnit: "subscription_tokens" },
       });
       const compileContextSpy = vi.spyOn(compilerModule, "compileContext");
 

@@ -41,15 +41,29 @@ the agents.
 
 - **Subscription-backed programmatic compute is not free/unlimited.** The only
   sanctioned path for using a Claude Pro/Max subscription programmatically is
-  Anthropic's own **Claude Agent SDK** (confirmed via Anthropic's own Help Center).
-  Reusing subscription OAuth in any other product/tool/service is a ToS violation
-  (enforced since April 2026). Billing mechanics for Agent SDK usage are **actively in
+  Anthropic's own **Claude Agent SDK** / `claude -p` (confirmed via Anthropic's own
+  Help Center). Reusing subscription OAuth to serve *other users* — offering
+  claude.ai login in your own app, or routing others' requests through your plan
+  credentials — is prohibited. Billing mechanics for Agent SDK usage are **actively in
   flux** — specific dollar figures must not be hard-coded into the architecture;
   re-verify against `support.claude.com` before any component depends on a number.
-  Development-time AI (Claude Code, Codex — interactive, used by the human to build
-  the system) is a fully separate concern from Runtime AI (the Command Center's own
-  model gateway/router calling models programmatically at runtime). The runtime never
-  assumes it can ride on a developer's interactive subscription.
+  **(AMENDED 2026-09-13.)** This bullet previously ended: *"The runtime never assumes
+  it can ride on a developer's interactive subscription."* That sentence stands as a
+  principle but no longer implies a blanket prohibition: per the amended 10.6, the
+  runtime may use a **dedicated subscription-backed provider adapter** with its own
+  credential and isolation, and still never rides on, inherits, or requires the
+  developer's interactive session. Development-time AI (Claude Code, Codex —
+  interactive, used by the human to build the system) remains a fully separate concern
+  from Runtime AI (the Command Center's own model gateway/router calling models
+  programmatically at runtime).
+  **Verified 2026-09-13** (see `docs/research/`): subscription usage currently powers
+  `claude -p`/Agent SDK; Anthropic announced separate metering in May 2026, paused it
+  on 15 June 2026, and has published nothing since. Anthropic's developer
+  documentation still directs those "building products or services" to API keys, and
+  states plan limits "assume ordinary, individual usage." The single-user, local,
+  personal case is **genuinely ambiguous in Anthropic's own text** and is an accepted,
+  recorded risk of this architecture — not a resolved question. Enforcement is
+  reserved "without prior notice."
 - **MCP is not the default integration mechanism.** MCP tool schemas run ~1000
   tokens/tool (5–15x a minimal function schema) and are typically loaded eagerly. MCP
   is one Tool binding a Capability can point to, loaded lazily only when a task's
@@ -659,6 +673,19 @@ free/deterministic ones — taking effect at the next Invocation boundary regard
 what Run is mid-flight. Scopes: global, per-Agent-Definition, per-Capability-Grant,
 per-Goal/Workflow-Run. Revoking a Grant auto-cancels its still-pending Approvals.
 
+> **Implementation note (Phase 8, 2026-09-13) — clarifies, does not weaken.**
+> "per-Goal/Workflow-Run" is implemented as **two** scopes, `goal` and
+> `workflow_run`, because one Goal may own several Workflow Runs and an operator
+> may need to halt either one run or all of a Goal's work. A sixth, finer scope,
+> `run`, is **additive**: it halts a single Run and narrows nothing above it.
+> Every scope listed above is present and enforced; none was dropped. Stops
+> apply to Tool, LLM, Retrieval and Deterministic Invocations alike. A stopped
+> Run is terminal: lifting a stop is forward-only and never resumes or
+> retroactively authorizes refused work. "Auto-cancels" is recorded as approval
+> status `expired` (the `approval_status` enum has no `cancelled` member), with
+> `resolved_by` naming the cause. Implemented in
+> `src/governance/executionStop.ts` and `src/governance/approvals.ts`.
+
 ### 9.8 Scope note for solo/V1
 
 No user-to-user permission complexity; permissions apply agent-to-action. The model
@@ -690,7 +717,18 @@ choice among models the risk tier already permits, never an authorization change
 
 `CHEAP / STANDARD / STRONG` (plus optional `LOCAL`) are the only concepts domain logic
 knows; which model/provider backs each tier is a config table
-(`tier -> {provider, model_id, price}`), editable without touching routing logic.
+(`tier -> {provider, model_id, accounting}`), editable without touching routing logic.
+
+**Amended 2026-09-13:** the config entry's third field was `price` (a single blended
+per-token number). It is now an `accounting` descriptor carrying the tier's
+**resource unit** and the rate(s) that unit requires — `usd` with separate
+input/output per-token rates for metered providers, `subscription_tokens` with no
+monetary rate at all, `local_tokens` likewise. Two reasons: real provider pricing is
+asymmetric (output costs ~5x input, so one blended rate structurally under-prices
+output-heavy work), and non-monetary providers have no honest dollar rate to put
+here. A provider whose unit is not `usd` must not be given a fabricated `price: 0` —
+that would silently convert the Budget Governor into a no-op for that tier while it
+continued emitting events asserting enforcement.
 
 ### 10.4 Escalation pattern
 
@@ -715,11 +753,78 @@ Phase 8.8's projection is per (task type, model tier): success rate, retry rate,
 cheaper tier's retry rate makes its total cost per successful outcome higher than a
 stronger tier's.
 
-### 10.6 Development-time vs. runtime, reaffirmed
+### 10.6 Development-time vs. runtime (AMENDED 2026-09-13)
 
-Claude Code and Codex are development tools for building/maintaining the system —
-never wired in as runtime Model Router providers. The Router only calls providers
-explicitly configured in the tier-mapping table.
+> **Amendment notice.** This section previously read, in full: *"Claude Code and
+> Codex are development tools for building/maintaining the system — never wired in
+> as runtime Model Router providers. The Router only calls providers explicitly
+> configured in the tier-mapping table."* That absolute prohibition is **replaced**
+> by the rule below, which permits a subscription-backed Claude provider **only** as
+> an explicitly governed provider adapter. The prohibition is not silently weakened:
+> the development-time/runtime separation it existed to protect is restated as
+> 10.6.1 and strengthened with seven additional constraints. Superseded by decision
+> of the architect, recorded here rather than by deletion. See also the amended
+> 13.4 and the Phase 5.0 "Money/quota" accounting basis this depends on.
+
+**The distinction being preserved:** we are *not* saying "Claude Code is now the
+runtime." We are saying the runtime may have a purpose-built, subscription-backed
+Claude **provider adapter** whose *implementation* happens to use the supported
+headless Claude mechanism. The adapter is a runtime component with its own
+authentication, isolation, accounting and lifecycle — not a developer's session.
+
+**10.6.1 — Development-time Claude Code remains separate from runtime execution.**
+The interactive Claude Code/Codex session a human uses to build and maintain this
+system is never itself a runtime component. The runtime must remain fully operable
+with no interactive development session running, logged in, or installed in the
+developer's configuration.
+
+**10.6.2 — Subscription-backed Claude may only be invoked through an explicit
+provider adapter.** No module outside `src/router/providers/` may spawn the `claude`
+binary, link the Agent SDK, or otherwise reach subscription-backed inference. This
+is the Phase 4 single-chokepoint rule applied unchanged; the chokepoint is about
+*provider access*, not about which company hosts the weights or which credential
+pays for it.
+
+**10.6.3 — The Model Router selects it only when explicitly configured.** The
+provider is reachable solely via the tier-mapping table (10.3). There is no implicit,
+ambient, or default-on subscription path, and no environment variable that silently
+enables one.
+
+**10.6.4 — The provider owns its own authentication, isolation, resource accounting
+and lifecycle boundary.** Subscription OAuth, subprocess lifecycle, environment
+sanitization, and token-denominated accounting live inside the adapter and are
+invisible to every caller. `callModel`'s contract is unchanged.
+
+**10.6.5 — The runtime never inherits the developer's Claude Code session, tools,
+settings, or MCP configuration.** Settings sources, MCP servers, CLAUDE.md
+discovery, and the built-in tool set are all explicitly disabled per invocation. A
+subscription credential is precisely what pulls claude.ai MCP connectors into scope,
+so suppressing them is mandatory, not best-effort.
+
+**10.6.6 — The provider must not expose credentials to the model.** No credential
+enters a compiled context, prompt, tool result, Event payload, or error message.
+
+**10.6.7 — The provider must not silently fall back from subscription usage to
+billable API usage.** A quota failure surfaces as an Invocation failure. Converting
+it into a billed API call requires a fresh, explicit Policy and Budget decision —
+never an automatic retry inside the adapter or the Router.
+
+**10.6.8 — Every invocation remains represented by the existing Invocation/Event
+architecture.** Same `invocation_started`/`invocation_completed`/`invocation_failed`
+events, same correlation, same Run/Invocation lifecycle, same immutability.
+
+**10.6.9 — Subscription usage must never be represented as USD 0.** It consumes a
+real, finite entitlement. It is accounted in its own resource unit (Phase 5.0's
+"quota" half), never as a zero-dollar monetary amount, and never from Anthropic's
+client-side `total_cost_usd` estimate. See 12.x resource-unit accounting.
+
+**10.6.10 — Runtime authorization is unchanged.** Capability → Grant → Binding →
+Policy → Budget → Approval → Invocation governs subscription-backed invocations
+exactly as it governs every other kind. Being cheap, free, or quota-backed grants no
+capability and bypasses no gate.
+
+**Codex** remains development-only and is **not** amended by this section: no
+Codex-backed runtime provider is contemplated or permitted.
 
 ### 10.7 Ordering (corrected — two-pass, reserve-then-reconcile)
 
@@ -804,14 +909,26 @@ Grouped by role.
 
 - `events(id, event_type, occurred_at, sequence_no, causation_id, goal_id,
   workflow_run_id, task_instance_id, run_id, invocation_id, actor, payload,
-  tokens_in, tokens_out, cache_hit, cost_amount, model_id)` — append-only,
+  tokens_in, tokens_out, cache_hit, cost_amount, cost_unit, model_id)` — append-only,
   authoritative; diagnostic logs never live here.
+  **`cost_unit` added 2026-09-13** (amended 10.6): `cost_amount` is meaningless
+  without it once more than one resource unit exists. Every usage-bearing event
+  states the unit its `cost_amount` is denominated in, so no reader can mistake
+  subscription tokens for dollars. Additive and non-breaking: existing rows are
+  `usd` by backfill, and no existing field changes meaning.
 - `budget_counters(scope[run|task_instance|agent_definition|goal|day], scope_ref_id,
-  limit_amount, reserved_amount, consumed_amount, updated_at)` — synchronous
-  projection; reservation is atomic (checked against
+  resource_unit, limit_amount, reserved_amount, consumed_amount, updated_at)` —
+  synchronous projection; reservation is atomic (checked against
   `limit_amount - reserved_amount - consumed_amount` in one transaction) at
   authorization time, reconciled (reservation released, actual consumption added) in
   the same transaction as the completion event.
+  **`resource_unit` added 2026-09-13** (amended 10.6): the uniqueness key becomes
+  `(scope, scope_ref_id, resource_unit)`, so one scope holds one counter **per unit**
+  — `usd`, `subscription_tokens`, `local_tokens`. Incommensurable quantities are
+  never summed into one `consumed_amount`. Atomicity is unchanged: `SELECT … FOR
+  UPDATE` still locks exactly one row, now on a three-column key. This is the
+  concrete implementation of Phase 5.0's "Money/**quota**" — quota was always in
+  scope; it simply had no representation until now.
 
 ### Governance
 
@@ -924,6 +1041,22 @@ in-process. The Phase 10.1 interface
 (`{model_tier_or_id, compiled_context, expected_output_shape} -> {result, usage}`) is
 unchanged; only the implementation detail changes, toward less infrastructure.
 
+**Narrow amendment (2026-09-13) — short-lived provider subprocesses are permitted.**
+The rule above rejects supervising **a second long-running service**, and that
+rejection stands: no proxy daemon, no persistent gateway, nothing requiring its own
+Windows-service registration, health-checking, or restart policy. It does **not**
+prohibit a provider adapter spawning a **short-lived, per-invocation child process**
+that the adapter itself starts, bounds by timeout, and reaps within the lifetime of a
+single Invocation. That is the same process model Phase 13.3 already sanctions for a
+Python local-process Tool Adapter, applied to a provider instead of a tool.
+
+Concretely, this permits the amended 10.6's subscription-backed adapter (one
+`claude -p` child per Invocation) while continuing to forbid a resident model-gateway
+service. The distinction is **lifetime and supervision**, not process count: a child
+that cannot outlive its Invocation needs no supervisor, so the "no extra service"
+principle is untouched. Operational consequences the adapter must own — timeout,
+termination, orphan prevention — are specified in its own design document, not here.
+
 ### 13.5 Final V1 infrastructure list
 
 | Component | Choice | Cost |
@@ -932,7 +1065,7 @@ unchanged; only the implementation detail changes, toward less infrastructure.
 | Frontend | Next.js + React + TypeScript + Tailwind + shadcn/ui | $0 |
 | Database | PostgreSQL, native Windows install (EDB), Windows Service | $0 |
 | ORM | Drizzle | $0 |
-| Model access | Anthropic + OpenAI TS SDKs (or Vercel AI SDK), in-process | $0 fixed — pay-as-you-go per call, governed by Phase 4/9 budgets |
+| Model access | Anthropic + OpenAI TS SDKs, in-process; plus (amended 2026-09-13) a subscription-backed Claude adapter spawning one short-lived `claude -p` child per Invocation | API: $0 fixed, pay-as-you-go per call. Subscription: no per-call dollar cost; consumes a flat entitlement, accounted in its own resource unit (never USD 0). Both governed by Phase 4/9 budgets |
 | Artifact bytes | Local filesystem under `ARTIFACT_ROOT`, relative paths | $0 |
 | Process supervision | Manual (V1) -> NSSM (V1.1) | $0 |
 | Version control | GitHub | $0 |
@@ -1183,8 +1316,8 @@ reviews the diff independently → CI runs → human merges. Repeats per unit.
 | Goal→Task→Run→Invocation chain | Full chain, both LLM and Tool Invocations | — |
 | Capability/Grant/Policy | Grant check + `ALLOW`/`DENY`/`REQUIRE_APPROVAL`, exercised end-to-end by one deliberately risky action (18.2) | `CONDITIONAL` autonomy and performance-driven auto-relaxation (Phase 9.4) |
 | Context Compiler | Priority tiers, hard token ceiling, reference-not-content, dedup, layered assembly | Historical-usefulness scoring, LLM-based summarization, embedding-based relevance (pgvector stays off) |
-| Model Router | Two tiers (`CHEAP`/`STRONG`), static difficulty tag per Task Definition | Confidence-based escalation loop (Phase 10.4), auto-adapting tier preference from performance data |
-| Budget Governor | Reserve/reconcile per Run/Task, hard ceiling enforcement | Per-Agent/per-Goal/per-day rollups beyond basic tracking |
+| Model Router | Three tiers (`CHEAP`/`MID`/`STRONG` — amended 2026-09-13, Phase 7H; V1 shipped two), static difficulty tag per Task Definition | Confidence-based escalation loop (Phase 10.4), auto-adapting tier preference from performance data |
+| Budget Governor | Reserve/reconcile per Run/Task, hard ceiling enforcement; **per-day aggregate ceiling (amended 2026-09-13, Phase 8 — un-deferred by operator decision; mechanism implemented, inert until a daily limit is configured)** | Per-Agent/per-Goal rollups beyond basic tracking |
 | Event store + projections | Full envelope; **minimum synchronous projections required for correctness** (Run/Task Instance/Workflow Run status, `budget_counters`) — see 18.1a | `agent_performance` and `agent_xp_projection` (both async) deferred entirely, along with their consuming UI |
 | Memory | Deliberately stubbed seam only (see 18.1b) | Task/Agent/Project/Organizational scope write paths, supersession/contradiction handling |
 | Workflow Interpreter | Linear 2-task graph, no branching | Conditional branching, loops, failure-routing |

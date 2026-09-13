@@ -35,6 +35,12 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({
 vi.mock("../../src/router/providers/openai.js", () => ({
   callOpenAiModel: vi.fn(),
 }));
+vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
+  // MANDATORY since Phase 7F made Claude Max the routed default: without this
+  // mock these tests would dispatch to the REAL adapter, spawn the Claude CLI,
+  // and consume subscription entitlement on every `npm test`.
+  callClaudeSubscriptionModel: vi.fn(),
+}));
 
 import { executeRun } from "../../src/execution/executor.js";
 import { createStandaloneTaskInstance } from "../../src/execution/taskInstance.js";
@@ -46,7 +52,7 @@ import { validateCapabilityGrant } from "../../src/governance/policy.js";
 import type { CapabilityGrant, CapabilityPermission } from "../../src/governance/policy.js";
 import type { LlmInvocationSpec, ToolInvocationSpec } from "../../src/execution/types.js";
 import * as compilerModule from "../../src/context/compiler.js";
-import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
+import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
 import { callOpenAiModel } from "../../src/router/providers/openai.js";
 
 beforeAll(async () => {
@@ -74,8 +80,8 @@ type Seed = Awaited<ReturnType<typeof seedResearchWorkflow>>;
  * budget_counters row (Ruling 1: Unit 8 provisions its own; Unit 6 never
  * does). `limitAmount: "1.00"` is a documented MVP-default budget generous
  * enough for one metered_api tool call (estimatedCost 0.01) plus one
- * CHEAP-tier LLM call (Pass-1 estimate ~= (8_000 + 500) * 0.000001 =
- * 0.0085), leaving ample headroom.
+ * CHEAP-tier LLM call (Pass-1 estimate ~= 8_000 * 0.000001 input +
+ * 500 * 0.000005 output = 0.0105), leaving ample headroom.
  */
 async function setUpStandaloneRun(tx: DrizzleTransaction): Promise<{ seed: Seed; taskInstanceId: string; runId: string }> {
   const seed = await seedResearchWorkflow(tx);
@@ -99,6 +105,18 @@ async function setUpStandaloneRun(tx: DrizzleTransaction): Promise<{ seed: Seed;
     scope: "run",
     scopeRefId: runId,
     limitAmount: "1.00",
+    reservedAmount: "0",
+    consumedAmount: "0",
+  });
+  // Mirrors production provisioning (`provisionRunBudgets` creates one counter per
+  // unit): an independent subscription_tokens counter alongside the USD one, now
+  // that Claude Max is the primary candidate. NOT a conversion of the dollar
+  // limit — a separate ceiling in a separate unit.
+  await tx.insert(schema.budgetCounters).values({
+    scope: "run",
+    scopeRefId: runId,
+    resourceUnit: "subscription_tokens",
+    limitAmount: "200000",
     reservedAmount: "0",
     consumedAmount: "0",
   });
@@ -279,9 +297,9 @@ describe("end-to-end standalone workflow (tool -> artifact -> llm -> report)", (
         // --- Phase 2: llm Invocation, now that the artifact id is known ---
         const compileContextSpy = vi.spyOn(compilerModule, "compileContext");
 
-        vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+        vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
           result: { report: `Report on: ${RESEARCH_QUERY}` },
-          usage: { tokensIn: 120, tokensOut: 80, costAmount: 0.0002 },
+          usage: { tokensIn: 120, tokensOut: 80, costAmount: 200, costUnit: "subscription_tokens" },
         });
 
         const llmSpec = buildLlmSpec([toolArtifact!.id]);
@@ -294,7 +312,7 @@ describe("end-to-end standalone workflow (tool -> artifact -> llm -> report)", (
 
         // Proves the "completed" skip worked, not a silent re-run of seqNo 1.
         expect(toolExecute).toHaveBeenCalledTimes(1);
-        expect(callAnthropicModel).toHaveBeenCalledTimes(1);
+        expect(callClaudeSubscriptionModel).toHaveBeenCalledTimes(1);
         // NOTE (fix-round-1, Important #2 correction): this does NOT by
         // itself prove CHEAP was selected — tierConfig.ts maps BOTH CHEAP
         // and STRONG to provider "anthropic", so this assertion would pass
@@ -379,16 +397,30 @@ describe("end-to-end standalone workflow (tool -> artifact -> llm -> report)", (
         expect(fetchedReport?.inlineContent).toBe(JSON.stringify(llmResultStructuredOutput));
 
         // --- Nothing leaked across the whole 6-unit chain ---
-        const finalCounter = await tx.query.budgetCounters.findFirst({
-          where: eq(schema.budgetCounters.scopeRefId, runId),
+        // Pins BOTH legs of the chain, now in their OWN units (Phase 7F): the
+        // tool leg reconciles dollars, the llm leg reconciles subscription
+        // tokens because Claude Max is the routed primary. Asserting each
+        // separately is strictly stronger than the old single 0.0102 total —
+        // it would catch a leg being skipped AND any cross-unit bleed.
+        const usdCounter = await tx.query.budgetCounters.findFirst({
+          where: and(
+            eq(schema.budgetCounters.scopeRefId, runId),
+            eq(schema.budgetCounters.resourceUnit, "usd")
+          ),
         });
-        expect(Number(finalCounter!.reservedAmount)).toBeCloseTo(0, 10);
-        // Pins BOTH legs of the chain: tool reconcile (estimatedCost 0.01) +
-        // llm reconcile (mocked usage.costAmount 0.0002) = 0.0102. A loose
-        // `toBeGreaterThan(0)` would stay green even if one leg's
-        // reconcileBudget call were silently skipped — this is the single
-        // strongest proof that nothing leaked across the whole 6-unit chain.
-        expect(Number(finalCounter!.consumedAmount)).toBeCloseTo(0.0102, 6);
+        expect(Number(usdCounter!.reservedAmount)).toBeCloseTo(0, 10);
+        // Tool reconcile only (estimatedCost 0.01) — the llm leg spends no dollars.
+        expect(Number(usdCounter!.consumedAmount)).toBeCloseTo(0.01, 6);
+
+        const tokenCounter = await tx.query.budgetCounters.findFirst({
+          where: and(
+            eq(schema.budgetCounters.scopeRefId, runId),
+            eq(schema.budgetCounters.resourceUnit, "subscription_tokens")
+          ),
+        });
+        expect(Number(tokenCounter!.reservedAmount)).toBeCloseTo(0, 10);
+        // llm reconcile: the mocked usage's 120 in + 80 out.
+        expect(Number(tokenCounter!.consumedAmount)).toBe(200);
 
         const finalRun = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
         expect(finalRun?.status).toBe("completed");
@@ -467,7 +499,7 @@ describe("negative control: artifact-mediated hand-off is load-bearing", () => {
       const outcome = await executeRun(tx, runId, [llmSpec]);
 
       expect(outcome).toEqual({ status: "failed", runId });
-      expect(callAnthropicModel).not.toHaveBeenCalled(); // compileContext throws before callModel is ever reached
+      expect(callClaudeSubscriptionModel).not.toHaveBeenCalled(); // compileContext throws before callModel is ever reached
 
       const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
       expect(invocation?.status).toBe("failed");

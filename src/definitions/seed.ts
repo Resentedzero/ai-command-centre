@@ -64,9 +64,9 @@ import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capabil
  * alongside the task's own input (tier 1) for a CHEAP-tier LLM call:
  *   - `maxInputTokens: 8_000` / `expectedOutputTokens: 500`: generous for a
  *     short synthesized report, small enough to keep the CHEAP-tier Pass-1
- *     cost estimate (`(maxInputTokens + expectedOutputTokens) *
- *     pricePerToken`) trivially cheap (~0.0085 at CHEAP's current
- *     0.000001/token).
+ *     cost estimate (`maxInputTokens * inputPerToken + expectedOutputTokens
+ *     * outputPerToken`) trivially cheap (~0.0105 at CHEAP's current
+ *     0.000001 input / 0.000005 output per token).
  *   - `maxArtifactTokens: 2_000` / `compressionThreshold: 2_000`: the tool's
  *     synthesized result set is tiny (a couple hundred tokens at most), so
  *     this is headroom, not a tight constraint.

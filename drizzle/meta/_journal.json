@@ -43,6 +43,34 @@
       "when": 1789253723206,
       "tag": "0005_outgoing_killraven",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789323812308,
+      "tag": "0006_lethal_fallen_one",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789329792338,
+      "tag": "0007_shiny_shadowcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789336735422,
+      "tag": "0008_glorious_korvac",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789338183826,
+      "tag": "0009_zippy_namorita",
+      "breakpoints": true
     }
   ]
 }

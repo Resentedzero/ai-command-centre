@@ -34,6 +34,7 @@
  * field exists to make unrepresentable.
  */
 import type { events } from "../db/schema.js";
+import { isResourceUnit } from "../governance/resourceUnit.js";
 import type { EventEnvelope } from "../events/types.js";
 
 /**
@@ -75,8 +76,22 @@ export function rowToEventEnvelope(row: typeof events.$inferSelect): WireEventEn
           tokensOut: row.tokensOut ?? 0,
           cacheHit: row.cacheHit ?? false,
           costAmount: row.costAmount === null ? 0 : Number(row.costAmount),
+          // Mirrors emitEvent's fail-closed read exactly (see this module's
+          // header on why the two mappers stay byte-identical): a usage-bearing
+          // row with no recognized unit is never silently read as dollars.
+          costUnit: assertPersistedResourceUnit(row.costUnit, row.id),
           modelId: row.modelId ?? "",
         }
       : null,
   };
+}
+
+function assertPersistedResourceUnit(value: string | null, eventId: string) {
+  if (!isResourceUnit(value)) {
+    throw new Error(
+      `rowToEventEnvelope: event "${eventId}" carries usage but its cost_unit is` +
+        ` ${value === null ? "NULL" : `"${value}"`}, which is not a recognized ResourceUnit.`
+    );
+  }
+  return value;
 }

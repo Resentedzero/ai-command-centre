@@ -2,10 +2,13 @@
  * `callOpenAiModel` — the thin OpenAI-SDK wrapper. See `./anthropic.ts`'s
  * header for the full rationale shared by both provider wrapper files
  * (only-permitted-SDK-importer status, no live calls in tests, credential
- * handling, and the `pricePerToken` signature deviation). Everything there
+ * handling, and the `pricing` signature deviation). Everything there
  * applies here identically, mirrored against `OPENAI_API_KEY` and the
  * OpenAI SDK's chat-completions usage shape (`prompt_tokens`/
- * `completion_tokens`).
+ * `completion_tokens`) — including the split input/output rates, so both
+ * providers behind `callModel`'s single dispatch site share one contract.
+ * No tier currently routes here; the prices themselves are the caller's
+ * concern, this file only applies whichever rates it is handed.
  *
  * Fix round 1 (independent review, Important #2): prompt assembly
  * (`buildSystemPrompt`/`buildUserMessage`) is imported from
@@ -14,25 +17,30 @@
  */
 import OpenAI from "openai";
 import type { CompiledContext } from "../../context/types.js";
+import type { ProviderCallResult, TierAccounting, TierPricing } from "../types.js";
 import { buildSystemPrompt, buildUserMessage } from "./promptBuilder.js";
 
-export type ProviderUsage = {
-  tokensIn: number;
-  tokensOut: number;
-  costAmount: number;
-};
+export type { ProviderCallResult, ProviderUsage } from "../types.js";
 
-export type ProviderCallResult = {
-  result: unknown;
-  usage: ProviderUsage;
-};
+/** See `./anthropic.ts`'s equivalent — this adapter also bills real money. */
+function assertUsdAccounting(accounting: TierAccounting, modelId: string): TierPricing {
+  if (accounting.unit !== "usd") {
+    throw new Error(
+      `callOpenAiModel: tier for model "${modelId}" is configured with accounting unit` +
+        ` "${accounting.unit}", but this adapter bills real money and can only account in "usd".`
+    );
+  }
+  return accounting.pricing;
+}
 
 export async function callOpenAiModel(
   modelId: string,
   compiledContext: CompiledContext,
   expectedOutputShape: Record<string, unknown>,
-  pricePerToken: number
+  accounting: TierAccounting
 ): Promise<ProviderCallResult> {
+  const pricing = assertUsdAccounting(accounting, modelId);
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -58,7 +66,8 @@ export async function callOpenAiModel(
     usage: {
       tokensIn,
       tokensOut,
-      costAmount: (tokensIn + tokensOut) * pricePerToken,
+      costAmount: tokensIn * pricing.inputPerToken + tokensOut * pricing.outputPerToken,
+      costUnit: "usd",
     },
   };
 }

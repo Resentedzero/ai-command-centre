@@ -57,7 +57,7 @@
  * single, canonical guard — and it skips a completed position WITHOUT even
  * resolving its thunk, so `persistReportArtifact` cannot run twice. Building
  * the plan is now free of side effects beyond `bindRunAgent`/
- * `ensureRunBudgetCounter`, both idempotent by design (see
+ * `provisionRunBudgets`, both idempotent by design (see
  * `../shared/runProvisioning.ts`).
  */
 import { eq } from "drizzle-orm";
@@ -73,7 +73,8 @@ import type {
   ToolInvocationSpec,
 } from "../../execution/types.js";
 import type { ContextBudget } from "../../context/types.js";
-import { bindRunAgent, ensureRunBudgetCounter, findRunByTaskInstanceId } from "../shared/runProvisioning.js";
+import { bindRunAgent, findRunByTaskInstanceId } from "../shared/runProvisioning.js";
+import { provisionRunBudgets } from "../../governance/runBudgetPolicy.js";
 import { retrieveResearch } from "./toolBinding.js";
 
 /**
@@ -91,8 +92,6 @@ export type ResearchReportBuilderConfig = {
   toolBindingId: string;
   query: string;
   contextBudget: ContextBudget;
-  /** MVP default "1.00" (matches Unit 8's own fixture convention) — generous headroom for one metered_api call plus one CHEAP-tier llm call. */
-  runBudgetLimit?: string;
 };
 
 export type BuilderParams = {
@@ -198,7 +197,9 @@ export async function buildResearchReportInvocationSpecs(
   // only hook available after the `runs` row exists and before `executeRun`
   // authorizes anything (see `../shared/runProvisioning.ts`). Both idempotent.
   await bindRunAgent(tx, runId, config.agentDefinitionId, config.agentDefinitionVersion);
-  await ensureRunBudgetCounter(tx, runId, config.runBudgetLimit ?? "1.00");
+  // Governance owns the ceilings; this builder can request provisioning for its
+  // Run but cannot choose, raise, or pass a limit (Phase 8).
+  await provisionRunBudgets(tx, runId);
 
   const llmSpec: DeferredInvocationSpec = async (ctx) => buildLlmSpec(config, ctx);
   const reportSpec: DeferredInvocationSpec = async (ctx) => buildReportSpec(tx, ctx);

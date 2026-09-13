@@ -48,6 +48,13 @@ export type PolicyDecision = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
 export type CapabilityPermission = "READ" | "WRITE" | "CREATE" | "PUBLISH" | "SPEND" | "TRADE" | "DELETE" | "EXECUTE" | "SEND";
 
 export type CapabilityGrant = {
+  /**
+   * `capability_grants.id` — surfaced so a `capability_grant`-scoped emergency
+   * stop (Phase 9.7) can match the exact Grant being exercised. Always set by
+   * `resolveCapabilityGrant`; optional only so hand-built Grant values in
+   * Policy's own unit tests stay valid. Policy itself never reads it.
+   */
+  id?: string;
   agentDefinitionId: string;
   agentDefinitionVersion: number;
   capabilityId: string;

@@ -8,6 +8,7 @@ import { eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { events } from "../db/schema.js";
 import * as schema from "../db/schema.js";
+import { isResourceUnit } from "../governance/resourceUnit.js";
 import type { EventEnvelope } from "./types.js";
 
 // Derived (not hand-written) so it always matches the schema actually wired
@@ -50,10 +51,30 @@ function rowToEnvelope(row: typeof events.$inferSelect): EventEnvelope {
           tokensOut: row.tokensOut ?? 0,
           cacheHit: row.cacheHit ?? false,
           costAmount: row.costAmount === null ? 0 : Number(row.costAmount),
+          // Deliberately NOT `?? "usd"`. A usage-bearing row with no unit is a
+          // bug (emitEvent refuses to write one, and migration 0006 backfilled
+          // every pre-existing row), and silently reading it as dollars is the
+          // exact mis-accounting the unit dimension exists to prevent.
+          costUnit: assertPersistedResourceUnit(row.costUnit, row.id),
           modelId: row.modelId ?? "",
         }
       : null,
   };
+}
+
+/**
+ * Fails closed when a usage-bearing row carries no recognized `cost_unit`,
+ * rather than defaulting it. See the call site for why defaulting is unsafe.
+ */
+function assertPersistedResourceUnit(value: string | null, eventId: string) {
+  if (!isResourceUnit(value)) {
+    throw new Error(
+      `emitEvent/rowToEnvelope: event "${eventId}" carries usage but its cost_unit is` +
+        ` ${value === null ? "NULL" : `"${value}"`}, which is not a recognized ResourceUnit.` +
+        " Refusing to assume a unit for a recorded cost amount."
+    );
+  }
+  return value;
 }
 
 /**
@@ -74,6 +95,18 @@ export async function emitEvent(
   tx: DrizzleTransaction,
   input: EmitEventInput
 ): Promise<EventEnvelope> {
+  // `costUnit` is required by the type, but enforce it at runtime too: this is
+  // the single write path for every event in the system, so a unit-less usage
+  // record must be unrepresentable here regardless of how the caller was
+  // typechecked. Refusing costs one comparison; a wrongly-attributed cost
+  // amount is permanent, because events are immutable.
+  if (input.usage && !isResourceUnit(input.usage.costUnit)) {
+    throw new Error(
+      `emitEvent: event "${input.idempotencyKey}" supplies usage but no recognized costUnit` +
+        " — a cost amount may never be recorded without the unit it is denominated in."
+    );
+  }
+
   const existing = await tx.query.events.findFirst({
     where: eq(events.idempotencyKey, input.idempotencyKey),
   });
@@ -117,6 +150,7 @@ export async function emitEvent(
       tokensOut: input.usage?.tokensOut ?? null,
       cacheHit: input.usage?.cacheHit ?? null,
       costAmount: input.usage ? String(input.usage.costAmount) : null,
+      costUnit: input.usage ? input.usage.costUnit : null,
       modelId: input.usage?.modelId ?? null,
     })
     .onConflictDoNothing({ target: events.idempotencyKey })

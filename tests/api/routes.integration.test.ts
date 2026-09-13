@@ -43,8 +43,14 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({
 vi.mock("../../src/router/providers/openai.js", () => ({
   callOpenAiModel: vi.fn(),
 }));
+vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
+  // MANDATORY since Phase 7F made Claude Max the routed default: without this
+  // mock these tests would dispatch to the REAL adapter, spawn the Claude CLI,
+  // and consume subscription entitlement on every `npm test`.
+  callClaudeSubscriptionModel: vi.fn(),
+}));
 
-import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
+import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
 import { buildServer } from "../../src/api/server.js";
 import { V1_RESOLUTION_ACTOR } from "../../src/api/routes/approvals.js";
 
@@ -86,9 +92,9 @@ afterEach(() => {
 });
 
 function mockLlmOnce(reportText: string): void {
-  vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+  vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
     result: { report: reportText },
-    usage: { tokensIn: 100, tokensOut: 50, costAmount: 0.001 },
+    usage: { tokensIn: 100, tokensOut: 50, costAmount: 150, costUnit: "subscription_tokens" },
   });
 }
 
@@ -230,7 +236,7 @@ describe("POST /goals", () => {
     expect(taskA.status).toBe("completed");
     expect(taskB.status).toBe("awaiting_approval");
 
-    expect(callAnthropicModel).toHaveBeenCalledTimes(1);
+    expect(callClaudeSubscriptionModel).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a request with no title", async () => {

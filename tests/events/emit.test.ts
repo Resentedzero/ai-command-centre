@@ -47,7 +47,7 @@ describe("emitEvent", () => {
           tokensIn: 100,
           tokensOut: 50,
           cacheHit: true,
-          costAmount: 0.0123,
+          costAmount: 0.0123, costUnit: "usd",
           modelId: "claude-test-model",
         },
       });
@@ -69,7 +69,7 @@ describe("emitEvent", () => {
         tokensIn: 100,
         tokensOut: 50,
         cacheHit: true,
-        costAmount: 0.0123,
+        costAmount: 0.0123, costUnit: "usd",
         modelId: "claude-test-model",
       });
 

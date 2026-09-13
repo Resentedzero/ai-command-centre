@@ -41,6 +41,12 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({
 vi.mock("../../src/router/providers/openai.js", () => ({
   callOpenAiModel: vi.fn(),
 }));
+vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
+  // MANDATORY since Phase 7F made Claude Max the routed default: without this
+  // mock these tests would dispatch to the REAL adapter, spawn the Claude CLI,
+  // and consume subscription entitlement on every `npm test`.
+  callClaudeSubscriptionModel: vi.fn(),
+}));
 
 import {
   startWorkflowRun,
@@ -62,7 +68,7 @@ import * as approvalsModule from "../../src/governance/approvals.js";
 import * as policyModule from "../../src/governance/policy.js";
 import * as budgetModule from "../../src/governance/budget.js";
 import * as invocationLifecycleModule from "../../src/execution/invocationLifecycle.js";
-import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
+import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
 import { callOpenAiModel } from "../../src/router/providers/openai.js";
 
 beforeAll(async () => {
@@ -94,9 +100,9 @@ type Seed = Awaited<ReturnType<typeof seedPublishWorkflow>>;
 type PublishSnapshot = { artifactId: string; destinationRelativePath: string };
 
 function mockLlmOnce(reportText: string): void {
-  vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+  vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
     result: { report: reportText },
-    usage: { tokensIn: 100, tokensOut: 50, costAmount: 0.001 },
+    usage: { tokensIn: 100, tokensOut: 50, costAmount: 150, costUnit: "subscription_tokens" },
   });
 }
 
@@ -642,11 +648,16 @@ describe("Full governance chain integration", () => {
 
         // Task A's llm step used the mocked Anthropic provider exactly once;
         // the OpenAI provider (tierConfig never routes here) was never touched.
-        expect(callAnthropicModel).toHaveBeenCalledTimes(1);
+        expect(callClaudeSubscriptionModel).toHaveBeenCalledTimes(1);
         expect(callOpenAiModel).not.toHaveBeenCalled();
 
         // Nothing leaked in Task B's own budget counter.
-        const finalCounter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, finalState.taskBRun!.id) });
+        const finalCounter = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, finalState.taskBRun!.id),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
         expect(Number(finalCounter!.reservedAmount)).toBeCloseTo(0, 10);
         expect(Number(finalCounter!.consumedAmount)).toBeCloseTo(0.05, 10);
       });

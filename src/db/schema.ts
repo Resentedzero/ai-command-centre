@@ -66,6 +66,23 @@ export const approvalStatus = pgEnum("approval_status", [
   "expired",
 ]);
 
+/**
+ * Scopes at which execution can be halted (Phase 9.7 emergency stop).
+ *
+ * Deliberately its own enum rather than reusing `budget_counter_scope`: that
+ * one's members are budget rollup levels (`day`, `task_instance`) and
+ * `budget.ts` already narrows it to a different subset. Sharing an enum between
+ * two unrelated vocabularies would make both harder to change.
+ */
+export const executionStopScope = pgEnum("execution_stop_scope", [
+  "global",
+  "agent_definition",
+  "capability_grant",
+  "goal",
+  "workflow_run",
+  "run",
+]);
+
 // ---------------------------------------------------------------------------
 // Definitions (versioned; human/config-authored; rarely change at runtime)
 // ---------------------------------------------------------------------------
@@ -278,6 +295,13 @@ export const events = pgTable(
     tokensOut: integer("tokens_out"),
     cacheHit: boolean("cache_hit"),
     costAmount: numeric("cost_amount"),
+    // Added 2026-09-13 (amended Phase 10.6/12): `cost_amount` is meaningless
+    // without the unit it is denominated in, once more than one resource unit
+    // exists. Nullable ONLY because non-usage events have no usage at all —
+    // `emitEvent` requires it whenever `usage` is non-null, so a usage-bearing
+    // row can never be missing it. Never default it to 'usd' on read: a null
+    // here alongside usage would be a bug, not a dollar amount.
+    costUnit: text("cost_unit"),
     modelId: text("model_id"),
   },
   (table) => [
@@ -306,20 +330,98 @@ export const budgetCounters = pgTable(
     id: uuid("id").primaryKey().$defaultFn(genId),
     scope: budgetCounterScope("scope").notNull(),
     scopeRefId: text("scope_ref_id").notNull(),
+    // Added 2026-09-13 (amended Phase 12). One counter per scope key PER UNIT,
+    // so dollars and subscription tokens are tracked independently and never
+    // summed. Defaulted to 'usd' so the migration backfills pre-existing rows
+    // to the only unit that existed before this column.
+    resourceUnit: text("resource_unit").notNull().default("usd"),
     limitAmount: numeric("limit_amount").notNull(),
     reservedAmount: numeric("reserved_amount").notNull().default("0"),
     consumedAmount: numeric("consumed_amount").notNull().default("0"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // Exactly one counter row per scope key (Unit 2 ruling). Without this,
+    // Exactly one counter row per scope key PER RESOURCE UNIT. Without this,
     // two concurrent reserveBudget calls that both find "no row yet" for a
     // key could each attempt to work against/insert a distinct row for the
     // same key, breaking the single-row-per-scope invariant reserveBudget's
     // SELECT ... FOR UPDATE locking depends on for atomicity.
-    uniqueIndex("budget_counters_scope_scope_ref_id_idx").on(table.scope, table.scopeRefId),
+    //
+    // `resource_unit` joined the key 2026-09-13 (amended Phase 12). The
+    // locking guarantee is unchanged — FOR UPDATE still locks exactly one
+    // row — but a scope may now hold a `usd` counter and a
+    // `subscription_tokens` counter simultaneously, which must NOT contend
+    // with or block each other.
+    uniqueIndex("budget_counters_scope_scope_ref_id_resource_unit_idx").on(
+      table.scope,
+      table.scopeRefId,
+      table.resourceUnit
+    ),
   ]
 );
+
+// ---------------------------------------------------------------------------
+// Provider state (projections)
+// ---------------------------------------------------------------------------
+
+/**
+ * `subscription_quota_state` — the CURRENT projection of what a provider last
+ * reported about its own quota windows (Phase 7A; design Part 3).
+ *
+ * This is NOT a history table and NOT a usage ledger. It holds exactly one row
+ * per provider, replaced whenever a newer observation arrives. History lives in
+ * the `events` table; this row is a derived read-model, never a source of truth.
+ *
+ * What it deliberately does NOT store, because none of it is knowable from the
+ * telemetry (design Part 3.1 — utilization is a GAUGE, not a counter): tokens
+ * remaining, window capacity, cumulative usage, utilization deltas, or any
+ * conversion between utilization and `subscription_tokens`. The measured
+ * justification is that utilization was observed to DECREASE within a single
+ * second (0.47 -> 0.48 -> 0.47), so nothing monotonic may be derived from it.
+ *
+ * Keyed by `provider` (a natural primary key) rather than the surrogate uuid
+ * used elsewhere in this file: "exactly one current-state row per provider" is
+ * the entire invariant, and a natural PK makes it structural instead of
+ * requiring a separate unique index over a column that nothing references.
+ */
+export const subscriptionQuotaState = pgTable("subscription_quota_state", {
+  provider: text("provider").primaryKey(),
+  // Both windows are nullable: a provider may report one window and omit the
+  // other, and an omitted field is recorded as absent rather than invented
+  // (design Part 3.2). `numeric` rather than a float so the value is stored
+  // exactly as observed, with no binary-floating-point drift.
+  fiveHourUtilization: numeric("five_hour_utilization"),
+  fiveHourResetAt: timestamp("five_hour_reset_at", { withTimezone: true }),
+  sevenDayUtilization: numeric("seven_day_utilization"),
+  sevenDayResetAt: timestamp("seven_day_reset_at", { withTimezone: true }),
+  // When the runtime RECEIVED this reading — a LOCAL RECEIPT timestamp, not a
+  // provider-supplied one: the CLI attaches no time to `rate_limit_event`. The
+  // adapter stamps each line as it arrives on the pipe (Phase 7B), never at
+  // subprocess close, so a reading emitted early in a long invocation is not
+  // recorded as fresher than it is.
+  //
+  // This is the ordering key ("newer replaces older") and the only input a
+  // future freshness policy needs. No staleness threshold is stored here — that
+  // is policy, and Phase 7A deliberately does not invent one.
+  observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull(),
+  // Nullable: observed as "rejected" in every Phase 4/5 sample, but the
+  // provider is not contractually obliged to send it.
+  overageStatus: text("overage_status"),
+  // Which mechanism produced the observation (e.g. "rate_limit_event"), so a
+  // second future source can be added without the reading becoming ambiguous.
+  source: text("source").notNull(),
+  // The immutable Event this row was projected FROM. Not one of the nine
+  // conceptual fields in the design, and added deliberately: it makes the
+  // event -> projection direction structural and auditable (design Part 10), and
+  // turns "which fact produced the state I am looking at?" into a lookup rather
+  // than a timestamp-correlation guess. The foreign key is the point — a link
+  // the database does not enforce would be a weaker version of exactly the
+  // guarantee this column exists to provide.
+  observationEventId: uuid("observation_event_id")
+    .notNull()
+    .references(() => events.id),
+});
 
 // ---------------------------------------------------------------------------
 // Governance
@@ -368,3 +470,64 @@ export const artifacts = pgTable("artifacts", {
   summary: text("summary"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// Control plane
+// ---------------------------------------------------------------------------
+
+/**
+ * `execution_stops` — the Phase 9.7 emergency stop. CONTROL-PLANE STATE, not an
+ * event projection.
+ *
+ * Enforcement reads this table directly and synchronously, inside the
+ * Executor's own transaction, immediately before every Invocation. That is only
+ * sound because this database runs at Postgres's default READ COMMITTED
+ * (`src/db/client.ts` sets no isolation level, and no route passes transaction
+ * config): each statement takes a fresh snapshot, so a stop COMMITTED on another
+ * connection mid-run IS visible to the next check inside an already-open
+ * Executor transaction. **Do not raise the isolation level without revisiting
+ * this** — under REPEATABLE READ an in-flight run would never see a stop.
+ *
+ * A stop is engaged by INSERTing a row and lifted by setting `lifted_at`,
+ * following `capability_grants.revoked_at`'s precedent: lifecycle is a nullable
+ * timestamp, never a mutable status column. Rows are therefore an append-only
+ * audit of who stopped what, when, and why.
+ */
+export const executionStops = pgTable(
+  "execution_stops",
+  {
+    id: uuid("id").primaryKey().$defaultFn(genId),
+    scope: executionStopScope("scope").notNull(),
+    /**
+     * What the scope points at: an `agent_definitions.id`, a
+     * `capability_grants.id`, a `goals.id`, a `workflow_runs.id`, or a
+     * `runs.id`.
+     *
+     * For `global` this is the sentinel `"*"` rather than NULL — deliberately.
+     * Postgres treats NULLs as distinct, so a partial unique index could not
+     * prevent two simultaneous active global stops if this were nullable.
+     * `GLOBAL_STOP_REF` in `src/governance/executionStop.ts` is the only
+     * producer of that value.
+     *
+     * No foreign key: the scope determines which table it refers to, and a stop
+     * must remain valid as an audit record even if its target is later removed.
+     */
+    scopeRefId: text("scope_ref_id").notNull(),
+    /** Free text from the human engaging the stop. Never interpreted by code. */
+    reason: text("reason"),
+    engagedAt: timestamp("engaged_at", { withTimezone: true }).notNull().defaultNow(),
+    engagedBy: text("engaged_by").notNull(),
+    /** NULL means ACTIVE. Set to lift; the row is never deleted. */
+    liftedAt: timestamp("lifted_at", { withTimezone: true }),
+    liftedBy: text("lifted_by"),
+  },
+  (table) => [
+    // At most one ACTIVE stop per scope key. Without this, "lift the stop on
+    // agent X" would be nondeterministic with several active rows, and the
+    // enforcement lookup could not answer "is this scope stopped?" from a
+    // single row. Partial, so the full history of lifted stops is retained.
+    uniqueIndex("execution_stops_active_scope_idx")
+      .on(table.scope, table.scopeRefId)
+      .where(sql`${table.liftedAt} is null`),
+  ]
+);

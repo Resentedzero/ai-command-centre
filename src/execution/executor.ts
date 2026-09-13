@@ -59,12 +59,17 @@
  */
 import { isDeepStrictEqual } from "node:util";
 import { and, asc, eq, lt } from "drizzle-orm";
-import { approvals, artifacts, invocations, runs } from "../db/schema.js";
+import { approvals, artifacts, invocations, runs, taskInstances, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
 import type { ApprovalRequiredPayload } from "../events/types.js";
 import { NOOP_RESERVATION_ID, reconcileBudget, releaseReservation, reserveBudget } from "../governance/budget.js";
-import { createApproval, reauthorize } from "../governance/approvals.js";
+import { createApproval, expirePendingApproval, reauthorize } from "../governance/approvals.js";
+import {
+  assertCapabilityGrantsNotStopped,
+  assertNotStopped,
+  ExecutionStoppedError,
+} from "../governance/executionStop.js";
 import { compileContext } from "../context/compiler.js";
 import { authorizeRoute, callModel } from "../router/modelRouter.js";
 import {
@@ -247,6 +252,46 @@ async function processToolSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: nu
 
   // Steps 2-3: resolve Grant, resolve Tool Binding's trustLevel.
   const grant = await resolveCapabilityGrant(tx, { runId, capabilityId: spec.capabilityId, permission: spec.permission });
+
+  // Phase 9.7, capability_grant scope. Checked HERE rather than at the loop top
+  // because this is the earliest point a Grant exists at all — only Tool
+  // Invocations resolve one. Every broader scope (global, agent, workflow_run,
+  // run) was already checked before this spec was even resolved. A null grant
+  // is not skipped silently: Policy DENYs it immediately below.
+  if (grant) {
+    if (!grant.id) {
+      // Fail closed. A Grant that cannot be identified cannot be checked
+      // against a grant-scoped stop, so it must not be exercised.
+      // `resolveCapabilityGrant` always sets `id`; this guards the type's
+      // optionality rather than a known path.
+      throw new Error(
+        `executeRun: the resolved Capability Grant for capability "${spec.capabilityId}" carries no id;` +
+          " refusing to dispatch without checking grant-scoped emergency stops."
+      );
+    }
+    try {
+      await assertNotStopped(tx, { capabilityGrantId: grant.id });
+      // EVERY unrevoked Grant covering this action, not just the one resolved
+      // above — a stop on any covering Grant must block.
+      await assertCapabilityGrantsNotStopped(tx, {
+        runId,
+        capabilityId: spec.capabilityId,
+        permission: spec.permission,
+      });
+    } catch (error) {
+      // A lookup failure has aborted the transaction; writing here would only
+      // replace the real error with "current transaction is aborted".
+      if (error instanceof ExecutionStoppedError && !error.lookupFailed) {
+        await failInvocation(tx, {
+          invocationId,
+          runId,
+          taskInstanceId: runRow.taskInstanceId,
+          reason: "execution_stopped",
+        });
+      }
+      throw error;
+    }
+  }
   const { trustLevel, bindingTrustLevel } = await resolveToolBindingTrustLevel(tx, spec.toolBindingId);
 
   // Step 4: evaluatePolicy. Both trust values come from the tool_bindings row
@@ -269,7 +314,12 @@ async function processToolSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: nu
   }
 
   // Step 6: reserveBudget for ALLOW or REQUIRE_APPROVAL.
-  const reservation = await reserveBudget(tx, "run", runId, spec.costClass, spec.estimatedCost);
+  //
+  // `"usd"`: this path handles tool/metered-API/side-effect specs, whose
+  // `estimatedCost` is a real monetary amount. The LLM path does not come
+  // through here — `authorizeRoute` reserves in whatever unit the routed
+  // tier's provider accounts in (which may be `subscription_tokens`).
+  const reservation = await reserveBudget(tx, "run", runId, spec.costClass, "usd", spec.estimatedCost);
   if (!reservation.authorized) {
     await failInvocation(tx, { invocationId, runId, taskInstanceId: runRow.taskInstanceId, reason: "insufficient_budget" });
     await failRun(tx, runId);
@@ -455,7 +505,8 @@ async function resumeToolSpec(
   }
   await clearPendingReservation(tx, runId, seqNo);
   // ...then a fresh, separate reservation immediately before execution.
-  const freshReservation = await reserveBudget(tx, "run", runId, spec.costClass, spec.estimatedCost);
+  // `"usd"` for the same reason as the pre-approval reservation above.
+  const freshReservation = await reserveBudget(tx, "run", runId, spec.costClass, "usd", spec.estimatedCost);
   if (!freshReservation.authorized) {
     await failInvocation(tx, {
       invocationId,
@@ -514,7 +565,10 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
     // invocation_failed itself here, for the same reason it owns every other
     // kind's failure event uniformly — consistent with `modelRouter.ts`'s own
     // header, which states failure-event emission is the Executor's job.
-    await failInvocation(tx, { invocationId, runId, taskInstanceId, reason: "insufficient_budget" });
+    // The reason comes from authorizeRoute, not a constant: a quota-guardrail
+    // refusal and an exhausted budget are different operator situations, and
+    // flattening both to "insufficient_budget" would hide which one happened.
+    await failInvocation(tx, { invocationId, runId, taskInstanceId, reason: route.reason });
     await failRun(tx, runId);
     return { status: "failed", runId };
   }
@@ -705,6 +759,117 @@ export async function executeRun(
   if (runRow.status === "failed") return { status: "failed", runId };
   if (runRow.status === "completed") return { status: "completed", runId };
 
+  // Read once: stable for the life of the Run, and only needed to give the
+  // containment check its goal and workflow_run scopes. Both are null for
+  // standalone Task Instances, which simply cannot be stopped at those scopes.
+  const boundRun: RunRow = runRow;
+  const taskInstanceRow = await tx.query.taskInstances.findFirst({
+    where: eq(taskInstances.id, boundRun.taskInstanceId),
+  });
+  const workflowRunRow = taskInstanceRow?.workflowRunId
+    ? await tx.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, taskInstanceRow.workflowRunId) })
+    : undefined;
+
+  /**
+   * THE CONTAINMENT CHECK (Phase 9.7), called from the two places inside this
+   * loop that can lead to dispatch — the fresh-spec path and the
+   * awaiting_approval resume path.
+   *
+   * Placed at the LOOP TOP rather than at the three dispatch statements, for
+   * two reasons. It covers every Invocation kind uniformly, including the
+   * deterministic/retrieval path that has no other governance at all. And it
+   * runs BEFORE `resolvePlannedSpec`, so a stopped Run never even resolves a
+   * caller-supplied deferred-spec thunk — those thunks read and write the
+   * database, so gating only the dispatch statement would leave real work
+   * reachable under a stop.
+   *
+   * Re-queried on EVERY iteration, deliberately: `runRow` was read once before
+   * the loop, so any stop expressed as state on that row would be invisible
+   * mid-Run. This reads the control-plane table fresh each time, which under
+   * READ COMMITTED observes a stop committed by another connection while this
+   * Run is still in flight.
+   *
+   * Note the ordering above: a `completed` invocation `continue`s before
+   * reaching this, so a stop never retroactively touches finished work.
+   */
+  async function assertRunNotStopped(): Promise<void> {
+    // The agent binding is re-read every time rather than taken from
+    // `boundRun`: a deferred spec resolved later in this same transaction can
+    // rebind the Run, and an agent_definition stop must see the CURRENT
+    // binding, not the one captured before the loop started.
+    const current = await tx.query.runs.findFirst({ where: eq(runs.id, runId) });
+    await assertNotStopped(tx, {
+      agentDefinitionId: current?.agentDefinitionId ?? null,
+      goalId: workflowRunRow?.goalId ?? null,
+      workflowRunId: taskInstanceRow?.workflowRunId ?? null,
+      runId,
+    });
+  }
+
+  try {
+    return await runInvocationLoop(boundRun);
+  } catch (error) {
+    // A stop is a REFUSAL, not a crash: record it as a terminal Run outcome
+    // naming which stop halted it, rather than letting it propagate out of the
+    // Executor into the interpreter and API as an unhandled error. Any other
+    // error still propagates unchanged.
+    if (!(error instanceof ExecutionStoppedError)) throw error;
+    // A failed lookup is NOT an operator stop. It has aborted the Postgres
+    // transaction, so nothing can be written — and recording it as a "global"
+    // stop would invent an audit entry. Rethrow: the transaction rolls back
+    // with nothing dispatched, which is still fail-closed.
+    if (error.lookupFailed) throw error;
+    try {
+      await tx
+        .update(runs)
+        .set({
+          status: "failed",
+          completedAt: new Date(),
+          outcome: {
+            status: "failed",
+            reason: "execution_stopped",
+            stopScope: error.stop.scope,
+            stopScopeRefId: error.stop.scopeRefId,
+          },
+        })
+        .where(eq(runs.id, runId));
+
+      // The Run's terminal transition is a meaningful state change and must be
+      // visible in the event log, not only in `runs.outcome` — otherwise a Run
+      // halted before proposing any invocation simply stops appearing in the
+      // Activity feed with no stated cause.
+      await emitEvent(tx, {
+        idempotencyKey: `run_halted:${runId}`,
+        eventType: "run_halted",
+        eventVersion: 1,
+        causationId: null,
+        correlation: {
+          goalId: null,
+          workflowRunId: null,
+          taskInstanceId: boundRun.taskInstanceId,
+          runId,
+          invocationId: null,
+        },
+        actor: "system",
+        producer: "executor",
+        payload: {
+          reason: "execution_stopped",
+          stopId: error.stop.id,
+          stopScope: error.stop.scope,
+          stopScopeRefId: error.stop.scopeRefId,
+        },
+        usage: null,
+      });
+    } catch {
+      // Defensive: if recording the outcome itself fails, surface the stop —
+      // the real cause — rather than the write error. The transaction then
+      // rolls back with nothing dispatched; still fail-closed.
+      throw error;
+    }
+    return { status: "failed", runId };
+  }
+
+  async function runInvocationLoop(run: RunRow): Promise<RunOutcome> {
   for (let i = 0; i < invocationSpecs.length; i++) {
     const seqNo = i + 1;
     const planned = invocationSpecs[i]!;
@@ -724,9 +889,57 @@ export async function executeRun(
         continue;
       }
       if (existing.status === "awaiting_approval") {
+        try {
+          await assertRunNotStopped();
+          // The capability_grant scope too: without it a Grant-scoped stop
+          // engaged while this invocation waited would be bypassed the moment
+          // someone approved. Keyed on the STORED (approved) capability and
+          // permission; resumeToolSpec rejects a resuming spec that differs.
+          if (existing.capabilityId && existing.permission) {
+            await assertCapabilityGrantsNotStopped(tx, {
+              runId,
+              capabilityId: existing.capabilityId,
+              permission: existing.permission,
+            });
+          }
+        } catch (error) {
+          // This invocation already HOLDS a budget reservation, taken before
+          // the approval halt. A stop here must release it and terminate the
+          // invocation, exactly as every other refusal on the resume path does
+          // — otherwise the hold is stranded forever: the Run is about to become
+          // terminal, and nothing else ever reads pendingReservations.
+          //
+          // Skipped for a lookup failure, which has aborted the transaction: no
+          // write could succeed, and the whole transaction rolls back anyway.
+          if (error instanceof ExecutionStoppedError && !error.lookupFailed) {
+            const reservationId = await peekPendingReservation(tx, runId, seqNo);
+            if (isRealReservation(reservationId)) {
+              await releaseReservation(tx, reservationId);
+            }
+            await clearPendingReservation(tx, runId, seqNo);
+            await failInvocation(tx, {
+              invocationId: existing.id,
+              runId,
+              taskInstanceId: run.taskInstanceId,
+              reason: "execution_stopped",
+            });
+            // A still-PENDING approval for this invocation can now never take
+            // effect — its Run is about to become terminal. Close it so it
+            // leaves the approvals queue instead of waiting forever for a
+            // decision nothing will act on. Conditional on `pending`, so an
+            // already-resolved approval keeps its real decision.
+            const pendingApproval = await tx.query.approvals.findFirst({
+              where: and(eq(approvals.invocationId, existing.id), eq(approvals.status, "pending")),
+            });
+            if (pendingApproval) {
+              await expirePendingApproval(tx, pendingApproval.id, "system:execution_stop");
+            }
+          }
+          throw error;
+        }
         const spec = await resolvePlannedSpec(tx, runId, seqNo, planned);
         assertToolSpec(spec); // only "tool" specs ever reach awaiting_approval
-        const outcome = await resumeToolSpec(tx, runRow, seqNo, spec, existing);
+        const outcome = await resumeToolSpec(tx, run, seqNo, spec, existing);
         if (outcome.status !== "completed") return outcome;
         continue; // resumed and completed — proceed to the next spec, not restart from 0
       }
@@ -740,8 +953,9 @@ export async function executeRun(
       );
     }
 
+    await assertRunNotStopped();
     const spec = await resolvePlannedSpec(tx, runId, seqNo, planned);
-    const outcome = await processFreshSpec(tx, runRow, seqNo, spec);
+    const outcome = await processFreshSpec(tx, run, seqNo, spec);
     if (outcome.status !== "completed") return outcome;
   }
 
@@ -750,4 +964,5 @@ export async function executeRun(
     .set({ status: "completed", completedAt: new Date(), outcome: { status: "completed" } })
     .where(eq(runs.id, runId));
   return { status: "completed", runId };
+  }
 }

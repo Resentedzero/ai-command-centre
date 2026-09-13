@@ -45,50 +45,329 @@
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
 import { reserveBudget, reconcileBudget } from "../governance/budget.js";
+import { evaluateQuotaGuardrail } from "../governance/quotaGuardrail.js";
+import { recordInvocationQuotaObservation } from "../governance/quotaTelemetry.js";
+import type { ResourceUnit } from "../governance/resourceUnit.js";
 import type { CompiledContext } from "../context/types.js";
-import { tierConfig } from "./tierConfig.js";
+import {
+  providerCandidates,
+  type CandidateCapability,
+  type ProviderCandidate,
+  type ProviderName,
+} from "./tierConfig.js";
 import { callAnthropicModel } from "./providers/anthropic.js";
 import { callOpenAiModel } from "./providers/openai.js";
-import type { ModelTier, RouteRequest, RouteResult } from "./types.js";
+import { callClaudeSubscriptionModel } from "./providers/claudeSubscription.js";
+import type {
+  ModelTier,
+  ProviderAdapter,
+  ProviderCallResult,
+  RouteRequest,
+  RouteResult,
+  TierAccounting,
+} from "./types.js";
+import { quotaObservationFrom } from "./types.js";
+
+/**
+ * Provider dispatch table. DELIBERATELY a total map keyed by `ProviderName`,
+ * not a conditional.
+ *
+ * The previous `config.provider === "anthropic" ? anthropic : openai` ternary
+ * routed EVERY non-"anthropic" value to OpenAI. Adding a third provider to the
+ * union would therefore have silently misrouted subscription calls to the
+ * OpenAI adapter — a billable call instead of a quota one — and because the
+ * ternary's else-branch accepts anything, the type system would NOT have
+ * caught it. `Record<ProviderName, ProviderAdapter>` inverts that: omitting a
+ * provider is now a compile error, and there is no fall-through branch for a
+ * value to land in by accident.
+ */
+const PROVIDERS: Record<ProviderName, ProviderAdapter> = {
+  anthropic: callAnthropicModel,
+  openai: callOpenAiModel,
+  claude_subscription: callClaudeSubscriptionModel,
+};
+
+/**
+ * Why authorization failed, so the Executor can record the real reason rather
+ * than reporting every refusal as a budget problem. A quota refusal and an
+ * exhausted budget are different operator situations with different remedies.
+ */
+export type AuthorizationFailure =
+  | "insufficient_budget"
+  | "quota_guardrail"
+  | "provider_quota_rejected"
+  | "no_eligible_candidate";
+
+// ---------------------------------------------------------------------------
+// Candidate selection (Phase 7D)
+// ---------------------------------------------------------------------------
+
+/** Why a configured candidate was not eligible for THIS routing decision. */
+export type ExclusionReason =
+  | "disabled"
+  | "tier_mismatch"
+  | "capability_mismatch"
+  | "resource_mismatch"
+  | "quota_refused"
+  | "provider_unavailable";
+
+export type ExcludedCandidate = {
+  provider: ProviderName;
+  modelId: string;
+  reason: ExclusionReason;
+};
+
+export type CandidateRouting =
+  | { status: "routed"; candidates: ProviderCandidate[]; excluded: ExcludedCandidate[] }
+  | { status: "no_eligible_candidate"; reason: ExclusionReason | "none_configured"; excluded: ExcludedCandidate[] };
+
+/**
+ * Static exclusion checks, cheapest first, in a FIXED order so the reported
+ * reason for a candidate excluded on several grounds is deterministic:
+ * disabled -> tier -> capability -> resource. Ordering them this way also means
+ * a candidate already excluded on static grounds never costs a quota query.
+ *
+ * Returns null when the candidate survives every static check.
+ */
+function staticExclusion(
+  candidate: ProviderCandidate,
+  tier: ModelTier,
+  requiredCapabilities: CandidateCapability[],
+  allowedResourceUnits: ResourceUnit[] | undefined
+): ExclusionReason | null {
+  if (!candidate.enabled) return "disabled";
+  if (!candidate.tiers.includes(tier)) return "tier_mismatch";
+  if (!requiredCapabilities.every((required) => candidate.capabilities.includes(required))) {
+    return "capability_mismatch";
+  }
+  if (allowedResourceUnits && !allowedResourceUnits.includes(candidate.accounting.unit)) {
+    return "resource_mismatch";
+  }
+  return null;
+}
+
+/**
+ * Produces the ORDERED, ELIGIBLE candidates for a request — and nothing else.
+ *
+ * It does not dispatch, does not reserve budget, and does not decide how many
+ * candidates a caller may try. Returning a list is deliberately NOT permission
+ * to fall through it: Phase 7D implements ordering and eligibility only, and
+ * `authorizeRoute` below still takes exactly the first candidate and stops.
+ *
+ * Candidate order is the configured order (`providerCandidates`). There is no
+ * provider-name branch anywhere in this function: adding a provider to the
+ * config changes routing with no code change here, which is the property the
+ * total-map dispatch already gives `callModel`.
+ *
+ * QUOTA: consumed as the guardrail's POLICY RESULT only. This function never
+ * reads a utilization number, a threshold, or a reset time — duplicating that
+ * logic is exactly how two subsystems drift into disagreeing. `REFUSE_QUOTA`
+ * and `PROVIDER_REJECTED` make a candidate ineligible; `ALLOW` and
+ * `UNKNOWN_ALLOWED` leave it eligible.
+ *
+ * Routing can only ever NARROW what is attempted. No branch here makes a
+ * candidate eligible that its configuration did not already permit, so routing
+ * cannot widen Capability/Policy authority — those remain authoritative above
+ * this layer, and a candidate being cheaper, stronger, or quota-unknown never
+ * promotes it.
+ */
+export async function selectCandidates(
+  tx: DrizzleTransaction,
+  req: {
+    tier: ModelTier;
+    requiredCapabilities?: CandidateCapability[];
+    allowedResourceUnits?: ResourceUnit[];
+    invocationId?: string | null;
+    runId?: string | null;
+  },
+  candidates: ProviderCandidate[] = providerCandidates
+): Promise<CandidateRouting> {
+  const requiredCapabilities = req.requiredCapabilities ?? [];
+  const eligible: ProviderCandidate[] = [];
+  const excluded: ExcludedCandidate[] = [];
+
+  for (const candidate of candidates) {
+    const staticReason = staticExclusion(candidate, req.tier, requiredCapabilities, req.allowedResourceUnits);
+    if (staticReason) {
+      excluded.push({ provider: candidate.provider, modelId: candidate.modelId, reason: staticReason });
+      continue;
+    }
+
+    const guardrail = await evaluateQuotaGuardrail(tx, {
+      provider: candidate.provider,
+      invocationId: req.invocationId ?? null,
+      runId: req.runId ?? null,
+    });
+
+    // A RUNTIME REFUSAL STOPS THE SCAN — it never promotes a lower-ranked
+    // candidate (Phase 7G).
+    //
+    // Static exclusions above `continue`, because "disabled" or "wrong tier" are
+    // configuration facts about which candidates apply at all. A quota refusal
+    // or a provider rejection is different in kind: it is a live refusal to do
+    // THIS work now. Skipping past it would hand the invocation to whatever is
+    // ranked next — since Phase 7F that is the billable Anthropic API, which has
+    // no guardrail configured and would therefore always be allowed. That is
+    // exactly the silent fallback amended Phase 10.6.7 forbids: a quota refusal
+    // converted into unbudgeted spend, with no Policy decision, no separate
+    // reservation, and nothing in the event log marking the switch.
+    //
+    // Breaking here means routing fails explicitly instead. Falling back to
+    // another provider remains possible only as a deliberate configuration
+    // change or an explicit future Policy decision — never as a side effect of
+    // one candidate being refused.
+    if (guardrail.decision.decision === "REFUSE_QUOTA") {
+      excluded.push({ provider: candidate.provider, modelId: candidate.modelId, reason: "quota_refused" });
+      break;
+    }
+    if (guardrail.decision.decision === "PROVIDER_REJECTED") {
+      excluded.push({ provider: candidate.provider, modelId: candidate.modelId, reason: "provider_unavailable" });
+      break;
+    }
+
+    eligible.push(candidate);
+  }
+
+  if (eligible.length === 0) {
+    // An explicit failure with a reason, never an empty list the caller has to
+    // interpret. When every candidate was excluded for the same reason, report
+    // it; a mixture reports the first exclusion, which is the highest-priority
+    // candidate's reason.
+    // A RUNTIME refusal is the decisive reason whenever one occurred: it is why
+    // the scan stopped. Reporting an incidental static skip instead (a
+    // higher-ranked candidate that simply serves another tier) would tell an
+    // operator "tier_mismatch" when what actually happened is "the provider
+    // refused" — the single most misleading answer available here.
+    const runtimeRefusal = excluded.find(
+      (e) => e.reason === "quota_refused" || e.reason === "provider_unavailable"
+    );
+    const reasons = new Set(excluded.map((e) => e.reason));
+    const reason =
+      excluded.length === 0
+        ? "none_configured"
+        : runtimeRefusal
+          ? runtimeRefusal.reason
+          : reasons.size === 1
+            ? [...reasons][0]!
+            : excluded[0]!.reason;
+    return { status: "no_eligible_candidate", reason, excluded };
+  }
+
+  return { status: "routed", candidates: eligible, excluded };
+}
 
 /**
  * Tier selection (documented MVP heuristic — Phase 10.7 leaves the exact
  * mapping, beyond the risk-floor rule, unspecified):
  *   - `riskTier` "high"/"highest" forces STRONG, regardless of
  *     `taskDifficulty` — the brief's explicit quality-floor rule.
- *   - Otherwise: "complex" -> STRONG; "simple"/"standard" -> CHEAP. A simple,
+ *   - Otherwise the three difficulty levels map 1:1 onto the three tiers:
+ *     "simple" -> CHEAP, "standard" -> MID, "complex" -> STRONG. A simple,
  *     deterministic difficulty->tier mapping — not a confidence- or
  *     performance-driven one (both explicitly out of scope).
+ *
+ * PHASE 7H: "standard" previously mapped to CHEAP, because MID did not exist
+ * and the ladder had nowhere else to put it. It now maps to MID, which is the
+ * point of adding the tier — a standard-difficulty task gets a mid-capability
+ * model rather than the cheapest one. The risk FLOOR is untouched: high/highest
+ * still forces STRONG regardless of difficulty, and no path lowers a tier.
+ *
+ * The requested tier is never silently downgraded or upgraded: if no candidate
+ * serves it, routing fails explicitly rather than falling back to another tier.
  */
+const DIFFICULTY_TIER: Record<RouteRequest["taskDifficulty"], ModelTier> = {
+  simple: "CHEAP",
+  standard: "MID",
+  complex: "STRONG",
+};
+
 function selectTier(req: RouteRequest): ModelTier {
   if (req.riskTier === "high" || req.riskTier === "highest") {
     return "STRONG";
   }
-  return req.taskDifficulty === "complex" ? "STRONG" : "CHEAP";
+  // A total map, like the provider dispatch table: adding a difficulty level
+  // becomes a compile error rather than a silent fall-through to a default.
+  return DIFFICULTY_TIER[req.taskDifficulty];
 }
 
 /**
- * Pass-1 worst-case cost estimate (brief-specified formula): the full
- * context-budget input ceiling plus expected output tokens, priced at the
- * selected tier's flat `pricePerToken`. A documented heuristic, not a real
- * provider pricing model.
+ * Pass-1 worst-case cost estimate: the full context-budget input ceiling
+ * priced at the tier's INPUT rate, plus expected output tokens priced at its
+ * OUTPUT rate. The two rates are applied separately because output costs ~5x
+ * input on both configured models — summing the token counts first and
+ * applying one blended rate would under-price output-heavy work.
+ *
+ * Still deliberately WORST-CASE: it reserves against the budget ceiling, not
+ * a prediction of actual usage, so `reserveBudget` refuses work it cannot
+ * afford before anything is dispatched.
  */
-function estimateCost(tier: ModelTier, contextBudget: RouteRequest["contextBudget"]): number {
-  const { pricePerToken } = tierConfig[tier];
-  return (contextBudget.maxInputTokens + contextBudget.expectedOutputTokens) * pricePerToken;
+function estimateCost(accounting: TierAccounting, contextBudget: RouteRequest["contextBudget"]): number {
+  if (accounting.unit === "usd") {
+    return (
+      contextBudget.maxInputTokens * accounting.pricing.inputPerToken +
+      contextBudget.expectedOutputTokens * accounting.pricing.outputPerToken
+    );
+  }
+
+  // Token-denominated units (subscription_tokens, local_tokens): the amount IS
+  // the token count, so the worst-case estimate is the ceiling itself. No
+  // rate, no imputed price, and explicitly NOT zero — this consumes a real,
+  // finite entitlement and is reserved against a counter in its own unit.
+  return contextBudget.maxInputTokens + contextBudget.expectedOutputTokens;
 }
 
 export async function authorizeRoute(
   tx: DrizzleTransaction,
   req: RouteRequest
-): Promise<RouteResult | { authorized: false }> {
+): Promise<RouteResult | { authorized: false; reason: AuthorizationFailure }> {
   const tier = selectTier(req);
-  const modelId = tierConfig[tier].modelId;
-  const estimatedCost = estimateCost(tier, req.contextBudget);
 
-  const reservation = await reserveBudget(tx, "run", req.runId, "llm", estimatedCost);
+  // Step 1 — ROUTING (Phase 7D): which candidates are eligible, in what order.
+  // Advisory only; it reserves nothing, so ranking a candidate never costs
+  // budget. Quota eligibility is folded in here, which is why this precedes the
+  // reservation — see the ordering note in this module's header.
+  const routing = await selectCandidates(tx, {
+    tier,
+    requiredCapabilities: req.requiredCapabilities,
+    allowedResourceUnits: req.allowedResourceUnits,
+    invocationId: req.invocationId,
+    runId: req.runId,
+  });
+
+  if (routing.status === "no_eligible_candidate") {
+    // Never silently downgraded or upgraded to another tier, and never switched
+    // to a provider the configuration did not rank for this tier.
+    return {
+      authorized: false,
+      reason:
+        routing.reason === "quota_refused"
+          ? "quota_guardrail"
+          : routing.reason === "provider_unavailable"
+            ? "provider_quota_rejected"
+            : "no_eligible_candidate",
+    };
+  }
+
+  // SINGLE DISPATCH, deliberately preserved. `routing.candidates` may hold more
+  // than one entry, but Phase 7D takes the first and stops: falling through to
+  // the next on failure would be automatic provider fallback, which requires an
+  // explicit Policy/Budget decision and is NOT implemented here.
+  const candidate = routing.candidates[0]!;
+  const modelId = candidate.modelId;
+  const estimatedCost = estimateCost(candidate.accounting, req.contextBudget);
+
+  // Step 2 — the HARD control. Budget authorization is last and is decisive:
+  // nothing above can overturn it, and a denial here is a denial outright.
+  const reservation = await reserveBudget(
+    tx,
+    "run",
+    req.runId,
+    "llm",
+    candidate.accounting.unit,
+    estimatedCost
+  );
   if (!reservation.authorized) {
-    return { authorized: false };
+    return { authorized: false, reason: "insufficient_budget" };
   }
 
   await emitEvent(tx, {
@@ -118,6 +397,8 @@ export async function authorizeRoute(
   return {
     tier,
     modelId,
+    provider: candidate.provider,
+    accounting: candidate.accounting,
     reservationId: reservation.reservationId,
     invocationId: req.invocationId,
     runId: req.runId,
@@ -131,12 +412,42 @@ export async function callModel(
   compiledContext: CompiledContext,
   expectedOutputShape: Record<string, unknown>
 ): Promise<{ result: unknown; usage: { tokensIn: number; tokensOut: number; costAmount: number } }> {
-  const config = tierConfig[route.tier];
+  const invocation = { invocationId: route.invocationId, runId: route.runId, taskInstanceId: route.taskInstanceId };
 
-  const providerResult =
-    config.provider === "anthropic"
-      ? await callAnthropicModel(route.modelId, compiledContext, expectedOutputShape, config.pricePerToken)
-      : await callOpenAiModel(route.modelId, compiledContext, expectedOutputShape, config.pricePerToken);
+  // The ROUTED candidate's provider and accounting, carried on the route —
+  // never re-derived from the tier, which would dispatch a non-primary
+  // candidate's call to the primary candidate's adapter.
+  let providerResult: ProviderCallResult;
+  try {
+    providerResult = await PROVIDERS[route.provider](
+      route.modelId,
+      compiledContext,
+      expectedOutputShape,
+      route.accounting
+    );
+  } catch (error) {
+    // provider failure -> quota observation -> record -> (Executor) invocation
+    // failure. Recorded here, in the same transaction the Executor fails the
+    // invocation in, then rethrown unchanged: this catch adds telemetry and
+    // alters nothing about the failure path. No retry, no fallback.
+    await recordInvocationQuotaObservation(tx, invocation, quotaObservationFrom(error));
+    throw error;
+  }
+
+  // provider result -> quota observation -> record -> invocation completion.
+  // Advisory telemetry only; it cannot fail the invocation (see quotaTelemetry.ts).
+  await recordInvocationQuotaObservation(tx, invocation, providerResult.quotaObservation);
+
+  // Mechanism A must never reconcile across resource units. The reservation id
+  // already pins the COUNTER's unit, so a provider (or a mis-arranged mock)
+  // reporting tokens for a usd route would otherwise be silently reconciled as
+  // dollars. Refuse instead; the Executor releases the reservation.
+  if (providerResult.usage.costUnit !== route.accounting.unit) {
+    throw new Error(
+      `callModel: the provider reported usage in "${providerResult.usage.costUnit}" but this route was ` +
+        `reserved in "${route.accounting.unit}". Refusing to reconcile across resource units.`
+    );
+  }
 
   await reconcileBudget(tx, route.reservationId, providerResult.usage.costAmount);
 
@@ -163,7 +474,11 @@ export async function callModel(
       tokensOut: providerResult.usage.tokensOut,
       cacheHit: false,
       costAmount: providerResult.usage.costAmount,
+      // The provider's OWN declared unit, never re-derived here: the adapter
+      // is the only thing that knows what it actually consumed.
+      costUnit: providerResult.usage.costUnit,
       modelId: route.modelId,
+      ...(providerResult.usage.secondaryUsage ? { secondaryUsage: providerResult.usage.secondaryUsage } : {}),
     },
   });
 

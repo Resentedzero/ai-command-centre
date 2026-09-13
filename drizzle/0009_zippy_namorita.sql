@@ -1,0 +1,1 @@
+ALTER TYPE "public"."execution_stop_scope" ADD VALUE 'goal' BEFORE 'workflow_run';

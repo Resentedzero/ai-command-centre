@@ -27,6 +27,12 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({
 vi.mock("../../src/router/providers/openai.js", () => ({
   callOpenAiModel: vi.fn(),
 }));
+vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
+  // MANDATORY since Phase 7F made Claude Max the routed default: without this
+  // mock these tests would dispatch to the REAL adapter, spawn the Claude CLI,
+  // and consume subscription entitlement on every `npm test`.
+  callClaudeSubscriptionModel: vi.fn(),
+}));
 
 import { executeRun } from "../../src/execution/executor.js";
 import * as invocationLifecycleModule from "../../src/execution/invocationLifecycle.js";
@@ -35,7 +41,7 @@ import * as budgetModule from "../../src/governance/budget.js";
 import * as approvalsModule from "../../src/governance/approvals.js";
 import { resolveApproval } from "../../src/governance/approvals.js";
 import { compileContext } from "../../src/context/compiler.js";
-import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
+import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -126,6 +132,18 @@ async function seedToolRunFixture(
     reservedAmount: "0",
     consumedAmount: "0",
   });
+  // Mirrors production provisioning (`provisionRunBudgets` creates one counter per
+  // unit): an independent subscription_tokens counter alongside the USD one, now
+  // that Claude Max is the primary candidate. NOT a conversion of the dollar
+  // limit — a separate ceiling in a separate unit.
+  await tx.insert(schema.budgetCounters).values({
+    scope: "run",
+    scopeRefId: run!.id,
+    resourceUnit: "subscription_tokens",
+    limitAmount: "200000",
+    reservedAmount: "0",
+    consumedAmount: "0",
+  });
 
   return {
     runId: run!.id,
@@ -160,6 +178,18 @@ async function seedGenericRunFixture(
     scope: "run",
     scopeRefId: run!.id,
     limitAmount: opts.limitAmount ?? "1000.00",
+    reservedAmount: "0",
+    consumedAmount: "0",
+  });
+  // Mirrors production provisioning (`provisionRunBudgets` creates one counter per
+  // unit): an independent subscription_tokens counter alongside the USD one, now
+  // that Claude Max is the primary candidate. NOT a conversion of the dollar
+  // limit — a separate ceiling in a separate unit.
+  await tx.insert(schema.budgetCounters).values({
+    scope: "run",
+    scopeRefId: run!.id,
+    resourceUnit: "subscription_tokens",
+    limitAmount: "200000",
     reservedAmount: "0",
     consumedAmount: "0",
   });
@@ -311,7 +341,12 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
       const spec = buildToolSpec({ capabilityId, toolBindingId, permission, estimatedCost: 5 });
       await executeRun(tx, runId, [spec]);
 
-      const counterAfterReserve = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const counterAfterReserve = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       expect(Number(counterAfterReserve!.reservedAmount)).toBe(5);
 
       const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
@@ -322,7 +357,12 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
       expect(outcome).toEqual({ status: "failed", runId });
       expect(spec.execute).not.toHaveBeenCalled();
 
-      const counterAfterRelease = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const counterAfterRelease = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       expect(Number(counterAfterRelease!.reservedAmount)).toBe(0);
       expect(Number(counterAfterRelease!.consumedAmount)).toBe(0);
 
@@ -514,7 +554,12 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
 
       // The reservation held while awaiting approval must still be released,
       // not stranded, on this rejection path.
-      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const counter = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       expect(Number(counter!.reservedAmount)).toBe(0);
     });
   });
@@ -569,7 +614,12 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
       // The original real reservation (6 units, held while awaiting approval)
       // was released properly — no no-op path was ever taken for this
       // resumption, and nothing was left stranded or double-counted.
-      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const counter = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       expect(Number(counter!.reservedAmount)).toBe(0);
       expect(Number(counter!.consumedAmount)).toBe(0);
     });
@@ -670,7 +720,9 @@ describe("immediately-before-execution re-check on resume", () => {
     const reserveBudgetSpy = vi
       .spyOn(budgetModule, "reserveBudget")
       .mockImplementation(async (...args: Parameters<typeof originalReserveBudget>) => {
-        callOrder.push(`reserveBudget:${args[4]}`);
+        // args[4] is the resourceUnit, args[5] the estimated amount — the unit
+        // was inserted ahead of the amount when counters became per-unit.
+        callOrder.push(`reserveBudget:${args[5]}`);
         return originalReserveBudget(...args);
       });
 
@@ -728,7 +780,12 @@ describe("immediately-before-execution re-check on resume", () => {
       expect(outcome).toEqual({ status: "failed", runId });
       expect(spec.execute).not.toHaveBeenCalled();
 
-      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const counter = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       expect(Number(counter!.reservedAmount)).toBe(0);
     });
   });
@@ -796,7 +853,12 @@ describe("tool invocation DENY / insufficient budget", () => {
       const outcome = await executeRun(tx, runId, [spec]);
       expect(outcome).toEqual({ status: "failed", runId });
 
-      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const counter = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       expect(Number(counter!.reservedAmount)).toBe(0);
       expect(Number(counter!.consumedAmount)).toBe(0);
     });
@@ -920,7 +982,12 @@ describe("tool invocation ALLOW path", () => {
       const outcome = await executeRun(tx, runId, [spec]);
       expect(outcome).toEqual({ status: "completed", runId });
 
-      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const counter = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       expect(Number(counter!.reservedAmount)).toBe(0);
       expect(Number(counter!.consumedAmount)).toBe(4);
 
@@ -961,7 +1028,12 @@ describe("tool invocation ALLOW path", () => {
       const outcome = await executeRun(tx, runId, [spec]);
       expect(outcome).toEqual({ status: "failed", runId });
 
-      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const counter = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       // reconcileBudget already ran (released the 4-unit estimate, added 4 to
       // consumed) before persistInvocationResultAsArtifact's throw. A double
       // release would drive reservedAmount NEGATIVE (-4) instead of 0.
@@ -984,9 +1056,9 @@ describe('"llm" kind orchestration', () => {
     try {
       await withRollback(async (tx) => {
         const { runId } = await seedGenericRunFixture(tx);
-        vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+        vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
           result: { text: "hi" },
-          usage: { tokensIn: 10, tokensOut: 5, costAmount: 0.01 },
+          usage: { tokensIn: 10, tokensOut: 5, costAmount: 15, costUnit: "subscription_tokens" },
         });
         const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
         expect(outcome).toEqual({ status: "completed", runId });
@@ -1000,9 +1072,9 @@ describe('"llm" kind orchestration', () => {
   it("does not duplicate invocation_started/invocation_completed (Unit 5 already emits them)", async () => {
     await withRollback(async (tx) => {
       const { runId } = await seedGenericRunFixture(tx);
-      vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+      vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
         result: { text: "hi" },
-        usage: { tokensIn: 10, tokensOut: 5, costAmount: 0.01 },
+        usage: { tokensIn: 10, tokensOut: 5, costAmount: 15, costUnit: "subscription_tokens" },
       });
       await executeRun(tx, runId, [buildLlmSpec()]);
 
@@ -1030,6 +1102,12 @@ describe('"llm" kind orchestration', () => {
   it("authorizeRoute {authorized:false} (insufficient budget) fails the invocation + Run; Executor emits invocation_failed itself", async () => {
     await withRollback(async (tx) => {
       const { runId } = await seedGenericRunFixture(tx, { limitAmount: "0.00" });
+      // Max is the routed primary, so the reservation is in tokens: exhaust
+      // that counter too, or the invocation would be authorized.
+      await tx
+        .update(schema.budgetCounters)
+        .set({ limitAmount: "0" })
+        .where(eq(schema.budgetCounters.scopeRefId, runId));
       const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
       expect(outcome).toEqual({ status: "failed", runId });
 
@@ -1043,14 +1121,14 @@ describe('"llm" kind orchestration', () => {
 
       const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
       expect(run?.status).toBe("failed");
-      expect(callAnthropicModel).not.toHaveBeenCalled();
+      expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
     });
   });
 
   it("a thrown callModel error fails the invocation + Run; Executor emits invocation_failed itself", async () => {
     await withRollback(async (tx) => {
       const { runId } = await seedGenericRunFixture(tx);
-      vi.mocked(callAnthropicModel).mockRejectedValueOnce(new Error("provider boom"));
+      vi.mocked(callClaudeSubscriptionModel).mockRejectedValueOnce(new Error("provider boom"));
       const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
       expect(outcome).toEqual({ status: "failed", runId });
 
@@ -1075,14 +1153,24 @@ describe('"llm" kind orchestration', () => {
     await withRollback(async (tx) => {
       const { runId } = await seedGenericRunFixture(tx, { limitAmount: "10.00" });
 
-      const before = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const before = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       expect(Number(before!.reservedAmount)).toBe(0);
 
-      vi.mocked(callAnthropicModel).mockRejectedValueOnce(new Error("provider boom"));
+      vi.mocked(callClaudeSubscriptionModel).mockRejectedValueOnce(new Error("provider boom"));
       const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
       expect(outcome).toEqual({ status: "failed", runId });
 
-      const after = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      const after = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "usd")
+        ),
+      });
       // Returned to the pre-call baseline — not left inflated by the leaked reservation.
       expect(Number(after!.reservedAmount)).toBe(0);
       expect(Number(after!.consumedAmount)).toBe(0);
@@ -1101,20 +1189,27 @@ describe('"llm" kind orchestration', () => {
     await withRollback(async (tx) => {
       const { runId } = await seedGenericRunFixture(tx, { limitAmount: "10.00" });
 
-      vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+      vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
         result: { bad: 10n },
-        usage: { tokensIn: 10, tokensOut: 5, costAmount: 0.02 },
+        usage: { tokensIn: 10, tokensOut: 5, costAmount: 15, costUnit: "subscription_tokens" },
       });
 
       const outcome = await executeRun(tx, runId, [buildLlmSpec()]);
       expect(outcome).toEqual({ status: "failed", runId });
 
-      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      // The LLM leg reconciles in TOKENS now that Claude Max is the routed
+      // primary, so the assertion follows the unit the reservation was made in.
+      const counter = await tx.query.budgetCounters.findFirst({
+        where: and(
+          eq(schema.budgetCounters.scopeRefId, runId),
+          eq(schema.budgetCounters.resourceUnit, "subscription_tokens")
+        ),
+      });
       // callModel's own reconcile already ran (released the estimate, recorded
       // actual usage as consumed) before our JSON.stringify throw. reservedAmount
       // must land at exactly 0 — a double release would drive it NEGATIVE.
       expect(Number(counter!.reservedAmount)).toBe(0);
-      expect(Number(counter!.consumedAmount)).toBeCloseTo(0.02, 10);
+      expect(Number(counter!.consumedAmount)).toBe(15);
 
       const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
       expect(invocation?.status).toBe("failed");

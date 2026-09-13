@@ -75,7 +75,7 @@ describe("rowToEventEnvelope (drift guard against emit.ts's own private mapper)"
         actor: "system",
         producer: "test",
         payload: { b: 2 },
-        usage: { tokensIn: 10, tokensOut: 5, cacheHit: true, costAmount: 0.002, modelId: "test-model" },
+        usage: { tokensIn: 10, tokensOut: 5, cacheHit: true, costAmount: 0.002, costUnit: "usd", modelId: "test-model" },
       });
 
       const row = await tx.query.events.findFirst({ where: eq(events.id, returnedEnvelope.eventId) });
@@ -88,7 +88,7 @@ describe("rowToEventEnvelope (drift guard against emit.ts's own private mapper)"
         tokensIn: 10,
         tokensOut: 5,
         cacheHit: true,
-        costAmount: 0.002,
+        costAmount: 0.002, costUnit: "usd",
         modelId: "test-model",
       });
     });

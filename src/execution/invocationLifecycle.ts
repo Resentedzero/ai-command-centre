@@ -164,6 +164,10 @@ export async function resolveCapabilityGrant(
   if (!match) return null;
 
   return {
+    // Needed by the capability_grant emergency-stop scope. Without it a stop
+    // could not name the Grant deterministically — `capability_grants` has no
+    // unique index on the (agent, version, capability) triple this resolves by.
+    id: match.id,
     agentDefinitionId: match.agentDefinitionId,
     agentDefinitionVersion: match.agentDefinitionVersion,
     capabilityId: match.capabilityId,

@@ -40,7 +40,7 @@ function createDeferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 describe("budget_counters schema constraint (pre-dispatch ruling 1)", () => {
-  it("enforces at most one budget_counters row per (scope, scopeRefId) via the unique index", async () => {
+  it("enforces at most one budget_counters row per (scope, scopeRefId, resourceUnit) via the unique index", async () => {
     const scopeRefId = randomUUID();
     // A duplicate-key insert aborts the transaction outright, so it rolls
     // back on its own — no withRollback/cleanup needed, and running
@@ -61,7 +61,9 @@ describe("budget_counters schema constraint (pre-dispatch ruling 1)", () => {
     // "duplicate"/"unique" — proves it's THIS constraint, not the primary
     // key or some other index.
     const cause = (caught as { cause?: { message?: string; constraint?: string } }).cause;
-    expect(cause?.constraint ?? cause?.message).toMatch(/budget_counters_scope_scope_ref_id_idx/);
+    // `resource_unit` joined this index when counters became per-unit; both
+    // inserts above omit it, so both default to 'usd' and still collide.
+    expect(cause?.constraint ?? cause?.message).toMatch(/budget_counters_scope_scope_ref_id_resource_unit_idx/);
   });
 });
 
@@ -69,35 +71,35 @@ describe("reserveBudget input validation", () => {
   it("rejects a negative estimatedAmount, before touching the database", async () => {
     await withRollback(async (tx) => {
       const scopeRefId = randomUUID(); // deliberately no row seeded
-      await expect(reserveBudget(tx, "run", scopeRefId, "llm", -1)).rejects.toThrow(/estimatedAmount/);
+      await expect(reserveBudget(tx, "run", scopeRefId, "llm", "usd", -1)).rejects.toThrow(/estimatedAmount/);
     });
   });
 
   it("rejects NaN, before touching the database", async () => {
     await withRollback(async (tx) => {
       const scopeRefId = randomUUID();
-      await expect(reserveBudget(tx, "run", scopeRefId, "llm", NaN)).rejects.toThrow(/estimatedAmount/);
+      await expect(reserveBudget(tx, "run", scopeRefId, "llm", "usd", NaN)).rejects.toThrow(/estimatedAmount/);
     });
   });
 
   it("rejects Infinity, before touching the database", async () => {
     await withRollback(async (tx) => {
       const scopeRefId = randomUUID();
-      await expect(reserveBudget(tx, "run", scopeRefId, "llm", Infinity)).rejects.toThrow(/estimatedAmount/);
+      await expect(reserveBudget(tx, "run", scopeRefId, "llm", "usd", Infinity)).rejects.toThrow(/estimatedAmount/);
     });
   });
 
   it("rejects -Infinity, before touching the database", async () => {
     await withRollback(async (tx) => {
       const scopeRefId = randomUUID();
-      await expect(reserveBudget(tx, "run", scopeRefId, "llm", -Infinity)).rejects.toThrow(/estimatedAmount/);
+      await expect(reserveBudget(tx, "run", scopeRefId, "llm", "usd", -Infinity)).rejects.toThrow(/estimatedAmount/);
     });
   });
 
   it("does not affect a structurally valid reservation (no regression)", async () => {
     await withRollback(async (tx) => {
       const scopeRefId = await seedCounter(tx, { limitAmount: "10.00" });
-      const result = await reserveBudget(tx, "run", scopeRefId, "llm", 5);
+      const result = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 5);
       expect(result).toEqual({ authorized: true, reservationId: expect.any(String) });
     });
   });
@@ -108,7 +110,7 @@ describe("reserveBudget", () => {
     await withRollback(async (tx) => {
       const scopeRefId = await seedCounter(tx, { limitAmount: "10.00" });
 
-      const result = await reserveBudget(tx, "run", scopeRefId, "llm", 6);
+      const result = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 6);
 
       expect(result.authorized).toBe(true);
       if (!result.authorized) throw new Error("unreachable");
@@ -130,7 +132,7 @@ describe("reserveBudget", () => {
         consumedAmount: "4",
       });
       // available = 10 - 3 - 4 = 3; requesting 3.01 must be rejected.
-      const result = await reserveBudget(tx, "run", scopeRefId, "llm", 3.01);
+      const result = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 3.01);
 
       expect(result).toEqual({ authorized: false, reason: "insufficient_budget" });
 
@@ -146,7 +148,7 @@ describe("reserveBudget", () => {
   it("authorizes a reservation exactly equal to the available amount", async () => {
     await withRollback(async (tx) => {
       const scopeRefId = await seedCounter(tx, { limitAmount: "10.00", reservedAmount: "4" });
-      const result = await reserveBudget(tx, "run", scopeRefId, "llm", 6);
+      const result = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 6);
       expect(result.authorized).toBe(true);
     });
   });
@@ -154,7 +156,7 @@ describe("reserveBudget", () => {
   it("returns insufficient_budget when no budget_counters row exists for the scope key (no auto-create)", async () => {
     await withRollback(async (tx) => {
       const scopeRefId = randomUUID();
-      const result = await reserveBudget(tx, "run", scopeRefId, "llm", 1);
+      const result = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 1);
       expect(result).toEqual({ authorized: false, reason: "insufficient_budget" });
 
       const row = await tx.query.budgetCounters.findFirst({
@@ -168,7 +170,7 @@ describe("reserveBudget", () => {
     await withRollback(async (tx) => {
       const scopeRefId = randomUUID(); // deliberately never seeded
 
-      const result = await reserveBudget(tx, "run", scopeRefId, "deterministic", 999999);
+      const result = await reserveBudget(tx, "run", scopeRefId, "deterministic", "usd", 999999);
 
       expect(result).toEqual({ authorized: true, reservationId: "res_noop" });
 
@@ -186,7 +188,7 @@ describe("reserveBudget", () => {
         where: eq(budgetCounters.scopeRefId, scopeRefId),
       });
 
-      const result = await reserveBudget(tx, "run", scopeRefId, "deterministic", 999999);
+      const result = await reserveBudget(tx, "run", scopeRefId, "deterministic", "usd", 999999);
 
       expect(result).toEqual({ authorized: true, reservationId: "res_noop" });
 
@@ -227,14 +229,14 @@ describe("reserveBudget", () => {
           await tx.execute(sql`select 1`);
           aStarted.resolve();
           await bStarted.promise;
-          return reserveBudget(tx, "run", scopeRefId, "llm", 6);
+          return reserveBudget(tx, "run", scopeRefId, "llm", "usd", 6);
         });
 
         const runB = testDb.transaction(async (tx) => {
           await tx.execute(sql`select 1`);
           bStarted.resolve();
           await aStarted.promise;
-          return reserveBudget(tx, "run", scopeRefId, "llm", 6);
+          return reserveBudget(tx, "run", scopeRefId, "llm", "usd", 6);
         });
 
         const [a, b] = await Promise.all([runA, runB]);
@@ -262,7 +264,7 @@ describe("reconcileBudget", () => {
     await withRollback(async (tx) => {
       const scopeRefId = await seedCounter(tx, { limitAmount: "10.00" });
 
-      const reservation = await reserveBudget(tx, "run", scopeRefId, "llm", 7);
+      const reservation = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 7);
       if (!reservation.authorized) throw new Error("expected authorization");
 
       await reconcileBudget(tx, reservation.reservationId, 5.5);
@@ -281,8 +283,8 @@ describe("reconcileBudget", () => {
     await withRollback(async (tx) => {
       const scopeRefId = await seedCounter(tx, { limitAmount: "20.00" });
 
-      const r1 = await reserveBudget(tx, "run", scopeRefId, "llm", 4);
-      const r2 = await reserveBudget(tx, "run", scopeRefId, "llm", 3);
+      const r1 = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 4);
+      const r2 = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 3);
       if (!r1.authorized || !r2.authorized) throw new Error("expected both authorized");
 
       await reconcileBudget(tx, r1.reservationId, 4);
@@ -314,7 +316,7 @@ describe("releaseReservation", () => {
     await withRollback(async (tx) => {
       const scopeRefId = await seedCounter(tx, { limitAmount: "10.00" });
 
-      const reservation = await reserveBudget(tx, "run", scopeRefId, "llm", 4);
+      const reservation = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 4);
       if (!reservation.authorized) throw new Error("expected authorization");
 
       await releaseReservation(tx, reservation.reservationId);

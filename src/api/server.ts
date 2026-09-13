@@ -79,6 +79,7 @@ import { registerApprovalsRoutes } from "./routes/approvals.js";
 import { registerWorkflowRunsRoutes } from "./routes/workflowRuns.js";
 import { registerEventsRoutes } from "./routes/events.js";
 import { registerAgentsRoutes } from "./routes/agents.js";
+import { registerExecutionStopsRoutes } from "./routes/executionStops.js";
 
 export type ApiDeps = { db: Database };
 
@@ -141,6 +142,7 @@ export function buildServer(overrides?: Partial<ApiDeps>): FastifyInstance {
   registerWorkflowRunsRoutes(app, deps);
   registerEventsRoutes(app, deps);
   registerAgentsRoutes(app, deps); // Unit 11, Ruling 1 — new, additive.
+  registerExecutionStopsRoutes(app, deps); // Phase 8 — emergency stop control plane.
 
   return app;
 }

@@ -3,7 +3,14 @@
  * Unit 1's brief. Do not add, remove, or flatten fields here without
  * updating the spec first: this type is the reviewable contract for every
  * other unit that emits or consumes events.
+ *
+ * AMENDED 2026-09-13, spec first (Phase 12 "Execution ledger"): `usage` gained
+ * a REQUIRED `costUnit` and an optional `secondaryUsage`. Additive only — no
+ * existing field changed meaning, and pre-existing rows are backfilled to
+ * `usd` by migration 0006. See `../governance/resourceUnit.ts`.
  */
+import type { ResourceUnit } from "../governance/resourceUnit.js";
+
 export type EventEnvelope = {
   eventId: string; // generated UUID, primary key
   idempotencyKey: string; // caller-supplied, unique constraint — the actual dedup key
@@ -27,7 +34,23 @@ export type EventEnvelope = {
     tokensOut: number;
     cacheHit: boolean;
     costAmount: number;
+    /**
+     * The unit `costAmount` is denominated in (amended Phase 12, 2026-09-13).
+     * REQUIRED, deliberately not optional: `costAmount` is meaningless without
+     * it now that more than one unit exists, and an optional field would let an
+     * emitter omit it and leave every downstream reader guessing — the precise
+     * failure this exists to close. Readers must group by it and must never
+     * total across units.
+     */
+    costUnit: ResourceUnit;
     modelId: string;
+    /**
+     * Model usage the provider reported BEYOND the primary model — e.g. the
+     * internal secondary model call the subscription CLI performs per
+     * invocation. Recorded so the event log shows WHAT was consumed, not just
+     * a total; its tokens are already included in `costAmount`.
+     */
+    secondaryUsage?: Array<{ modelId: string; tokensIn: number; tokensOut: number }>;
   } | null; // present only for LLM-related events; never flattened onto the envelope itself
 };
 
@@ -83,4 +106,48 @@ export type ApprovalResolvedPayload = {
   riskTier: string;
   /** Who resolved it, as recorded on `approvals.resolved_by`; mirrored onto the envelope's `actor`. */
   resolvedBy: string;
+};
+
+/**
+ * One quota window exactly as the provider reported it. Both members are
+ * independently nullable so an omitted field is recorded as ABSENT rather than
+ * replaced with a fabricated zero — a missing utilization and a utilization of
+ * 0.0 mean very different things to a future policy.
+ */
+export type QuotaWindowObservation = {
+  utilization: number | null;
+  /** ISO-8601. The reset instant as reported; no remaining-duration is derived. */
+  resetsAt: string | null;
+};
+
+/**
+ * `provider_quota_observed` (Phase 7A; design Part 4). The immutable FACT
+ * "at time T, provider P reported quota state Q".
+ *
+ * It is an observation, never current state: the `subscription_quota_state`
+ * projection is what answers "what is true now", and it is rebuilt from these
+ * payloads. This payload therefore carries everything the projection needs, so
+ * the projection is reconstructible from the event log alone.
+ *
+ * Carries NO `usage` on its envelope. A quota reading is not consumption, and
+ * attaching a `costAmount` here would invite exactly the utilization -> tokens
+ * conflation the design forbids.
+ */
+export type ProviderQuotaObservedPayload = {
+  provider: string;
+  /** ISO-8601 instant the provider reported this. Ordering key for the projection. */
+  observedAt: string;
+  status: string;
+  overageStatus: string | null;
+  /** Which mechanism produced the reading, e.g. "rate_limit_event". */
+  source: string;
+  fiveHour: QuotaWindowObservation | null;
+  sevenDay: QuotaWindowObservation | null;
+  /**
+   * How many raw provider readings this event summarizes (design Part 4:
+   * one event per invocation, carrying the LAST reading seen). 1 when the
+   * provider reported once. Recorded so the event says how much it collapsed;
+   * it is a count of readings and never a quantity of anything consumed.
+   */
+  observationCount: number;
 };

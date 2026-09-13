@@ -5,9 +5,116 @@
  * against the brief's original shapes stops typechecking.
  */
 import type { RiskTier } from "../governance/risk.js";
-import type { ContextBudget } from "../context/types.js";
+import type { ResourceUnit } from "../governance/resourceUnit.js";
+import type { QuotaObservation } from "../governance/subscriptionQuotaState.js";
+import type { CandidateCapability, ProviderName } from "./tierConfig.js";
+import type { CompiledContext, ContextBudget } from "../context/types.js";
 
-export type ModelTier = "CHEAP" | "STRONG";
+/**
+ * The model-quality ladder. Ordered least to most capable.
+ *
+ * A tier is a QUALITY FLOOR, not a price band: it names how capable the model
+ * serving an invocation must be. It maps to no provider, no pricing table, and
+ * no share of any provider's quota — `providerCandidates` decides which model
+ * and which resource unit actually serves each tier.
+ *
+ * MID added in Phase 7H.
+ */
+export const MODEL_TIERS = ["CHEAP", "MID", "STRONG"] as const;
+
+export type ModelTier = (typeof MODEL_TIERS)[number];
+
+/**
+ * Per-token pricing for one tier, split by direction. Input and output are
+ * separate rates because real provider pricing is asymmetric (output costs
+ * ~5x input on both currently-configured Anthropic models), and a single
+ * blended rate cannot represent that: blending necessarily under-prices
+ * output-heavy invocations and over-prices input-heavy ones, and the error
+ * lands in `budget_counters.consumed_amount` as if it were dollars.
+ *
+ * Lives here rather than in `tierConfig.ts` so the provider wrappers can
+ * import the type without importing V1 config — `tests/router/providers/
+ * anthropic.test.ts` asserts the provider source never names `tierConfig`.
+ */
+export type TierPricing = {
+  inputPerToken: number;
+  outputPerToken: number;
+};
+
+/**
+ * How a tier's consumption is accounted (amended Phase 10.3, 2026-09-13).
+ *
+ * A DISCRIMINATED UNION, not a unit plus optional rates, so "a non-monetary
+ * provider carrying a fabricated price" is structurally unrepresentable rather
+ * than merely discouraged. A `pricePerToken: 0` on a subscription tier would
+ * silently turn the Budget Governor into a no-op for that tier while it kept
+ * emitting events asserting enforcement — the single worst failure mode
+ * available here, so the type forbids it.
+ *
+ * Token-denominated units carry no rate at all: the amount IS the token count.
+ */
+export type TierAccounting =
+  | { unit: "usd"; pricing: TierPricing }
+  | { unit: "subscription_tokens" }
+  | { unit: "local_tokens" };
+
+/** Usage a provider adapter reports back, always tagged with its own unit. */
+export type ProviderUsage = {
+  tokensIn: number;
+  tokensOut: number;
+  /** Denominated in `costUnit` — NOT always dollars. */
+  costAmount: number;
+  costUnit: ResourceUnit;
+  /** Non-primary model usage the provider reported; already included in `costAmount`. */
+  secondaryUsage?: Array<{ modelId: string; tokensIn: number; tokensOut: number }>;
+};
+
+export type ProviderCallResult = {
+  result: unknown;
+  usage: ProviderUsage;
+  /**
+   * Quota state the provider volunteered alongside the result (Phase 7B).
+   *
+   * OPTIONAL and orthogonal to `usage`, which is the point: a quota reading is
+   * what the provider says about its own windows, NOT a quantity consumed.
+   * Nothing may be derived from it into `usage`, and vice versa — the two are
+   * independent by design. Providers that report no such telemetry (the
+   * Anthropic and OpenAI adapters) simply omit it.
+   */
+  quotaObservation?: QuotaObservation;
+};
+
+/**
+ * Quota telemetry a provider attached to a FAILURE (Phase 8).
+ *
+ * The provider-agnostic half of the contract above: an adapter that received a
+ * quota reading before failing MAY attach it to the error it throws as
+ * `quotaObservation`, so the invocation's terminal state still records it
+ * (design Part 4 — emission is tied to the invocation terminating, not to its
+ * success). That matters most for a quota-exhaustion failure, whose reading
+ * explains it.
+ *
+ * Read structurally rather than by `instanceof`, so the Router never imports a
+ * provider-specific error class. Anything that is not an object carrying an
+ * object-valued `quotaObservation` yields undefined — never a guessed reading.
+ */
+export function quotaObservationFrom(error: unknown): QuotaObservation | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const candidate = (error as { quotaObservation?: unknown }).quotaObservation;
+  return typeof candidate === "object" && candidate !== null ? (candidate as QuotaObservation) : undefined;
+}
+
+/**
+ * The one shape every provider adapter implements (Phase 10.1's interface,
+ * unchanged). Uniform across adapters so `callModel` can dispatch through a
+ * map rather than a conditional — see `modelRouter.ts`'s PROVIDERS.
+ */
+export type ProviderAdapter = (
+  modelId: string,
+  compiledContext: CompiledContext,
+  expectedOutputShape: Record<string, unknown>,
+  accounting: TierAccounting
+) => Promise<ProviderCallResult>;
 
 export type RouteRequest = {
   taskDifficulty: "simple" | "standard" | "complex";
@@ -23,12 +130,33 @@ export type RouteRequest = {
   // `invocations` row before calling `authorizeRoute`; this unit never
   // creates Invocation rows itself.
   invocationId: string;
+  /**
+   * Capabilities a candidate MUST support to serve this invocation (Phase 7D).
+   * OPTIONAL, and an absent value means "no requirement" — deliberately not
+   * defaulted to a list, because any non-empty default would start excluding
+   * candidates and silently change routing.
+   */
+  requiredCapabilities?: CandidateCapability[];
+  /**
+   * Resource units this invocation may be accounted in (Phase 7D). Same rule:
+   * absent means unrestricted. Present, it narrows candidates only — it can
+   * never make one eligible that was not already.
+   */
+  allowedResourceUnits?: ResourceUnit[];
 };
 
 export type RouteResult = {
   tier: ModelTier;
   modelId: string;
   reservationId: string;
+  /**
+   * The routed candidate's provider and accounting (Phase 7D). Carried so
+   * `callModel` dispatches to the adapter that was actually SELECTED, rather
+   * than re-deriving it from the tier's primary candidate — which would send a
+   * non-primary candidate's call to the wrong provider.
+   */
+  provider: ProviderName;
+  accounting: TierAccounting;
   // Further addition (this unit's own resolution, in the same spirit as the
   // invocationId ruling above): the brief's frozen RouteResult has no
   // invocationId either, but `callModel` is separately required (same

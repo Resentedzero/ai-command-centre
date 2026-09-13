@@ -53,7 +53,7 @@
  * consult status" test in approvals.test.ts.
  */
 import { isDeepStrictEqual } from "node:util";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { approvals, capabilityGrants, invocations, runs } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
@@ -314,4 +314,182 @@ export async function reauthorize(tx: DrizzleTransaction, invocationId: string):
   }
 
   return isDeepStrictEqual(invocation.proposedActionSnapshot, approval.proposedActionSnapshot);
+}
+
+// ---------------------------------------------------------------------------
+// Grant revocation (frozen spec Phase 9.7)
+// ---------------------------------------------------------------------------
+
+/**
+ * The actor recorded on Approvals closed because their Grant was revoked.
+ * Server-side, never caller-supplied — see `V1_RESOLUTION_ACTOR`.
+ */
+export const GRANT_REVOCATION_ACTOR = "system:grant_revoked";
+
+/**
+ * Revokes a Capability Grant and, in the SAME transaction, closes every
+ * still-pending Approval that was created under it.
+ *
+ * Spec 9.7: "Revoking a Grant auto-cancels its still-pending Approvals."
+ * Without this, a revoked Grant's approvals would sit in the queue looking
+ * actionable; approving one would do nothing (`reauthorize` rejects a revoked
+ * Grant at resume time), which is misleading rather than unsafe.
+ *
+ * WHICH approvals: those whose invocation exercised this Grant's capability on
+ * a Run bound to this Grant's exact agent definition AND version — the same
+ * triple `resolveCapabilityGrant` resolves a Grant by — and that no OTHER
+ * surviving Grant on that triple still authorizes.
+ *
+ * WHAT THIS DOES NOT DO: release the affected invocations' budget holds. This
+ * module stays free of budget logic. Each affected invocation remains
+ * `awaiting_approval` with its hold intact until its Run is re-driven, at which
+ * point the Executor's resume path sees the `expired` Approval, releases the
+ * hold, and fails the invocation and Run. `affectedRunIds` is returned so the
+ * caller can re-drive them in the same transaction; no route calls this yet
+ * (Grant control-plane routes are V1.1 per the roadmap), so any future caller
+ * MUST re-drive those Runs or the holds stay reserved.
+ *
+ * "Cancelled" is recorded as status `expired`: the `approval_status` enum has
+ * no `cancelled` member, and `expired` is already treated everywhere as a
+ * terminal, non-approved outcome (the resume path releases the invocation's
+ * reservation and fails it). `resolved_by` records WHY.
+ *
+ * Idempotent: revoking an already-revoked Grant revokes nothing and closes
+ * nothing. The conditional UPDATEs carry the concurrency guarantee.
+ */
+export async function revokeCapabilityGrant(
+  tx: DrizzleTransaction,
+  grantId: string,
+  revokedBy = "human:operator"
+): Promise<{ revoked: boolean; cancelledApprovalIds: string[]; affectedRunIds: string[] }> {
+  const target = await tx.query.capabilityGrants.findFirst({ where: eq(capabilityGrants.id, grantId) });
+  if (!target) return { revoked: false, cancelledApprovalIds: [], affectedRunIds: [] };
+
+  // Lock EVERY unrevoked Grant on the triple, in id order, BEFORE revoking.
+  // Two concurrent revocations of different covering Grants then serialize
+  // instead of each seeing the other as a survivor (leaving an approval pending)
+  // or deadlocking. Under READ COMMITTED the waiter re-evaluates `revoked_at IS
+  // NULL` once the first commits, so it sees only the true survivors.
+  const lockedTriple = await tx
+    .select({ id: capabilityGrants.id, permissions: capabilityGrants.permissions })
+    .from(capabilityGrants)
+    .where(
+      and(
+        eq(capabilityGrants.agentDefinitionId, target.agentDefinitionId),
+        eq(capabilityGrants.agentDefinitionVersion, target.agentDefinitionVersion),
+        eq(capabilityGrants.capabilityId, target.capabilityId),
+        isNull(capabilityGrants.revokedAt)
+      )
+    )
+    .orderBy(capabilityGrants.id)
+    .for("update");
+
+  const [grant] = await tx
+    .update(capabilityGrants)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(capabilityGrants.id, grantId), isNull(capabilityGrants.revokedAt)))
+    .returning();
+
+  if (!grant) return { revoked: false, cancelledApprovalIds: [], affectedRunIds: [] };
+
+  const candidates = await tx
+    .select({ approvalId: approvals.id, permission: invocations.permission, runId: invocations.runId })
+    .from(approvals)
+    .innerJoin(invocations, eq(approvals.invocationId, invocations.id))
+    .innerJoin(runs, eq(invocations.runId, runs.id))
+    .where(
+      and(
+        eq(approvals.status, "pending"),
+        eq(invocations.capabilityId, grant.capabilityId),
+        eq(runs.agentDefinitionId, grant.agentDefinitionId),
+        eq(runs.agentDefinitionVersion, grant.agentDefinitionVersion)
+      )
+    );
+
+  // An approval is cancelled only if NO surviving Grant would still authorize
+  // it. `capability_grants` has no unique index on the (agent, version,
+  // capability) triple, so another unrevoked Grant can cover the same
+  // invocation — e.g. revoking a READ Grant must not cancel a pending WRITE
+  // approval a separate WRITE Grant still governs. Same coverage rule as
+  // `resolveCapabilityGrant`: unrevoked and including the permission.
+  const survivors = lockedTriple.filter((g) => g.id !== grant.id);
+  const stillCovered = (permission: string | null) =>
+    permission !== null &&
+    survivors.some((g) => Array.isArray(g.permissions) && g.permissions.includes(permission));
+
+  const cancelledApprovalIds: string[] = [];
+  const affectedRunIds = new Set<string>();
+  for (const candidate of candidates) {
+    if (stillCovered(candidate.permission)) continue;
+    if (await expirePendingApproval(tx, candidate.approvalId, GRANT_REVOCATION_ACTOR)) {
+      cancelledApprovalIds.push(candidate.approvalId);
+      affectedRunIds.add(candidate.runId);
+    }
+  }
+
+  await emitEvent(tx, {
+    idempotencyKey: `capability_grant_revoked:${grant.id}`,
+    eventType: "capability_grant_revoked",
+    eventVersion: 1,
+    causationId: null,
+    correlation: { goalId: null, workflowRunId: null, taskInstanceId: null, runId: null, invocationId: null },
+    actor: revokedBy,
+    producer: "governance",
+    payload: {
+      grantId: grant.id,
+      agentDefinitionId: grant.agentDefinitionId,
+      agentDefinitionVersion: grant.agentDefinitionVersion,
+      capabilityId: grant.capabilityId,
+      cancelledApprovalIds,
+    },
+    usage: null,
+  });
+
+  return { revoked: true, cancelledApprovalIds, affectedRunIds: [...affectedRunIds] };
+}
+
+/**
+ * Closes a still-pending Approval as `expired`, and records that transition as
+ * an `approval_expired` event correlated exactly like `resolveApproval`'s
+ * events — so an `approval_required` in the Activity feed always has a visible
+ * end, whether the Approval was granted, rejected, or closed by a stop or a
+ * revocation.
+ *
+ * Conditional on `pending`: an Approval already decided keeps its real
+ * decision, and the call returns false.
+ */
+export async function expirePendingApproval(
+  tx: DrizzleTransaction,
+  approvalId: string,
+  resolvedBy: string
+): Promise<boolean> {
+  const [row] = await tx
+    .update(approvals)
+    .set({ status: "expired", resolvedAt: new Date(), resolvedBy })
+    .where(and(eq(approvals.id, approvalId), eq(approvals.status, "pending")))
+    .returning();
+  if (!row) return false;
+
+  const invocation = await tx.query.invocations.findFirst({ where: eq(invocations.id, row.invocationId) });
+  const run = invocation ? await tx.query.runs.findFirst({ where: eq(runs.id, invocation.runId) }) : undefined;
+  const payload: ApprovalResolvedPayload = { approvalId: row.id, riskTier: row.riskTier, resolvedBy };
+
+  await emitEvent(tx, {
+    idempotencyKey: `approval_expired:${row.id}`,
+    eventType: "approval_expired",
+    eventVersion: 1,
+    causationId: null,
+    correlation: {
+      goalId: null,
+      workflowRunId: null,
+      taskInstanceId: run?.taskInstanceId ?? null,
+      runId: invocation?.runId ?? null,
+      invocationId: invocation?.id ?? null,
+    },
+    actor: resolvedBy,
+    producer: "governance",
+    payload,
+    usage: null,
+  });
+  return true;
 }

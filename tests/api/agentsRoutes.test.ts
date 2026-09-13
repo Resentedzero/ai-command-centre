@@ -33,8 +33,14 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({
 vi.mock("../../src/router/providers/openai.js", () => ({
   callOpenAiModel: vi.fn(),
 }));
+vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
+  // MANDATORY since Phase 7F made Claude Max the routed default: without this
+  // mock these tests would dispatch to the REAL adapter, spawn the Claude CLI,
+  // and consume subscription entitlement on every `npm test`.
+  callClaudeSubscriptionModel: vi.fn(),
+}));
 
-import { callAnthropicModel } from "../../src/router/providers/anthropic.js";
+import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
 import { buildServer } from "../../src/api/server.js";
 
 let app: FastifyInstance;
@@ -69,9 +75,9 @@ afterAll(async () => {
 type CreatedGoal = { goalId: string; workflowRunId: string; status: string };
 
 async function createGoalUpToTaskBGate(title: string, reportText: string): Promise<CreatedGoal> {
-  vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+  vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
     result: { report: reportText },
-    usage: { tokensIn: 100, tokensOut: 50, costAmount: 0.001 },
+    usage: { tokensIn: 100, tokensOut: 50, costAmount: 150, costUnit: "subscription_tokens" },
   });
   const res = await app.inject({ method: "POST", url: "/goals", payload: { title } });
   expect(res.statusCode).toBe(201);
