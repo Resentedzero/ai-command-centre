@@ -29,8 +29,9 @@
  *
  * The plan (`seqNo` = array position + 1):
  *   1. `"tool"` — `research.retrieve`, fulfilled by whichever Tool Binding the
- *      Capability currently has (`../toolAdapters.ts`). A ready-made spec; it
- *      depends on nothing earlier.
+ *      Capability currently has (`../toolAdapters.ts`). Deferred although it
+ *      depends on nothing earlier, so the binding is resolved only if the tool
+ *      has not run yet.
  *   2. `"llm"` — DEFERRED. `intent: "synthesize"`, `riskTier: "low"`,
  *      `taskDifficulty: "simple"`, with `candidateArtifactIds` populated from
  *      seqNo 1's ACTUAL Artifact id, supplied by the Executor at resolution
@@ -197,10 +198,14 @@ export async function buildResearchReportInvocationSpecs(
   // Run but cannot choose, raise, or pass a limit (Phase 8).
   await provisionRunBudgets(tx, runId);
 
+  // Deferred too: the Executor resolves a position only when it still needs
+  // processing, so a re-drive after the tool already ran never re-resolves the
+  // Capability's binding (which may have been replaced since).
+  const toolSpec: DeferredInvocationSpec = async () => buildToolSpec(tx, config);
   const llmSpec: DeferredInvocationSpec = async (ctx) => buildLlmSpec(config, ctx);
   const reportSpec: DeferredInvocationSpec = async (ctx) => buildReportSpec(tx, ctx);
 
   // Fixed length, fixed order, decided here and now — nothing below can change
-  // how many Invocations this Run has, only what positions 2 and 3 contain.
-  return [await buildToolSpec(tx, config), llmSpec, reportSpec];
+  // how many Invocations this Run has, only what each position contains.
+  return [toolSpec, llmSpec, reportSpec];
 }

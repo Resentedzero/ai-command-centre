@@ -249,13 +249,27 @@ describe("seedPublishWorkflow", () => {
 
       const taskDefinition = await tx.query.taskDefinitions.findFirst({ where: eq(schema.taskDefinitions.id, seed.reviewAndPublishTaskDefinitionId) });
       expect(taskDefinition?.name).toBe("Review-and-Publish");
+      expect(taskDefinition?.kind).toBe("publish_report");
 
+      // The Workflow composition binds each step's Agent, and tells the publish
+      // step which earlier step's report to publish (spec 18.3).
       const workflowDefinition = await tx.query.workflowDefinitions.findFirst({ where: eq(schema.workflowDefinitions.id, seed.workflowDefinitionId) });
       expect(workflowDefinition?.graphDefinition).toEqual({
         kind: "linear",
         steps: [
-          { taskDefinitionId: seed.taskDefinitionId, taskDefinitionVersion: seed.taskDefinitionVersion },
-          { taskDefinitionId: seed.reviewAndPublishTaskDefinitionId, taskDefinitionVersion: seed.reviewAndPublishTaskDefinitionVersion },
+          {
+            taskDefinitionId: seed.taskDefinitionId,
+            taskDefinitionVersion: seed.taskDefinitionVersion,
+            agentDefinitionId: seed.agentDefinitionId,
+            agentDefinitionVersion: seed.agentDefinitionVersion,
+          },
+          {
+            taskDefinitionId: seed.reviewAndPublishTaskDefinitionId,
+            taskDefinitionVersion: seed.reviewAndPublishTaskDefinitionVersion,
+            agentDefinitionId: seed.publisherAgentDefinitionId,
+            agentDefinitionVersion: seed.publisherAgentDefinitionVersion,
+            parameters: { sourceTaskDefinitionId: seed.taskDefinitionId },
+          },
         ],
       });
 

@@ -20,10 +20,9 @@ import { transactionRunner, type WorkflowRunnerFactory } from "../db/transaction
 import type { DrizzleTransaction } from "../events/emit.js";
 import { acquireExecutorInstanceLock } from "../execution/executorInstanceLock.js";
 import { recoverInterruptedInvocations, redriveInProgressWorkflowRuns } from "../workflow/recoverInterruptedInvocations.js";
-import { findSeededPublishWorkflow } from "../definitions/lookupSeed.js";
 import { expireStaleApprovals } from "../workflow/expireStaleApprovals.js";
 import { backfillStopEvents } from "../governance/executionStop.js";
-import { buildInvocationSpecsForTaskDefinition } from "../workflow/buildInvocationSpecsForTaskDefinition.js";
+import { buildInvocationSpecsFromDefinitions } from "../workflow/buildInvocationSpecsFromDefinitions.js";
 
 /** How often past-TTL Approvals are expired. A minute is ample against a TTL measured in hours. */
 const APPROVAL_SWEEP_INTERVAL_MS = 60_000;
@@ -82,14 +81,9 @@ async function main() {
     return relay.runInTx;
   };
 
-  // The builder needs the seed; the TTL sweep's EXPIRY does not. Without a seed
-  // the sweep still expires stale Approvals (a governance control must not
-  // depend on seeding) and reports the re-drive it could not do.
-  const seed = await runInTx((tx) => findSeededPublishWorkflow(tx));
-  const makeBuilder = (tx: DrizzleTransaction) => {
-    if (!seed) throw new Error('No seeded Workflow Definition found — run "npm run seed" to enable re-driving.');
-    return buildInvocationSpecsForTaskDefinition(tx, seed);
-  };
+  // Steps are planned from persisted Definitions, so neither the sweep nor the
+  // re-drive depends on a seed.
+  const makeBuilder = (tx: DrizzleTransaction) => buildInvocationSpecsFromDefinitions(tx);
 
   // Approval TTL sweep (spec 9.5): expire and re-drive past-TTL Approvals —
   // once now, then periodically. One sweep at a time; the timer never keeps

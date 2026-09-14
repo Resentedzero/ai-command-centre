@@ -11,6 +11,7 @@
 import { eq } from "drizzle-orm";
 import { artifacts } from "../../db/schema.js";
 import type { InternalToolFunction } from "../toolAdapters.js";
+import { PUBLISH_REPORT_CAPABILITY } from "./capability.js";
 import { publishReport } from "./toolBinding.js";
 
 /** The `config.function` a binding names to be fulfilled by this adapter. */
@@ -25,6 +26,7 @@ function snapshotString(snapshot: Record<string, unknown>, field: string): strin
 }
 
 export const publishReportFilesystem: InternalToolFunction = {
+  capabilityName: PUBLISH_REPORT_CAPABILITY.id,
   async prepare(tx, { proposedActionSnapshot }) {
     const artifactId = snapshotString(proposedActionSnapshot, "artifactId");
     const expectedHash = snapshotString(proposedActionSnapshot, "artifactHash");

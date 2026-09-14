@@ -238,7 +238,7 @@ function mapRunOutcomeToTaskInstanceStatus(
   }
 }
 
-async function loadGraphDefinition(
+export async function loadGraphDefinition(
   tx: DrizzleTransaction,
   workflowDefinitionId: string,
   workflowDefinitionVersion: number

@@ -50,8 +50,7 @@ import {
   WorkflowRunStateError,
 } from "../../workflow/interpreter.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
-import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
-import { requireSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
+import { buildInvocationSpecsFromDefinitions } from "../../workflow/buildInvocationSpecsFromDefinitions.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
 
@@ -64,12 +63,9 @@ function replyForWorkflowRunError(error: unknown, reply: FastifyReply): FastifyR
 async function driveWithRelay(deps: ApiDeps, workflowRunId: string, beforeAdvance?: () => Promise<void>) {
   const relay = createWorkflowRelay(deps.db);
   await relay.track(workflowRunId);
-  const seed = await deps.db.transaction((tx) => requireSeededPublishWorkflow(tx));
   if (beforeAdvance) await beforeAdvance();
   await relay.flush();
-  const result = await advanceWorkflowRunUntilBlocked(relay.runInTx, workflowRunId, (tx) =>
-    buildInvocationSpecsForTaskDefinition(tx, seed)
-  );
+  const result = await advanceWorkflowRunUntilBlocked(relay.runInTx, workflowRunId, buildInvocationSpecsFromDefinitions);
   return { workflowRunId, status: result.status };
 }
 

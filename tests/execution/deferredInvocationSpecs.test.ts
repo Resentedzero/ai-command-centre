@@ -430,9 +430,10 @@ describe("buildResearchReportInvocationSpecs no longer executes anything itself"
         { taskDefinitionId: seed.taskDefinitionId, taskDefinitionVersion: 1, taskInstanceId, input: {} }
       );
 
-      // The plan: a ready-made tool spec, then two deferred positions.
+      // The plan: three deferred positions. The tool position is deferred so a
+      // re-drive after it ran never re-resolves the Capability's binding.
       expect(specs).toHaveLength(3);
-      expect(typeof specs[0]).toBe("object");
+      expect(typeof specs[0]).toBe("function");
       expect(typeof specs[1]).toBe("function");
       expect(typeof specs[2]).toBe("function");
 

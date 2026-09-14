@@ -22,15 +22,38 @@
  * meaningful "last step" for Ruling 2/algorithm steps 8-11 to reason about,
  * and MVP scope only ever exercises exactly 2 steps regardless.
  */
-export type LinearGraphDefinition = {
-  kind: "linear";
-  steps: { taskDefinitionId: string; taskDefinitionVersion: number }[];
+export type LinearGraphStep = {
+  taskDefinitionId: string;
+  taskDefinitionVersion: number;
+  /**
+   * The Agent Definition this step's Run is bound to (spec §3b: a Run IS the
+   * binding of an Agent Definition version to a Task Instance). Part of the
+   * Workflow composition (spec §18.3). Optional in the shape, so a graph without
+   * it still parses; the definitions-driven builder refuses to plan such a step
+   * (`buildInvocationSpecsFromDefinitions`). Both fields or neither.
+   */
+  agentDefinitionId?: string;
+  agentDefinitionVersion?: number;
+  /** Parameters for the step's Task Definition kind (spec Phase 11: reusable kinds, different parameters). */
+  parameters?: Record<string, unknown>;
 };
 
-function isStep(value: unknown): value is { taskDefinitionId: string; taskDefinitionVersion: number } {
+export type LinearGraphDefinition = {
+  kind: "linear";
+  steps: LinearGraphStep[];
+};
+
+function isStep(value: unknown): value is LinearGraphStep {
   if (value === null || typeof value !== "object") return false;
   const step = value as Record<string, unknown>;
-  return typeof step.taskDefinitionId === "string" && typeof step.taskDefinitionVersion === "number";
+  if (typeof step.taskDefinitionId !== "string" || typeof step.taskDefinitionVersion !== "number") return false;
+  if ((step.agentDefinitionId === undefined) !== (step.agentDefinitionVersion === undefined)) return false;
+  if (step.agentDefinitionId !== undefined && typeof step.agentDefinitionId !== "string") return false;
+  if (step.agentDefinitionVersion !== undefined && typeof step.agentDefinitionVersion !== "number") return false;
+  if (step.parameters !== undefined && (step.parameters === null || typeof step.parameters !== "object" || Array.isArray(step.parameters))) {
+    return false;
+  }
+  return true;
 }
 
 export function isLinearGraphDefinition(value: unknown): value is LinearGraphDefinition {

@@ -58,6 +58,7 @@ import { RESEARCH_RETRIEVE_CAPABILITY } from "../capabilities/researchRetrieve/c
 import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capability.js";
 import { RESEARCH_RETRIEVE_SYNTHETIC } from "../capabilities/researchRetrieve/adapter.js";
 import { PUBLISH_REPORT_FILESYSTEM } from "../capabilities/publishReport/adapter.js";
+import { PUBLISH_REPORT_TASK_KIND, RESEARCH_REPORT_TASK_KIND } from "../capabilities/taskPlans.js";
 
 /**
  * MVP default Context Budget for the "Research-Report" Task Definition.
@@ -207,7 +208,7 @@ export async function seedResearchWorkflow(tx: DrizzleTransaction): Promise<Seed
     .insert(taskDefinitions)
     .values({
       name: "Research-Report",
-      kind: "standalone",
+      kind: RESEARCH_REPORT_TASK_KIND,
       inputSchema: {},
       outputSchema: {},
       defaultContextBudget: DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET,
@@ -273,16 +274,10 @@ export async function seedResearchWorkflow(tx: DrizzleTransaction): Promise<Seed
  *      from `seedResearchWorkflow`) as step 0 and "Review-and-Publish" as
  *      step 1, in order.
  *
- * Documented cosmetic note (not a functional issue): the reused
- * "Research-Report" `task_definitions.kind` column still reads
- * `"standalone"` (Unit 8's own label, describing how IT was originally
- * exercised) even though this workflow now also drives it via
- * `createWorkflowTaskInstance`. `kind` is a free-text label nothing in this
- * codebase branches on (confirmed by grep) — changing it would mean
- * mutating a row Unit 8's own frozen test asserts against
- * (`taskDefinition?.kind` is never asserted there, but `seedResearchWorkflow`
- * itself is frozen/unmodified per this unit's constraints), so it is left
- * exactly as Unit 8 seeded it.
+ * `task_definitions.kind` selects the Task Definition's registered plan
+ * (`../capabilities/taskPlans.ts`), and each graph step binds its Agent
+ * Definition and plan parameters (2026-09-14, spec §18.3). Migration 0012 gives
+ * rows seeded before then the same kinds and step bindings.
  */
 const PUBLISH_REPORT_PERMISSIONS: CapabilityPermission[] = ["PUBLISH"];
 const PUBLISH_REPORT_AUTONOMY_STATE = "ALWAYS_APPROVE" as const;
@@ -371,7 +366,7 @@ export async function seedPublishWorkflow(tx: DrizzleTransaction): Promise<SeedP
     .insert(taskDefinitions)
     .values({
       name: "Review-and-Publish",
-      kind: "workflow-step",
+      kind: PUBLISH_REPORT_TASK_KIND,
       inputSchema: {},
       outputSchema: {},
       defaultContextBudget: {},
@@ -384,8 +379,19 @@ export async function seedPublishWorkflow(tx: DrizzleTransaction): Promise<SeedP
   const graphDefinition: LinearGraphDefinition = {
     kind: "linear",
     steps: [
-      { taskDefinitionId: research.taskDefinitionId, taskDefinitionVersion: research.taskDefinitionVersion },
-      { taskDefinitionId: reviewAndPublishTaskDefinitionId, taskDefinitionVersion: reviewAndPublishTaskDefinitionVersion },
+      {
+        taskDefinitionId: research.taskDefinitionId,
+        taskDefinitionVersion: research.taskDefinitionVersion,
+        agentDefinitionId: research.agentDefinitionId,
+        agentDefinitionVersion: research.agentDefinitionVersion,
+      },
+      {
+        taskDefinitionId: reviewAndPublishTaskDefinitionId,
+        taskDefinitionVersion: reviewAndPublishTaskDefinitionVersion,
+        agentDefinitionId: publisherAgentDefinitionId,
+        agentDefinitionVersion: publisherAgentDefinitionVersion,
+        parameters: { sourceTaskDefinitionId: research.taskDefinitionId },
+      },
     ],
   };
 

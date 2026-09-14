@@ -7,12 +7,13 @@
  * started API process has no other way to learn the randomly-generated
  * UUIDs a prior `npm run seed` run assigned them.
  *
- * Used by two callers (task-10-brief.md):
+ * Used by two callers:
  *   - `./runSeed.ts` (Ruling 1): the idempotency check — if this returns
  *     non-null, seeding is a no-op.
- *   - `../api/routes/goals.ts` / `approvals.ts` / `workflowRuns.ts`
- *     (Ruling 2/3): to obtain the ids `buildInvocationSpecsForTaskDefinition`
- *     (`../workflow/buildInvocationSpecsForTaskDefinition.ts`) needs.
+ *   - `../api/routes/goals.ts`: the default Workflow Definition and Project for
+ *     a `POST /goals` that names none. Steps themselves are planned from
+ *     persisted Definitions (`../workflow/buildInvocationSpecsFromDefinitions.ts`),
+ *     never from these refs.
  *
  * Returns `null` if the workflow has never been seeded. Fails closed
  * (throws) on an ambiguous match — more than one row sharing the same
@@ -29,7 +30,7 @@
  * every field `seedPublishWorkflow` happens to return.
  */
 import { eq } from "drizzle-orm";
-import { agentDefinitions, capabilities, projects, taskDefinitions, toolBindings, workflowDefinitions } from "../db/schema.js";
+import { agentDefinitions, capabilities, projects, taskDefinitions, workflowDefinitions } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { RESEARCH_RETRIEVE_CAPABILITY } from "../capabilities/researchRetrieve/capability.js";
 import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capability.js";
@@ -49,13 +50,11 @@ export type SeededWorkflowRefs = {
   agentDefinitionId: string;
   agentDefinitionVersion: number;
   capabilityId: string;
-  toolBindingId: string;
   /** "Review-and-Publish" — Workflow 2's step 1. */
   reviewAndPublishTaskDefinitionId: string;
   publisherAgentDefinitionId: string;
   publisherAgentDefinitionVersion: number;
   publishCapabilityId: string;
-  publishToolBindingId: string;
 };
 
 /**
@@ -132,17 +131,9 @@ export async function findSeededPublishWorkflow(tx: DrizzleTransaction): Promise
     );
   }
 
-  const researchToolBinding = await findOneByName(
-    await tx.query.toolBindings.findMany({ where: eq(toolBindings.capabilityId, researchCapability.id) }),
-    `tool_bindings for capability "${researchCapability.id}"`
-  );
-  const publishToolBinding = await findOneByName(
-    await tx.query.toolBindings.findMany({ where: eq(toolBindings.capabilityId, publishCapability.id) }),
-    `tool_bindings for capability "${publishCapability.id}"`
-  );
-  if (!researchToolBinding || !publishToolBinding) {
-    throw new Error("findSeededPublishWorkflow: missing tool_bindings row for a seeded capability (inconsistent partial seed state).");
-  }
+  // Tool Bindings are deliberately not looked up: a Capability may have several
+  // (a newer one replaces an older one, `../capabilities/toolAdapters.ts`), and
+  // the binding that runs is resolved per Invocation, never from the seed.
 
   // The seed's own fixture Project — resolved via the Research-Report Task
   // Definition's originating Goal is unnecessary; `seedResearchWorkflow`
@@ -162,11 +153,9 @@ export async function findSeededPublishWorkflow(tx: DrizzleTransaction): Promise
     agentDefinitionId: researcherAgent.id,
     agentDefinitionVersion: researcherAgent.version,
     capabilityId: researchCapability.id,
-    toolBindingId: researchToolBinding.id,
     reviewAndPublishTaskDefinitionId: reviewAndPublishTaskDefinition.id,
     publisherAgentDefinitionId: publisherAgent.id,
     publisherAgentDefinitionVersion: publisherAgent.version,
     publishCapabilityId: publishCapability.id,
-    publishToolBindingId: publishToolBinding.id,
   };
 }

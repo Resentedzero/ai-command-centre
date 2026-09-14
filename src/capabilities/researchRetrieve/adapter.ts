@@ -5,6 +5,7 @@
  * Capability's Tool Binding row, never here.
  */
 import type { InternalToolFunction } from "../toolAdapters.js";
+import { RESEARCH_RETRIEVE_CAPABILITY } from "./capability.js";
 import { DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, searchLocalCorpus } from "./localCorpus.js";
 import { retrieveResearch } from "./toolBinding.js";
 
@@ -20,6 +21,7 @@ function requireQuery(name: string, snapshot: Record<string, unknown>): string {
 export const RESEARCH_RETRIEVE_SYNTHETIC = "research.retrieve.synthetic";
 
 export const researchRetrieveSynthetic: InternalToolFunction = {
+  capabilityName: RESEARCH_RETRIEVE_CAPABILITY.id,
   async prepare(_tx, { proposedActionSnapshot }) {
     const query = requireQuery(RESEARCH_RETRIEVE_SYNTHETIC, proposedActionSnapshot);
     // The cost declaration this binding carried before the adapter registry,
@@ -33,6 +35,7 @@ export const researchRetrieveSynthetic: InternalToolFunction = {
 export const RESEARCH_RETRIEVE_LOCAL_CORPUS = "research.retrieve.local_corpus";
 
 export const researchRetrieveLocalCorpus: InternalToolFunction = {
+  capabilityName: RESEARCH_RETRIEVE_CAPABILITY.id,
   async prepare(_tx, { config, proposedActionSnapshot }) {
     const query = requireQuery(RESEARCH_RETRIEVE_LOCAL_CORPUS, proposedActionSnapshot);
     const maxResults = config.maxResults ?? DEFAULT_MAX_RESULTS;

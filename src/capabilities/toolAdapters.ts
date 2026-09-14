@@ -62,6 +62,12 @@ export type PreparedToolCall = {
 
 export type InternalToolFunction = {
   /**
+   * The one Capability this function fulfils. A binding that names it under any
+   * other Capability fails closed: otherwise a READ Capability's binding could
+   * name a PUBLISH function and run that effect under the READ Grant.
+   */
+  capabilityName: string;
+  /**
    * Runs in the spec builder's transaction. Validates the proposed action and
    * reads what `execute` will need. MUST be a pure function of persisted rows
    * and its arguments (see DETERMINISM above).
@@ -95,7 +101,7 @@ registerInternalToolFunction(RESEARCH_RETRIEVE_SYNTHETIC, researchRetrieveSynthe
 registerInternalToolFunction(RESEARCH_RETRIEVE_LOCAL_CORPUS, researchRetrieveLocalCorpus);
 registerInternalToolFunction(PUBLISH_REPORT_FILESYSTEM, publishReportFilesystem);
 
-function adapterFor(binding: ToolBindingRow): InternalToolFunction {
+function adapterFor(binding: ToolBindingRow, capabilityName: string): InternalToolFunction {
   const name = binding.config?.function;
   if (binding.kind !== "internal") {
     throw new Error(`Tool Binding "${binding.id}" has kind "${binding.kind}", which has no adapter (fail closed).`);
@@ -104,6 +110,12 @@ function adapterFor(binding: ToolBindingRow): InternalToolFunction {
   if (!fn) {
     throw new Error(
       `Tool Binding "${binding.id}" names internal function ${JSON.stringify(name ?? null)}, which is not registered (fail closed).`
+    );
+  }
+  if (fn.capabilityName !== capabilityName) {
+    throw new Error(
+      `Tool Binding "${binding.id}" of capability "${capabilityName}" names internal function "${String(name)}", ` +
+        `which belongs to capability "${fn.capabilityName}" (fail closed).`
     );
   }
   return fn;
@@ -132,7 +144,7 @@ export async function resolveToolInvocation(
     throw new Error(`resolveToolInvocation: capability "${request.capabilityName}" has no Tool Binding.`);
   }
 
-  const fn = adapterFor(binding);
+  const fn = adapterFor(binding, capability.name);
   const config = binding.config ?? {};
   const prepared = await fn.prepare(tx, { config, proposedActionSnapshot: request.proposedActionSnapshot });
 

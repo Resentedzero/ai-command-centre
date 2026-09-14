@@ -418,7 +418,11 @@ export async function revokeCapabilityGrant(
         eq(runs.agentDefinitionId, grant.agentDefinitionId),
         eq(runs.agentDefinitionVersion, grant.agentDefinitionVersion)
       )
-    );
+    )
+    // Each expiry takes its Run's event advisory lock. A fixed order means two
+    // concurrent revocations take those locks in the same order and cannot
+    // deadlock on them (PHASE8_CLOSURE Risk 3, live now that a route calls this).
+    .orderBy(invocations.runId, approvals.id);
 
   // An approval is cancelled only if NO surviving Grant would still authorize
   // it. `capability_grants` has no unique index on the (agent, version,

@@ -9,21 +9,34 @@
  * (spec Phase 7/19: no vector store until structural retrieval demonstrably
  * fails).
  *
- * Containment: only regular files under the resolved root are read. Symbolic
- * links are not followed, and every path is re-checked to resolve inside the
- * root. Results carry root-relative POSIX paths, never host paths.
+ * Containment:
+ *   - The root is resolved through `realpath`; only entries whose real path lies
+ *     inside it are read.
+ *   - Symbolic links are never followed during the walk. On Windows, Node reports
+ *     junctions and other reparse points (including cloud-storage placeholder
+ *     files, e.g. OneDrive) as symbolic links, so those are skipped too: a corpus
+ *     inside a synced folder can return partial results.
+ *   - Each file is re-checked by `realpath` immediately before it is opened.
+ *     Residual: a path swapped for a link between that check and the open could
+ *     still be followed. That needs write access to the corpus itself.
+ *   - Results carry root-relative POSIX paths, never host paths.
  *
- * Bounds: at most `MAX_FILES` files are read, each at most `MAX_FILE_BYTES`;
- * larger files are skipped. Output is at most `maxResults` results with
- * snippets of at most `SNIPPET_CHARS` characters. Ordering is deterministic.
+ * Bounds: at most `MAX_ENTRIES` directory entries are visited and `MAX_FILES`
+ * files read, each at most `MAX_FILE_BYTES`; larger files are skipped. Output is
+ * at most `maxResults` results with snippets of at most `SNIPPET_CHARS`
+ * characters. Ordering is deterministic.
+ *
+ * A directory or file that cannot be read (permissions, removed mid-walk) is
+ * skipped; only an unusable root refuses the whole search.
  *
  * What it returns is file content from outside the system, so it is untrusted
  * data: its Artifact has a producing Invocation, and the Context Compiler fences
  * it (spec §5.15).
  */
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 
+export const MAX_ENTRIES = 20_000;
 export const MAX_FILES = 2_000;
 export const MAX_FILE_BYTES = 1_000_000;
 export const SNIPPET_CHARS = 300;
@@ -51,21 +64,40 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
+/** `dir` itself or anything below it. Correct for a filesystem root too (`C:\`, `/`). */
+export function isInside(dir: string, candidate: string): boolean {
+  const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
+  return candidate === dir || candidate.startsWith(prefix);
+}
+
 async function listCorpusFiles(root: string): Promise<string[]> {
   const files: string[] = [];
   const pending = [root];
-  while (pending.length > 0 && files.length < MAX_FILES) {
-    const dir = pending.shift()!;
-    const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  let visited = 0;
+  for (let next = 0; next < pending.length && files.length < MAX_FILES && visited < MAX_ENTRIES; next++) {
+    const entries = await readdir(pending[next]!, { withFileTypes: true }).catch(() => []);
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const entry of entries) {
-      const full = path.join(dir, entry.name);
+      if (++visited > MAX_ENTRIES || files.length >= MAX_FILES) break;
       if (entry.isSymbolicLink()) continue;
+      const full = path.join(pending[next]!, entry.name);
       if (entry.isDirectory()) pending.push(full);
       else if (entry.isFile() && EXTENSIONS.has(path.extname(entry.name).toLowerCase())) files.push(full);
-      if (files.length >= MAX_FILES) break;
     }
   }
   return files;
+}
+
+/** The file's text, or null when it is not a small regular file really inside `root`, or cannot be read. */
+async function readContained(root: string, file: string): Promise<string | null> {
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return null;
+    if (!isInside(root, await realpath(file))) return null;
+    return await readFile(file, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 function titleOf(content: string, sourcePath: string): string {
@@ -82,9 +114,9 @@ function snippetAround(content: string, index: number): string {
 export async function searchLocalCorpus(query: string, maxResults: number = DEFAULT_MAX_RESULTS): Promise<{ results: CorpusResult[] }> {
   const configuredRoot = process.env.RESEARCH_CORPUS_ROOT;
   if (!configuredRoot) throw refusal("searchLocalCorpus: RESEARCH_CORPUS_ROOT is not set.");
-  const root = path.resolve(configuredRoot);
-  const rootStat = await lstat(root).catch(() => null);
-  if (!rootStat?.isDirectory()) throw refusal("searchLocalCorpus: RESEARCH_CORPUS_ROOT is not a directory.");
+  const root = await realpath(path.resolve(configuredRoot)).catch(() => null);
+  const rootStat = root ? await lstat(root).catch(() => null) : null;
+  if (!root || !rootStat?.isDirectory()) throw refusal("searchLocalCorpus: RESEARCH_CORPUS_ROOT is not a readable directory.");
 
   const terms = queryTerms(query);
   if (terms.length === 0) return { results: [] };
@@ -92,10 +124,8 @@ export async function searchLocalCorpus(query: string, maxResults: number = DEFA
 
   const scored: CorpusResult[] = [];
   for (const file of await listCorpusFiles(root)) {
-    if (!file.startsWith(root + path.sep)) continue;
-    const stat = await lstat(file);
-    if (!stat.isFile() || stat.size > MAX_FILE_BYTES) continue;
-    const content = await readFile(file, "utf8");
+    const content = await readContained(root, file);
+    if (content === null) continue;
     const lower = content.toLowerCase();
     const score = terms.reduce((sum, term) => sum + countOccurrences(lower, term), 0);
     if (score === 0) continue;

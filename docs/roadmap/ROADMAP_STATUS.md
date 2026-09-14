@@ -44,11 +44,13 @@ Spec §18.1 lists what V1's Compiler must really do: priority tiers, a hard toke
 
 Goal: make spec §18.3 true — a new Capability, Tool Binding, Task Definition, Agent Definition and Workflow composition are added as data plus a registered adapter, with no edits to the Executor, Interpreter, governance, API or startup.
 
-1. Tool Adapter registry resolved from the persisted Tool Binding row (spec §3c, Phase 4 "Tool Adapters").
-2. A second, local-corpus `research.retrieve` binding, proving the capability boundary survives replacing its binding (spec §18.2).
-3. Step planning driven by definitions (Task Definition `kind`, per-step Agent in the Workflow graph).
-4. Binding configuration never reaches events.
-5. Registry read API and grant revocation route (V1.1).
+1. Tool Adapter registry resolved from the persisted Tool Binding row (spec §3c, Phase 4 "Tool Adapters"). **Done** (`14c8f27`).
+2. A second, local-corpus `research.retrieve` binding, proving the capability boundary survives replacing its binding (spec §18.2). **Done** (`d53df9a`).
+3. Step planning driven by definitions (Task Definition `kind`, per-step Agent in the Workflow graph), with the §18.3 acceptance test. **Done, in review.**
+4. Binding configuration never reaches events. **Done, in review.**
+5. Registry read API and grant revocation route (V1.1). **Done, in review.**
+
+Authoritative write-up: `docs/architecture/CAPABILITY_PLATFORM.md`.
 
 **Known decision boundary:** a real external search provider for `research.retrieve` needs a provider choice, credentials and spend authorization.
 

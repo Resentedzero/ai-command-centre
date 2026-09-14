@@ -30,8 +30,7 @@ import {
 import type { ApiDeps } from "../server.js";
 import { resolveApproval, ApprovalAlreadyResolvedError, ApprovalNotFoundError } from "../../governance/approvals.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
-import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
-import { requireSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
+import { buildInvocationSpecsFromDefinitions } from "../../workflow/buildInvocationSpecsFromDefinitions.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
 
@@ -208,10 +207,6 @@ function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "ap
       await relay.track(workflowRunId);
       const runInTx = relay.runInTx;
       const result = await (async () => {
-        // Checked BEFORE resolving: the resolution commits on its own, so a
-        // missing seed must not leave a decided Approval with nothing to act on.
-        const seed = await runInTx((tx) => requireSeededPublishWorkflow(tx));
-
         // Resolved and COMMITTED before any advancement (Phase 9: the advance
         // runs in its own short transactions). The conditional UPDATE inside
         // `resolveApproval` is still the exactly-once guarantee: a losing
@@ -223,9 +218,7 @@ function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "ap
         // resolve approval" while the Approval was in fact resolved), so it is
         // reported alongside the committed decision, with the recovery route.
         try {
-          const advanceResult = await advanceWorkflowRunUntilBlocked(runInTx, workflowRunId, (tx) =>
-            buildInvocationSpecsForTaskDefinition(tx, seed)
-          );
+          const advanceResult = await advanceWorkflowRunUntilBlocked(runInTx, workflowRunId, buildInvocationSpecsFromDefinitions);
           return {
             approvalId: resolved.id,
             approvalStatus: resolved.status,

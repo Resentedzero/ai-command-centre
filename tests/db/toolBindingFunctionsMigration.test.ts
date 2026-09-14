@@ -43,6 +43,8 @@ describe("migration 0011: tool binding adapter functions", () => {
       const external = await bindingFor(tx, "publish.report", {}, "direct_api");
 
       expect(statements).toHaveLength(2);
+      // 0011 ran before 0013 made binding rows immutable; replay it as it ran.
+      await tx.execute(sql.raw('ALTER TABLE "tool_bindings" DISABLE TRIGGER "tool_bindings_immutable"'));
       for (const statement of statements) await tx.execute(sql.raw(statement));
 
       const config = async (id: string) =>

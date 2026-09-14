@@ -128,6 +128,33 @@ describe("no tool side effect inside a transaction", () => {
   });
 });
 
+describe("core names no capability (spec 18.3)", () => {
+  // Capability code and the seed are where capabilities and seeded Definitions
+  // are named. Everything else — Interpreter, Executor, governance, routing,
+  // context, events, API — must work for any capability, so it may neither
+  // import a capability's modules nor name one in code.
+  const CAPABILITY_SPECIFIC = /research\.retrieve|publish\.report|Research-Report|Review-and-Publish|Research-and-Publish|^Researcher$|^Publisher$/;
+  const allowed = (file: string) => file.startsWith("capabilities/") || file === "definitions/seed.ts" || file === "definitions/lookupSeed.ts";
+
+  it("outside capability code and the seed, no string literal names a capability or seeded Definition, and no capability module is imported", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles()) {
+      if (allowed(rel(file))) continue;
+      visit(parse(file), (n) => {
+        if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+          const target = n.moduleSpecifier.text;
+          if (/capabilities\/(researchRetrieve|publishReport)\//.test(target)) offenders.push(`${rel(file)} imports ${target}`);
+          return;
+        }
+        if ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && CAPABILITY_SPECIFIC.test(n.text)) {
+          offenders.push(`${rel(file)}: "${n.text}"`);
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe("single chokepoint", () => {
   it("only the Model Router imports a provider adapter module", () => {
     const importers = new Set<string>();
