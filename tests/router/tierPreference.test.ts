@@ -24,8 +24,14 @@ import {
 vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: vi.fn() }));
 vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
 vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeSubscriptionModel: vi.fn() }));
+// Pass-through spy, so a refused route can be shown to have reserved exactly once.
+vi.mock("../../src/governance/budget.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/governance/budget.js")>();
+  return { ...actual, reserveBudget: vi.fn(actual.reserveBudget) };
+});
 
 import { authorizeRoute, preferTier } from "../../src/router/modelRouter.js";
+import { reserveBudget } from "../../src/governance/budget.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -344,12 +350,13 @@ describe("performance never overrides hard constraints", () => {
     });
   });
 
-  // Token-accounted tiers share one estimate (maxInputTokens + expectedOutputTokens), so this proves
-  // the refusal stands, not that the default was skipped; the no-candidate test below proves no fallback.
-  it("a budget refusal still refuses the route at the preferred tier: nothing reserved, nothing recorded", async () => {
+  // Token-accounted tiers share one estimate (maxInputTokens + expectedOutputTokens), so a retry at the
+  // default tier would be refused too; the single reservation attempt is what shows there was none.
+  it("a budget refusal still refuses the route at the preferred tier: one reservation attempt, nothing reserved, nothing recorded", async () => {
     await withRollback(async (tx) => {
       const { group, request } = await seedBoundRun(tx, "10");
       await midIsBetter(tx, group);
+      vi.mocked(reserveBudget).mockClear();
       // The refusal still records the routing decision it made (§10.7).
       expect(await authorizeRoute(tx, request, { minPerformanceSamples: 10 })).toMatchObject({
         authorized: false,
@@ -363,6 +370,7 @@ describe("performance never overrides hard constraints", () => {
           budgetAuthorization: { authorized: false, modelId: "claude-sonnet-5", resourceUnit: "subscription_tokens", estimatedAmount: 1_100 },
         },
       });
+      expect(reserveBudget).toHaveBeenCalledTimes(1);
       expect(await started(tx, request.invocationId)).toBeUndefined();
       const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, request.runId) });
       expect(counter!.reservedAmount).toBe("0");

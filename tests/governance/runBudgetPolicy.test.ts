@@ -159,7 +159,7 @@ describe("structural: capability code holds no budget authority", () => {
   }));
 
   it("no file under src/capabilities/ writes budget_counters", () => {
-    const offenders = sources.filter((s) => /budgetCounters/.test(s.code)).map((s) => s.file);
+    const offenders = sources.filter((s) => /budgetCounters|budget_counters/.test(s.code)).map((s) => s.file);
     expect(offenders).toEqual([]);
   });
 

@@ -7,7 +7,7 @@
  * still dispatching, are NOT settled.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { closeTestDb, resetTestSchema, withRollback } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
@@ -188,6 +188,17 @@ describe("a step that cannot be resumed is settled, not left stuck", () => {
       expect(after.approval!.status).toBe("pending");
       expect(after.workflowRun!.status).toBe("in_progress");
       expect(Number(after.usd!.reservedAmount)).toBeGreaterThan(0);
+    });
+  });
+
+  it("a FAILED stop lookup is not settled: it propagates (fail closed) and is never recorded as the step's failure", async () => {
+    await withRollback(async (tx) => {
+      const seed = await seedPublishWorkflow(tx);
+      const { workflowRunId } = await startWorkflowRun(tx, seed.workflowDefinitionId, seed.goalId);
+      // Rolled back with the test's transaction. Settling would roll back to the step savepoint,
+      // clearing the aborted lookup, and resolve `failed`.
+      await tx.execute(sql.raw("ALTER TABLE execution_stops RENAME TO execution_stops_unavailable"));
+      await expect(advanceWorkflowRun(tx, workflowRunId, builderFor(tx, seed))).rejects.toMatchObject({ lookupFailed: true });
     });
   });
 });

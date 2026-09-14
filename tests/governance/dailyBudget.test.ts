@@ -21,6 +21,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomUUID } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 import { and, eq, sql } from "drizzle-orm";
 import { resetTestSchema, closeTestDb, withRollback, testDb } from "../testDb.js";
 import { budgetCounters } from "../../src/db/schema.js";
@@ -350,8 +351,9 @@ describe("no production caller can override the ceilings", () => {
   it("no production call passes reserveBudget an options object — neither dailyCeilings nor now", () => {
     // `now` is as dangerous as `dailyCeilings`: a future date lands on a fresh,
     // unspent day counter and dodges today's ceiling. Production calls pass
-    // exactly the six positional arguments, so any object literal inside a
-    // reserveBudget call outside budget.ts is an override.
+    // exactly the six positional arguments, so a seventh (a literal or a variable),
+    // a spread, or an aliased import outside budget.ts is an override. Parsed, not
+    // pattern-matched.
     const srcRoot = path.join(process.cwd(), "src");
     const walk = (dir: string): string[] =>
       readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -364,10 +366,16 @@ describe("no production caller can override the ceilings", () => {
     for (const file of walk(srcRoot)) {
       const rel = path.relative(srcRoot, file).replace(/\\/g, "/");
       if (rel === "governance/budget.ts") continue;
-      const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-      for (const call of code.matchAll(/reserveBudget\(([\s\S]*?)\);/g)) {
-        if (/[{]|\bnow\b|\bdailyCeilings\b/.test(call[1]!)) offenders.push(rel);
-      }
+      const visit = (node: ts.Node): void => {
+        if (ts.isImportSpecifier(node) && node.propertyName?.text === "reserveBudget") offenders.push(`${rel} (aliased import)`);
+        if (ts.isCallExpression(node)) {
+          const callee = node.expression;
+          const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : null;
+          if (name === "reserveBudget" && (node.arguments.length !== 6 || node.arguments.some(ts.isSpreadElement))) offenders.push(rel);
+        }
+        node.forEachChild(visit);
+      };
+      visit(ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true));
     }
     expect(offenders).toEqual([]);
   });

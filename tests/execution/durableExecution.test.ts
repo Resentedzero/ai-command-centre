@@ -100,7 +100,7 @@ async function seedWorkflowRun(tx: DrizzleTransaction) {
       consumedAmount: "0",
     });
   }
-  return { runId: run!.id, taskInstanceId: taskInstance!.id, workflowRunId: workflowRun!.id };
+  return { runId: run!.id, taskInstanceId: taskInstance!.id, workflowRunId: workflowRun!.id, goalId: goal!.id };
 }
 
 function llmSpec() {
@@ -189,7 +189,11 @@ describe("no lock is held during a provider call (real commits)", () => {
     const runInTx = transactionRunner(testDb);
 
     let duringDispatch: Awaited<ReturnType<typeof probeLocks>> | undefined;
+    let clientsCheckedOut: number | undefined;
     vi.mocked(callClaudeSubscriptionModel).mockImplementationOnce(async () => {
+      // No connection is checked out at all: this also catches a call made inside a
+      // check transaction that takes no lock the probe could see.
+      clientsCheckedOut = testPool.totalCount - testPool.idleCount;
       duringDispatch = await probeLocks(runId);
       return { result: { sum: 1 }, usage: USAGE };
     });
@@ -197,6 +201,7 @@ describe("no lock is held during a provider call (real commits)", () => {
     const dispatch = expectDispatch(await runInTx((tx) => executeRun(tx, runId, [llmSpec()])));
     await dispatchAndRecord(runInTx, dispatch);
 
+    expect(clientsCheckedOut).toBe(0);
     expect(duringDispatch).toEqual({ blocked: [], committedStatus: "executing" });
     expect(isDispatchInFlight(dispatch.invocationId)).toBe(false);
 
@@ -227,13 +232,15 @@ describe("in-flight dispatch", () => {
 });
 
 describe("the stop re-check just before a model dispatch (DURABLE_EXECUTION §7 #11)", () => {
-  it("a stop engaged after the executing commit prevents the provider call; the hold is released and the Run halted", async () => {
+  // Every scope the re-check covers for an unbound Run (the agent scope is covered by toolDispatch.test.ts).
+  it.each(["global", "goal", "workflow_run", "run"] as const)("a %s stop engaged after the executing commit prevents the provider call; the hold is released and the Run halted", async (scope) => {
     await withRollback(async (tx) => {
-      const { runId, workflowRunId } = await seedWorkflowRun(tx);
+      const { runId, workflowRunId, goalId } = await seedWorkflowRun(tx);
       const dispatch = expectDispatch(await executeRun(tx, runId, [llmSpec()]));
       expect(await tokenCounter(tx, runId)).toEqual({ reserved: ESTIMATE, consumed: 0 });
 
-      await engageStop(tx, { scope: "workflow_run", scopeRefId: workflowRunId, reason: "incident" });
+      const scopeRefId = { global: undefined, goal: goalId, workflow_run: workflowRunId, run: runId }[scope];
+      await engageStop(tx, { scope, ...(scopeRefId ? { scopeRefId } : {}), reason: "incident" });
       await dispatchAndRecord(transactionRunner(tx), dispatch);
 
       expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
@@ -241,9 +248,9 @@ describe("the stop re-check just before a model dispatch (DURABLE_EXECUTION §7 
       const failed = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `invocation_failed:${dispatch.invocationId}`) });
       expect(failed!.payload).toMatchObject({ reservationSettlement: "released", providerConsumption: "none" });
       const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
-      expect(run!.outcome).toMatchObject({ reason: "execution_stopped", stopScope: "workflow_run", stopScopeRefId: workflowRunId });
+      expect(run!.outcome).toMatchObject({ reason: "execution_stopped", stopScope: scope });
       const halted = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `run_halted:${runId}`) });
-      expect(halted?.payload).toMatchObject({ reason: "execution_stopped", stopScope: "workflow_run" });
+      expect(halted?.payload).toMatchObject({ reason: "execution_stopped", stopScope: scope });
     });
   });
 });

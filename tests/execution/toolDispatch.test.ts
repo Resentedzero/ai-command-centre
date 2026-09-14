@@ -53,14 +53,14 @@ async function seedToolRun(tx: DrizzleTransaction, autonomyState: "AUTONOMOUS" |
     .insert(schema.agentDefinitions)
     .values({ name: "agent-" + randomUUID(), version: 1, role: "tester", objective: "test", instructions: "n/a" })
     .returning();
-  await tx.insert(schema.capabilityGrants).values({
+  const [grant] = await tx.insert(schema.capabilityGrants).values({
     agentDefinitionId: agent!.id,
     agentDefinitionVersion: 1,
     capabilityId: capability!.id,
     permissions: ["WRITE"],
     maxTrustLevelRequired: 1,
     autonomyState,
-  });
+  }).returning();
   const [project] = await tx.insert(schema.projects).values({ name: "p-" + randomUUID() }).returning();
   const [workflowDefinition] = await tx
     .insert(schema.workflowDefinitions)
@@ -81,7 +81,15 @@ async function seedToolRun(tx: DrizzleTransaction, autonomyState: "AUTONOMOUS" |
     .values({ taskInstanceId: taskInstance!.id, agentDefinitionId: agent!.id, agentDefinitionVersion: 1, status: "active" })
     .returning();
   await tx.insert(schema.budgetCounters).values({ scope: "run", scopeRefId: run!.id, resourceUnit: "usd", limitAmount: "100.00", reservedAmount: "0", consumedAmount: "0" });
-  return { runId: run!.id, capabilityId: capability!.id, toolBindingId: binding!.id, workflowRunId: workflowRun!.id };
+  return {
+    runId: run!.id,
+    capabilityId: capability!.id,
+    toolBindingId: binding!.id,
+    workflowRunId: workflowRun!.id,
+    goalId: goal!.id,
+    agentDefinitionId: agent!.id,
+    grantId: grant!.id,
+  };
 }
 
 function toolSpec(ids: { capabilityId: string; toolBindingId: string }, execute: ToolInvocationSpec["execute"]): ToolInvocationSpec {
@@ -122,8 +130,10 @@ describe("the effect happens only after a durable claim", () => {
   it("execute runs with the Invocation already COMMITTED as executing, no lock held, and receives its persisted idempotency key", async () => {
     const ids = await testDb.transaction((tx) => seedToolRun(tx));
     const runInTx = transactionRunner(testDb);
-    const seen: { status?: string; runLockFree?: boolean; ctx?: ToolExecutionContext } = {};
+    const seen: { status?: string; runLockFree?: boolean; clientsCheckedOut?: number; ctx?: ToolExecutionContext } = {};
     const execute = vi.fn(async (ctx: ToolExecutionContext) => {
+      // No connection checked out: the effect is not running inside the re-check's transaction.
+      seen.clientsCheckedOut = testPool.totalCount - testPool.idleCount;
       const probe = await testPool.connect();
       try {
         const status = await probe.query<{ status: string }>("SELECT status FROM invocations WHERE id = $1", [ctx.invocationId]);
@@ -145,6 +155,7 @@ describe("the effect happens only after a durable claim", () => {
 
     expect(seen.status).toBe("executing");
     expect(seen.runLockFree).toBe(true);
+    expect(seen.clientsCheckedOut).toBe(0);
     const invocation = await testDb.query.invocations.findFirst({ where: eq(schema.invocations.id, dispatch.invocationId) });
     expect(seen.ctx).toEqual({ invocationId: invocation!.id, idempotencyKey: invocation!.idempotencyKey });
     expect(invocation!.status).toBe("completed");
@@ -220,17 +231,26 @@ describe("interruption: a claimed effect is never performed twice", () => {
 });
 
 describe("the pre-effect re-check", () => {
-  it("a stop engaged after the claim prevents the effect; the hold is released, because nothing was performed", async () => {
+  it.each(["global", "agent_definition", "capability_grant", "goal", "workflow_run", "run"] as const)("a %s stop engaged after the claim prevents the effect; the hold is released, because nothing was performed", async (scope) => {
     await withRollback(async (tx) => {
       const ids = await seedToolRun(tx);
       const execute = vi.fn(async () => ({ wrote: true }));
       const dispatch = expectToolDispatch(await executeRun(tx, ids.runId, [toolSpec(ids, execute)]));
 
-      await engageStop(tx, { scope: "workflow_run", scopeRefId: ids.workflowRunId, reason: "incident" });
+      const scopeRefId = {
+        global: undefined,
+        agent_definition: ids.agentDefinitionId,
+        capability_grant: ids.grantId,
+        goal: ids.goalId,
+        workflow_run: ids.workflowRunId,
+        run: ids.runId,
+      }[scope];
+      const target = { scope, ...(scopeRefId ? { scopeRefId } : {}) };
+      await engageStop(tx, { ...target, reason: "incident" });
       try {
         await dispatchAndRecord(transactionRunner(tx), dispatch);
       } finally {
-        await liftStop(tx, { scope: "workflow_run", scopeRefId: ids.workflowRunId });
+        await liftStop(tx, target);
       }
 
       expect(execute).not.toHaveBeenCalled();
@@ -238,9 +258,9 @@ describe("the pre-effect re-check", () => {
       expect(await usd(tx, ids.runId)).toEqual({ reserved: 0, consumed: 0 });
       // Recorded exactly as a stop caught at the Invocation boundary is.
       const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, ids.runId) });
-      expect(run!.outcome).toMatchObject({ reason: "execution_stopped", stopScope: "workflow_run", stopScopeRefId: ids.workflowRunId });
+      expect(run!.outcome).toMatchObject({ reason: "execution_stopped", stopScope: scope });
       const halted = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `run_halted:${ids.runId}`) });
-      expect(halted?.payload).toMatchObject({ reason: "execution_stopped", stopScope: "workflow_run" });
+      expect(halted?.payload).toMatchObject({ reason: "execution_stopped", stopScope: scope });
     });
   });
 

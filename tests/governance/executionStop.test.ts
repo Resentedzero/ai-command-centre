@@ -42,7 +42,10 @@ import {
   revokeCapabilityGrant,
   GRANT_REVOCATION_ACTOR,
 } from "../../src/governance/approvals.js";
+import { createPool } from "../../src/db/client.js";
+import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  assertCapabilityGrantsNotStopped,
   assertNotStopped,
   engageStop,
   liftStop,
@@ -470,6 +473,26 @@ describe("fail closed", () => {
     }
     expect(allowed).toBe(false);
   });
+
+  it("refuses when the capability_grant stop lookup itself throws", async () => {
+    const brokenTx = {
+      query: {
+        runs: {
+          findFirst: async () => {
+            throw new Error("connection lost");
+          },
+        },
+      },
+    } as unknown as DrizzleTransaction;
+
+    const failed = await assertCapabilityGrantsNotStopped(brokenTx, {
+      runId: randomUUID(),
+      capabilityId: randomUUID(),
+      permission: "WRITE",
+    }).catch((e: unknown) => e);
+    expect(failed).toBeInstanceOf(ExecutionStoppedError);
+    expect((failed as ExecutionStoppedError).lookupFailed).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -516,6 +539,8 @@ describe("lifting and lifecycle", () => {
   it("lifting a stop never bypasses the budget: an exhausted run is still refused", async () => {
     await withRollback(async (tx) => {
       const ids = await seedChain(tx);
+      await engageStop(tx, { scope: "global" });
+      await liftStop(tx, { scope: "global" });
       await tx
         .update(schema.budgetCounters)
         .set({ limitAmount: "0" })
@@ -673,6 +698,17 @@ describe("synchronous visibility across connections (READ COMMITTED)", () => {
     },
     20000
   );
+
+  it("the pool production builds (src/db/client.ts) opens READ COMMITTED transactions", async () => {
+    // The test above uses the test pool; this pins the production pool options and the server default.
+    const pool = createPool(process.env.TEST_DATABASE_URL!);
+    try {
+      const level = await drizzle(pool).transaction(async (tx) => (await tx.execute(sql`show transaction_isolation`)).rows[0]);
+      expect(level).toEqual({ transaction_isolation: "read committed" });
+    } finally {
+      await pool.end();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1292,10 +1328,9 @@ describe("spec 9.7 completeness", () => {
 // ---------------------------------------------------------------------------
 
 describe("no execution path bypasses containment", () => {
-  const source = readFileSync(path.join(process.cwd(), "src/execution/executor.ts"), "utf8").replace(
-    /\/\*[\s\S]*?\*\//g,
-    ""
-  );
+  const source = readFileSync(path.join(process.cwd(), "src/execution/executor.ts"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "");
 
   it("checks containment before EVERY deferred-spec resolution inside executeRun", () => {
     const body = source.slice(source.indexOf("export async function executeRun"));
@@ -1329,7 +1364,8 @@ describe("no execution path bypasses containment", () => {
         file: path.relative(srcRoot, file).replace(/\\/g, "/"),
         code: readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, ""),
       }))
-      .filter(({ file, code }) => file !== "execution/executor.ts" && /\bexecuteRun\(/.test(code))
+      // A call, an import of it under any alias, or a namespace access.
+      .filter(({ file, code }) => file !== "execution/executor.ts" && /\bexecuteRun\s*\(|\bexecuteRun\s+as\b|\.executeRun\b/.test(code))
       .map(({ file }) => file);
 
     expect(callers).toEqual(["workflow/interpreter.ts"]);

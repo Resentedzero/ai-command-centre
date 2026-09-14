@@ -69,6 +69,19 @@ function enclosingNamedFunction(node: ts.Node): { name: string; node: ts.Node } 
   return null;
 }
 
+/**
+ * Whether the node's nearest enclosing function is a callback passed to a call, e.g.
+ * `refusalBeforeDispatch(runInTx, async (tx) => dispatchModelCall(...))`: whatever
+ * that call is, it may run the callback inside a transaction.
+ */
+function insideCallback(node: ts.Node): boolean {
+  for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
+    if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) return ts.isCallExpression(current.parent);
+    if (ts.isFunctionDeclaration(current) || ts.isMethodDeclaration(current)) return false;
+  }
+  return false;
+}
+
 function callsWithin(node: ts.Node): ts.CallExpression[] {
   const calls: ts.CallExpression[] = [];
   visit(node, (n) => {
@@ -85,6 +98,7 @@ describe("no provider call inside a transaction", () => {
       visit(parse(file), (n) => {
         if (!ts.isCallExpression(n) || calleeName(n) !== "dispatchModelCall") return;
         callSites.push(`${rel(file)}#${enclosingNamedFunction(n)?.name ?? "<top level>"}`);
+        expect(insideCallback(n), `dispatchModelCall inside a callback in ${rel(file)}`).toBe(false);
 
         // No enclosing call may be a transaction runner: its callback would hold
         // a transaction open for the whole provider call.
@@ -109,6 +123,7 @@ describe("no tool side effect inside a transaction", () => {
         const receiver = n.expression.expression.getText();
         if (/^(tx|db|this|probe|sp)$/.test(receiver)) return;
         executeCallers.push(`${rel(file)}#${enclosingNamedFunction(n)?.name ?? "<top level>"}:${receiver}`);
+        expect(insideCallback(n), `execute inside a callback in ${rel(file)}`).toBe(false);
         for (let p: ts.Node | undefined = n.parent; p; p = p.parent) {
           if (ts.isCallExpression(p)) {
             expect(calleeName(p), `execute nested inside ${calleeName(p)}(...)`).not.toMatch(/^(runInTx|transaction)$/);
@@ -300,7 +315,9 @@ describe("status changes are recorded as events", () => {
       const receiver = n.expression.expression;
       if (!ts.isCallExpression(receiver) || calleeName(receiver) !== "update") return;
       const table = receiver.arguments[0];
-      if (table && ts.isIdentifier(table) && STATUS_TABLES.has(table.text)) found.push({ table: table.text, node: n });
+      // `runs` or `schema.runs`.
+      const tableName = table && (ts.isIdentifier(table) ? table.text : ts.isPropertyAccessExpression(table) ? table.name.text : null);
+      if (tableName && STATUS_TABLES.has(tableName)) found.push({ table: tableName, node: n });
     });
     return found;
   }
