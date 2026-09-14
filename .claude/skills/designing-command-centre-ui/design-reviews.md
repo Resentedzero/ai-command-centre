@@ -260,4 +260,23 @@ Gated screens redrawn in D19 from real read models only. **Registry** (read-only
 4. **Every pixel screen has a room.** Cost gets a small bevel-framed engine-room view: the forge burns fuel, which reads as consumption without claiming any value. The cards widen, and the footer states the gap plainly.
 5. **No dev notation.** "invocation (kind · #seq)" became "invocation".
 
-**Rejected:** putting Preview and Referenced-by on parchment. The rule is parchment for short summaries and dark wood for lists and long reading, so the short parchment "Produced by" card next to two wood panels is correct. The dead band under the Registry room comes from the approved Agents layout.
+**Rejected (Registry/Cost round):** putting Preview and Referenced-by on parchment. The rule is parchment for short summaries and dark wood for lists and long reading, so the short parchment "Produced by" card next to two wood panels is correct. The dead band under the Registry room comes from the approved Agents layout.
+
+## Contrast audit (2026-09-14)
+
+Measured WCAG ratios for every pixel text token against wood-dark, wood, parchment and void, then audited the live frames on the `04` pages by script. The script walked each text to the surface it sits on and blended its effective opacity.
+
+**Palette findings:**
+- On wood and void, everything passes AA: label 13–16:1, label-dim 5.1–6.2:1, state colours 5.3–10.1:1.
+- On parchment, only ink passes (8.0:1). State colours are 1.2–1.8:1 and light labels 1.4–1.9:1.
+
+**Fixed in Figma:**
+1. **State-coloured words on parchment → ink** (3 texts): "in progress" on the Workflows run header and on Cost, "failed" on the Workflows failed state. The outlined marker keeps the colour.
+2. **Translucent text raised to ≥ 4.5:1** (67 of 127 checked):
+   - 59 ink skeletons on parchment went from 55% (2.8:1) to 80% (5.1:1);
+   - 8 light labels on wood went from 4.3:1 to 80%.
+   - The other 60 already passed.
+
+**Rule added to `visual-language.md`:** ink is the only text colour on parchment; state on parchment is marker plus ink word; translucent text must pass after blending; wood-edge is never text. Two stale lines were corrected at the same time: "parchment holds anything you read" (it contradicted the vellum rule) and "HUD panels stay sci-fi" (retired in D19).
+
+**Not audited:** the experiment trail on page `05`, and graphic-only markers. A marker's 2 px outline gives it its edge contrast.

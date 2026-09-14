@@ -57,6 +57,11 @@ All of these tokens exist as Figma variables in the "Command Centre" collection 
 
 **Reading surfaces:**
 - **Parchment** (`pixel/parchment`) is for short cards: headers, lineage rows, summaries.
+- **Contrast (measured WCAG ratios):**
+  - **On parchment, text is `pixel/ink` only** (8.0:1). Every state colour is 1.2–1.8:1 on parchment and every light label 1.4–1.9:1, so state on parchment is carried by the outlined marker plus an ink word. The marker's 2 px `pixel/outline` supplies the edge contrast.
+  - On wood and void, all text tokens pass AA: `pixel/label` 13–16:1, `pixel/label-dim` 5.1–6.2:1, state colours 5.3–10.1:1.
+  - Translucent text must still reach 4.5:1 after blending. Skeleton "· · ·" in ink needs at least 80% opacity on parchment (55% was 2.8:1). The dots already say "not loaded", so faintness adds nothing.
+  - `pixel/wood-edge` is a border colour, never text (2.1–2.5:1 on wood).
 - **Long reading** (approval previews, JSON snapshots, event logs, descriptions) sits on **dark vellum**. That is `pixel/wood` or `pixel/wood-dark` with a `pixel/wood-edge` bevel, in JetBrains Mono `pixel/label` text, at 14–16 px. Cream parchment over a large area glares.
 - Readable content never sits on the map or its light.
 
@@ -115,10 +120,10 @@ These live in the Figma "Spacing" collection; CSS names follow the same rule (`s
 ## Panels and chrome
 
 - **Frames:** every chrome frame is a pixel bevel, meaning a 2 px `pixel/outline` around a panel with a 2 px `pixel/wood-edge` or `pixel/parchment-shade` edge. Corners are square. There are no hairline glass panels, rounded SaaS cards, drop shadows or glows.
-- **Grouping:** wood holds navigation and world tags; parchment cards hold anything you read. Buttons are bevel frames too, with a dark fill and a state-coloured edge: a dark red fill with a red edge for Stop. Solid saturated button fills are too loud.
+- **Grouping:** wood holds navigation and world tags; parchment cards hold short summaries, and long reading sits on dark vellum (see "Reading surfaces"). Buttons are bevel frames too, with a dark fill and a state-coloured edge: a dark red fill with a red edge for Stop. Solid saturated button fills are too loud.
 - **Effects:** never put an effect on an image-filled sprite rectangle. It applies to the bounds and draws a box.
 - Group with hairlines and section labels, not with more boxes. One panel with dense rows beats a grid of cards.
-- Pixel-GUI framing (the parchment/wood panels in reference image 2) is used only inside the world: room name plates, station sigils, artifact scrolls. HUD panels stay sci-fi.
+- Pixel-GUI framing (the parchment/wood panels in reference image 2) is the chrome everywhere since D19: boards, cards, plaques, buttons. No sci-fi HUD panels remain.
 - Icons: a single-weight line set for the HUD, and 16 px pixel glyphs for the world. Never mix them in one component.
 
 ## Density and hierarchy
