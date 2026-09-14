@@ -10,8 +10,7 @@
  * not add one to it. Instead, this is a genuinely new, separate function for
  * the one case Unit 6 never needed to handle: marking a specific piece of
  * already-produced output as the workflow's final, addressable `"report"`
- * artifact — the shape Phase 18.2's workflow 1 (Unit 8) requires, and which
- * Unit 9's `publish.report` step is expected to reuse for its own workflow.
+ * artifact — the shape Phase 18.2's workflow 1 (Unit 8) requires.
  *
  * Deliberately NOT a Capability, and carries no Policy/Approval/Budget
  * governance of its own — it is pure persistence, exactly like

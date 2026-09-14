@@ -21,7 +21,7 @@
  * projects sharing a name, or two rows sharing a name and version — or on a partially-seeded state (some but not all
  * expected rows present), consistent with this codebase's established
  * "never silently pick an arbitrary match" convention (e.g.
- * `buildPublishReportInvocationSpecs`'s own `findResearchReportArtifactId`,
+ * `buildPublishReportInvocationSpecs`'s own `findResearchReportArtifact`,
  * `src/capabilities/publishReport/buildInvocationSpecs.ts`).
  *
  * Deliberately its own slim type (`SeededWorkflowRefs`), not Unit 9's

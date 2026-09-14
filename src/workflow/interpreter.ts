@@ -49,7 +49,8 @@
  * Ruling 3 — `advanceWorkflowRun` takes a required `buildInvocationSpecs`
  * callback (type `InvocationSpecBuilder`) so it can obtain the
  * `InvocationSpec[]` for a step without knowing anything about that step's
- * Task Definition — that knowledge belongs to a future Unit 9. Note this
+ * Task Definition — that knowledge belongs to the step planner
+ * (`./buildInvocationSpecsFromDefinitions.ts`, `../capabilities/taskPlans.ts`). Note this
  * callback's frozen signature does NOT include `tx`: a real (future) caller
  * constructs it as a closure over whatever `tx`/context it needs (e.g.
  * `const build = (p) => unit9RealBuilder(tx, p)`), exactly the pattern this
@@ -128,7 +129,7 @@
  *   has no channel to learn that binding: `InvocationSpecBuilder`'s frozen
  *   signature carries no `tx` and no agent-binding field, and
  *   `startWorkflowRun`/`advanceWorkflowRun`'s own frozen signatures carry
- *   nothing either. CONSEQUENCE (a real constraint on a future Unit 9, not
+ *   nothing either. CONSEQUENCE (a real constraint on the step planner, not
  *   just a note): a "tool" InvocationSpec built for a workflow step CANNOT
  *   be authorized by `resolveCapabilityGrant` (Unit 6) unless something
  *   binds `runs.agentDefinitionId`/`Version` for that run before

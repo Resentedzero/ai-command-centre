@@ -19,7 +19,7 @@
   - The check runs before every Invocation and fails closed.
   - API: `GET` and `POST /execution-stops`, plus `POST /execution-stops/lift`.
   - Stops are terminal and forward-only.
-- **Grant revocation.** `revokeCapabilityGrant` expires pending approvals that no surviving Grant covers. It has no production caller yet; see the deferred items.
+- **Grant revocation.** `revokeCapabilityGrant` expires pending approvals that no surviving Grant covers. It had no production caller at closure (since wired: `POST /capability-grants/:id/revoke`); see the deferred items.
 - **DAY aggregate budget.**
   - Inert: `DAILY_BUDGET_CEILINGS` is empty.
   - The day key is the UTC date. Locks are taken day first, then run.

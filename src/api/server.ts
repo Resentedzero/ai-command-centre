@@ -1,6 +1,6 @@
 /**
  * `buildServer` — builds (but does not start) the Fastify app: Unit 10's API
- * layer, the ONLY boundary the UI (Unit 11, next) is meant to use. Nothing
+ * layer, the ONLY boundary the UI (Unit 11, `web/`) is meant to use. Nothing
  * downstream of this layer — Postgres, model providers, tool adapters — is
  * ever meant to be reached directly by a UI client; every capability the UI
  * needs is exposed as a route here.

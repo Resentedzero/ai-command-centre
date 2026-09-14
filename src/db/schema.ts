@@ -1,11 +1,11 @@
 /**
  * Drizzle table definitions — MVP subset of Phase 12's data model.
  *
- * Scope: exactly the tables named in Unit 1's brief. Excluded per Phase 18.1
- * (deferred): `memory_items`, `agent_xp_projection`. `agent_performance` was added in V2
- * (2026-09-14, `../projections/agentPerformance.ts`).
- * Also excluded: `policies` (Phase 12 lists it, but it is out of this unit's
- * scope per the brief's table list — no policy engine exists yet).
+ * Scope: the tables named in Unit 1's brief, plus later additions (execution
+ * stops, budget counters, quota state, `agent_performance` in V2,
+ * `../projections/agentPerformance.ts`). Excluded per Phase 18.1 (deferred):
+ * `memory_items`, `agent_xp_projection`. Also excluded: `policies` (Phase 12
+ * lists it; Policy is code, `../governance/policy.ts`, ROADMAP_STATUS §6).
  *
  * Column shapes follow Phase 12 verbatim, with one deliberate addition: the
  * `events` table carries `idempotency_key`, `event_version`, and `producer`

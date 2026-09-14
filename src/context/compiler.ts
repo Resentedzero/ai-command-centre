@@ -67,7 +67,7 @@
  *        the budget.
  *      - `instructions`: the Run's bound Agent Definition (role, objective,
  *        instructions) when `runId` is given; `""` otherwise.
- *      - `constraints`: `UNTRUSTED_DATA_POLICY` when any untrusted artifact is
+ *      - `constraints`: `untrustedDataPolicy(tag)` when any untrusted artifact is
  *        packed; `""` otherwise (Task Definitions carry no success criteria).
  *      - `memory`: always `""` (Phase 18.1b — memory is a deliberately
  *        stubbed seam for MVP, not built).

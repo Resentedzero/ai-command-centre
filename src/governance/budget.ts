@@ -73,7 +73,8 @@ import type { CostClass } from "./costClass.js";
 import { DAILY_BUDGET_CEILINGS, dayScopeRef } from "./dailyBudgetPolicy.js";
 import { isResourceUnit, type ResourceUnit } from "./resourceUnit.js";
 
-export type BudgetScope = "run" | "task_instance"; // agent_definition/goal rollups deferred (Phase 18.1); day added Phase 8
+// `task_instance` has no production caller (only `run` is reserved; ROADMAP_STATUS §6); agent_definition/goal rollups deferred (Phase 18.1).
+export type BudgetScope = "run" | "task_instance";
 
 /** Every scope a reservation may hold a counter at. `day` is never requested by a caller directly. */
 type CounterScope = BudgetScope | "day";
