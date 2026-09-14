@@ -280,3 +280,16 @@ Measured WCAG ratios for every pixel text token against wood-dark, wood, parchme
 **Rule added to `visual-language.md`:** ink is the only text colour on parchment; state on parchment is marker plus ink word; translucent text must pass after blending; wood-edge is never text. Two stale lines were corrected at the same time: "parchment holds anything you read" (it contradicted the vellum rule) and "HUD panels stay sci-fi" (retired in D19).
 
 **Not audited:** the experiment trail on page `05`, and graphic-only markers. A marker's 2 px outline gives it its edge contrast.
+
+## Laptop sizes (2026-09-14)
+
+Built "@1440×900" and "@1280×800" variants of Overview (world-first) and Approvals (reading-first), measured them by script, then checked screenshots.
+
+**Found and fixed:**
+1. **Top bar overflow.** Its minimum width is 1471 px, so it didn't fit at 1440 or 1280. Hiding the title and keeping the crystal emblem brings it to 1223 px. Narrowing the 120 px tab slots through instance overrides didn't apply, and isn't needed.
+2. **Stop below the fold.** On the Overview board, Stop was the last item (bottom at 874 px), so a shorter screen cuts it first. It now sits directly under the agent heading at every size.
+3. **Board overflow on Overview @1440×900** (874 px of content in 844). The 4× portrait is dropped below 1080 px tall, since the room shows the sprite and the heading names the agent. Content is now 712 px and fits both 844 and 744.
+4. **Approvals reading area.** It became a vertical stack with wrapping rows. It first came out 926 px tall, because switching to auto-layout discarded the earlier resize; the size is now re-applied after the layout change.
+5. **Hash check below the fold at 1280×800.** "What it will act on" carries the hash check, the signal that approving will fail. It sat under the action bar. The request card now hugs its content (it had about 80 px of empty padding) and the stack gap is 16 px, so the hash row ends at 602 px of 604 and only the strip's bottom edge scrolls.
+
+**Rule recorded in `screens.md`:** world-first screens pan and narrow their board; reading-first screens stack and scroll with act-now controls pinned; the safety-relevant signal (Stop, hash match) stays above the fold. Below 1280 × 800 is not designed.

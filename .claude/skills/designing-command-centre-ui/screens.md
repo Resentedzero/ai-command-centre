@@ -31,6 +31,19 @@ A world share below 65% is intentional for screens where exact text is the job.
 
 State rules applied: unloaded or failed means no room is lit; zero counts and offline or connecting chips are neutral, never amber or green; a halted agent's status is a skeleton until the API returns it, never cyan "active" in an unlit room.
 
+**Laptop sizes** (measured on "@1440×900" and "@1280×800" variants of Overview and Approvals, on their `04` pages):
+- **Top bar:** its full minimum width is 1471 px. At 1440 px wide or less, hide the "Command Keep" title and keep the crystal emblem; that brings it to 1223 px. The seven 120 px tab slots stay.
+- **Overview:**
+  - The world viewport shrinks and pans the full keep (D16); the board is 400 px.
+  - Stop moves directly under the agent heading, so the safety control is never below the fold.
+  - Below 1080 px tall, drop the 4× portrait: the room already shows the sprite and the heading names the agent. The board content is then 712 px and fits both an 844 px and a 744 px board.
+- **Approvals** (reading-first):
+  - The queue narrows to 340 or 300 px.
+  - The reading area becomes a vertical stack with wrapping rows, so the request card drops under the vignette and still ends above the fold (578 px, within 704 / 604).
+  - Previews and the snapshot scroll inside the area.
+  - Approve and Reject stay pinned in the action bar at every size.
+- **Other screens** follow the same pattern: world-first screens pan and narrow their board; reading-first screens stack and scroll with their act-now controls pinned. Below 1280 × 800 is not designed.
+
 The frame names below are the pre-promotion names used on page 05:
 - **Overview:** "Overview A5 — pixel keep (cycle 5 cohesion fixes)". Earlier A–A4 frames are the review trail.
 - **Agents:** "Agents v2 — pixel (cycle 5 cohesion fixes)".
