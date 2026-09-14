@@ -14,8 +14,8 @@
 | One call can reconcile past its reservation and the Run's limit | §10.7 Pass 1 pessimistic estimate; Phase 4 hard ceiling | **Built, reviewed, withdrawn to a decision** (§4). A test now pins the current behaviour |
 | The Compiler never packs to the chosen model's window | §5.17, §10.7 Pass 2 | **Recorded**: needs verified per-model context windows (`ROADMAP_STATUS.md` §6) |
 | `retrieval` Invocations reserve no budget | Phase 4 "consulted for every Invocation" | **Recorded**: no plan emits one; either fix changes a contract |
-| The seed creates Definitions and Grants (including an `AUTONOMOUS` Grant) with no events | §8.2 note, §9.4 "logged human edit", §3e | **Next milestone** |
-| An SSE reconnect can skip an event that commits late | §15.3 | **Queued**: a sound fix changes the client's resume token (web contract) |
+| The seed creates Definitions and Grants (including an `AUTONOMOUS` Grant) with no events | §8.2 note, §9.4 "logged human edit", §3e | **Built** in a follow-up commit (§9) |
+| An SSE reconnect can skip an event that commits late | §15.3 | **Recorded** (`ROADMAP_STATUS.md` §5a): a sound fix changes the delivery design or the client's resume contract; the relay's false "next replay" comment is corrected |
 
 ## 2. The complete routing decision
 
@@ -74,3 +74,19 @@ Each mutant was applied, the named tests run, and the file restored byte-for-byt
 - Migration 0016 applied to the local database with `npm run db:migrate`.
 - `git diff --check`: clean.
 - Existing tests changed deliberately: the Router's exact `invocation_started` payload, four route-refusal assertions (`toEqual` to `toMatchObject` plus decision checks), and eleven committed-event cleanups routed through `deleteEventsForTest`. No test was removed.
+
+## 9. Follow-up: the seed goes through the Registry
+
+`seedResearchWorkflow` and `seedPublishWorkflow` inserted Capabilities, Tool Bindings, Agent / Task / Workflow Definitions and Capability Grants directly, so a seeded database's event log never showed the authorization every default Goal runs under, including the Researcher's `AUTONOMOUS` Grant. They now call `registryWrites.ts`'s create functions in the caller's transaction, in the order they already used (Grants before the Workflow that puts their Agent in use), with the V1 operator actor the Registry routes record. The seeded Goal emits `goal_created`, as `POST /goals` does. The seeded rows are unchanged (ids aside): versions (all 1), Grants, bindings and the graph; the duplicated `validateCapabilityGrant` pre-check is gone because the Registry runs it.
+
+Review (Opus): no correctness regression; every seeded column verified equal, callers unaffected (no test seeds twice in a database or asserts a no-Run event count). Fixed: the structural test now resolves import aliases and namespace imports and scans raw `INSERT INTO` SQL, with a probe test; stale "frozen" and "duplicate rows" comments in `runSeed.ts`/`lookupSeed.ts`. Residual: `npm run seed` holds the no-Run event lock while taking later per-name Registry locks, so a concurrent Registry write in the opposite order can deadlock; Postgres aborts one side (40P01) and nothing hangs.
+
+- `tests/definitions/seedEvents.test.ts`: a `definition_version_created` for each of the nine Definitions, Capabilities and Tool Bindings; `capability_granted` for both Grants with their autonomy states; `goal_created`; each Grant logged before the Workflow Definition; the seeded rows unchanged.
+- `tests/execution/structuralInvariants.test.ts`: in `src/`, only `definitions/registryWrites.ts` inserts into the Definition, Capability, Tool Binding and Grant tables.
+- Full suite after the change: 65 files, 783 passed, 2 skipped; `tsc` exit 0. No existing test needed a change: nothing asserted an empty log after seeding.
+
+| Mutant | Result |
+|---|---|
+| S1 the seeded Goal emits no `goal_created` | 1 fails |
+| S2 the seed inserts a Grant directly | 1 fails (structural test) |
+| S3 seeded facts attributed to `system` | 1 fails |

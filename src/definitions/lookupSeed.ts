@@ -3,7 +3,7 @@
  * this unit's API layer needs (workflow/task-definition/agent/capability/
  * tool-binding ids) by looking each up by its well-known, stable
  * name/logical-id, rather than depending on `seedPublishWorkflow`
- * (`./seed.js`, Units 8/9, frozen) to hand those ids back — a freshly
+ * (`./seed.js`) to hand those ids back — a freshly
  * started API process has no other way to learn the randomly-generated
  * UUIDs a prior `npm run seed` run assigned them.
  *

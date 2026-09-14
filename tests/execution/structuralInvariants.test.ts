@@ -128,6 +128,55 @@ describe("no tool side effect inside a transaction", () => {
   });
 });
 
+describe("Definitions, Tool Bindings, Capabilities and Grants are created only through the Registry (spec 3e, 8.2, 9.4)", () => {
+  // registryWrites.ts validates each write and emits definition_version_created or
+  // capability_granted in the same transaction. An insert anywhere else would create
+  // authorization or a Definition the event log never records. The seed uses the
+  // Registry too. Tests may insert fixtures directly; this checks src/ only.
+  // A tripwire: import aliases, namespace imports and raw INSERT SQL are resolved, but
+  // a table bound to a local variable first would pass.
+  const TABLES = new Set(["agentDefinitions", "capabilities", "capabilityGrants", "taskDefinitions", "toolBindings", "workflowDefinitions"]);
+  const RAW_INSERT = /insert\s+into\s+"?(agent_definitions|capabilities|capability_grants|task_definitions|tool_bindings|workflow_definitions)\b/i;
+
+  function insertsIntoRegistryTables(source: ts.SourceFile): boolean {
+    const named = new Map<string, string>();
+    const namespaces = new Set<string>();
+    for (const statement of source.statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || !/db\/schema\.js$/.test(statement.moduleSpecifier.text)) continue;
+      const bindings = statement.importClause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) named.set(element.name.text, (element.propertyName ?? element.name).text);
+      }
+    }
+    let found = false;
+    visit(source, (n) => {
+      if (ts.isCallExpression(n) && calleeName(n) === "insert" && n.arguments.length === 1) {
+        const arg = n.arguments[0]!;
+        if (ts.isIdentifier(arg) && TABLES.has(named.get(arg.text) ?? "")) found = true;
+        if (ts.isPropertyAccessExpression(arg) && ts.isIdentifier(arg.expression) && namespaces.has(arg.expression.text) && TABLES.has(arg.name.text)) found = true;
+      }
+      if ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateExpression(n)) && RAW_INSERT.test(n.getText())) found = true;
+    });
+    return found;
+  }
+
+  it("in src/, only definitions/registryWrites.ts inserts into those tables", () => {
+    const inserters = sourceFiles()
+      .filter((file) => insertsIntoRegistryTables(parse(file)))
+      .map(rel);
+    expect(inserters).toEqual(["definitions/registryWrites.ts"]);
+  });
+
+  it("the check sees through import aliases, namespace imports and raw SQL", () => {
+    const probe = (code: string) => insertsIntoRegistryTables(ts.createSourceFile("probe.ts", code, ts.ScriptTarget.Latest, true));
+    expect(probe(`import { capabilityGrants as g } from "../db/schema.js"; tx.insert(g);`)).toBe(true);
+    expect(probe(`import * as s from "../db/schema.js"; tx.insert(s.capabilityGrants);`)).toBe(true);
+    expect(probe("tx.execute(sql`INSERT INTO capability_grants (id) VALUES (1)`);")).toBe(true);
+    expect(probe(`import { runs } from "../db/schema.js"; tx.insert(runs);`)).toBe(false);
+  });
+});
+
 describe("core names no capability (spec 18.3)", () => {
   // Capability code and the seed are where capabilities and seeded Definitions
   // are named. Everything else — Interpreter, Executor, governance, routing,

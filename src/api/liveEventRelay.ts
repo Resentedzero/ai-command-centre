@@ -16,7 +16,10 @@
  * Correctness/ordering: publishing happens only after `db.transaction` has
  * resolved, so a subscriber never sees an event Postgres does not durably hold.
  * A failure in the relay itself is logged and swallowed — the mutation already
- * committed, and the events reach subscribers on their next SSE replay.
+ * committed. Postgres holds the events, but a connected subscriber may never see
+ * them: it reconnects from the highest cursor it received, which can already be
+ * past them. A page reload (cursor 0) or a projection query shows them
+ * (ROADMAP_STATUS §5a, the SSE cursor residual).
  *
  * ---------------------------------------------------------------------------
  * Why per-run watermarks (and why they cannot skip an event)
@@ -147,8 +150,8 @@ export function createWorkflowRelay(db: Database): WorkflowRelay {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(
-        "liveEventRelay: post-commit relay failed. The mutation itself committed; affected subscribers " +
-          "receive these events via Postgres replay on their next SSE reconnect.",
+        "liveEventRelay: post-commit relay failed. The mutation itself committed and its events are in Postgres, " +
+          "but open Activity feeds may not show them until reloaded.",
         err
       );
     }

@@ -60,5 +60,6 @@ None exist yet (`web/CLAUDE.md` only points at the Next.js version notes in
 `web/AGENTS.md`). Module contracts live in each source file's header comment.
 Architecture invariants that can be checked statically — no provider call or
 tool side effect inside a transaction, the single chokepoint, status changes
-recorded as events, core code naming no capability, `agent_performance` read
+recorded as events, core code naming no capability, Definitions and Grants
+inserted only by the Registry, `agent_performance` read
 only by its projector, read APIs and eligibility gate (imported only by the Router) — are enforced by `tests/execution/structuralInvariants.test.ts`.

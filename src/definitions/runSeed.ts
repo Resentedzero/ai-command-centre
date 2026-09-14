@@ -5,10 +5,10 @@
  * Mirrors `../db/migrate.ts`'s own script-entrypoint shape (plain top-level
  * `main().catch(...)`, `tsx`-run, never imported elsewhere).
  *
- * Idempotency: `seedPublishWorkflow`/`seedResearchWorkflow` (Units 8/9,
- * frozen — not modified here) have no "already exists" check of their own;
- * calling either twice would insert a second, duplicate set of rows. This
- * script adds that check itself, wrapping the call: before seeding, it looks
+ * Idempotency: `seedPublishWorkflow`/`seedResearchWorkflow` have no "already
+ * exists" check of their own; they create through the Registry, so calling
+ * either twice fails with a 409 `RegistryWriteError` (names and versions are
+ * unique). This script adds that check itself, wrapping the call: before seeding, it looks
  * up whether the "Research-and-Publish" Workflow Definition (a known, stable
  * name) already exists via `findSeededPublishWorkflow` (`./lookupSeed.js`) —
  * the SAME lookup the API routes use at request time to find the seeded ids.
