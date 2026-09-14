@@ -49,6 +49,18 @@ describe("createStandaloneTaskInstance", () => {
       expect(row?.taskDefinitionVersion).toBe(5);
       expect(row?.input).toEqual({ foo: "bar" });
       expect(row?.status).toBe("pending");
+
+      // Recorded like the workflow path's creation (spec §8.2 note).
+      const created = await tx.query.events.findFirst({
+        where: eq(schema.events.idempotencyKey, `task_instance_created:${taskInstanceId}`),
+      });
+      expect(created).toMatchObject({
+        eventType: "task_instance_created",
+        goalId: goal.id,
+        taskInstanceId,
+        workflowRunId: null,
+        payload: { taskDefinitionId: taskDefinition.id, taskDefinitionVersion: 5 },
+      });
     });
   });
 

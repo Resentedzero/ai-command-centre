@@ -90,6 +90,8 @@ type ActiveAgentRow = {
   runId: string;
   taskInstanceId: string;
   taskStatus: string;
+  taskDefinitionName: string | null;
+  goalTitle: string | null;
   latestActivitySummary: string | null;
 };
 
@@ -132,6 +134,9 @@ describe("GET /agents/active", () => {
     // this point Task B's run is bound to the Publisher agent.
     expect(entryB.agentDefinitionId).toBe(seedRefs.publisherAgentDefinitionId);
     expect(entryB.agentName).toBe("Publisher");
+    // Screen 1's "current Task Instance's mission" (spec §15.1).
+    expect(entryB.taskDefinitionName).toBe("Review-and-Publish");
+    expect(entryB.goalTitle).toBe("Active Agents Goal");
     expect(entryB.latestActivitySummary === null || typeof entryB.latestActivitySummary === "string").toBe(true);
   });
 

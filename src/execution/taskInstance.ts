@@ -8,7 +8,8 @@
  *
  * In production only the workflow path is used: no API route or driver
  * creates or executes standalone Task Instances. `createStandaloneTaskInstance`
- * is used by tests, and emits no `task_instance_created` event.
+ * is used by tests, and records `task_instance_created` in the caller's
+ * transaction, as the workflow path's caller does (spec §8.2 note).
  *
  * Neither the brief's `createStandaloneTaskInstance(tx, taskDefinitionId,
  * goalId, input)` signature nor `createWorkflowTaskInstance(tx,
@@ -34,6 +35,7 @@
 import { eq } from "drizzle-orm";
 import { goals, taskDefinitions, taskInstances, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
+import { emitLifecycleEvent, NO_CORRELATION } from "../events/lifecycle.js";
 
 async function resolveTaskDefinitionVersion(tx: DrizzleTransaction, taskDefinitionId: string): Promise<number> {
   const row = await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.id, taskDefinitionId) });
@@ -68,6 +70,14 @@ export async function createStandaloneTaskInstance(
       input,
     })
     .returning();
+
+  await emitLifecycleEvent(tx, {
+    eventType: "task_instance_created",
+    subjectId: row!.id,
+    correlation: { ...NO_CORRELATION, goalId, taskInstanceId: row!.id },
+    producer: "executor",
+    payload: { taskDefinitionId, taskDefinitionVersion },
+  });
 
   return { taskInstanceId: row!.id };
 }

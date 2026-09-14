@@ -121,10 +121,19 @@ Surfaced by an independent review (Fable, 2026-09-14):
 - **The Budget Governor's downgrade and degrade outcomes** (Phase 4: "authorized / authorized-at-downgraded-tier / denied / degrade"; §5.0 the Context Budget is "tightenable by the Budget Governor when funds are constrained"). The Governor only authorizes or denies. When to downgrade, to which tier, and how far to tighten a budget has no spec values and meets the no-fallback rule, so it is a decision, related to but not the same as "a preferred tier that cannot be authorized".
 - **Artifact bytes on the filesystem** (§12 "Postgres is never the storage location for every artifact regardless of size"; §13.3 relative paths under `ARTIFACT_ROOT`). Every stored result is inline JSON with no size bound. The mechanism waits with the threshold decision: built inert, it would also fix choices the spec leaves open (writing bytes before the recording COMMIT, and orphaned files when that transaction rolls back).
 - **Cache hit/miss per layer** (§5.16, Phase 20 #8): not measurable as providers report it (one cache read per call; no per-layer breakpoints). Per-call `cache_hit` is recorded.
+Surfaced by a second independent review (Fable: event catalogue, column write coverage, causation, screen data):
+- **Which events carry an agent `actor`** (§8.1 `actor (agent_definition_id@version | "human:<id>" | "system")`). Every Invocation, Run and Artifact event records `system`; nothing says which events are the agent's, and `src/events/types.ts` spells the form `agent:<id>@<version>`. Decide the events and the exact spelling.
+- **`causation_id` semantics** (§8.1 names the field; no section ties one event to another). Set only on quota telemetry, where a link is documented. Sequence order within a Run (current), or explicit links such as `run_halted` → `execution_stop_engaged`.
+- **Who writes `artifacts.summary`** (§5.5 reference mode is "ID + one-line summary + schema"). Always null, so reference mode falls back to inline content. A summary needs a model call or a truncation rule; neither is specified.
+- **`task_definitions.input_schema` / `output_schema`**: stored by the Registry, never validated; the spec names no validation point.
+- **Screen 1 "progress"** (§15.1): no metric is defined for an agent card.
+- **A Task Instance budget counter** (§18.1 "reserve/reconcile per Run/Task"): only `run` and `day` counters exist. It equals the Run counter while each Task has one Run (no retries), and its limit is a governance value.
+- Catalogue notes, no code: `task_instance_skipped` (§8.2, §3d) is not emitted and waits for branching (V3); `quota_guardrail_state_changed` is emitted but documented only in `SUBSCRIPTION_PROVIDER_DESIGN.md`. Fixed in this round: a standalone Task Instance now records `task_instance_created`; Active Agents entries carry the Task Definition name and Goal title.
 
 ## 7. Handoffs and operator actions
 
 UI workstream (APIs built, no UI):
+- Overview Active Agents (§15.1 screen 1 "one card per Agent Definition currently bound to a running Run"): `GET /agents/active` returns one entry per active Run, now with `taskDefinitionName` and `goalTitle` (the "mission"; add both to `AgentCardData` in `web/lib/api.ts`). Group entries by `agentDefinitionId` for one card per Agent Definition.
 - Registry screen against `GET /registry` and the six create routes plus revocation (`CAPABILITY_PLATFORM.md` §5).
 - Agent Detail: `web/lib/api.ts` still types `performance` as `null`; the API returns rows.
 - Cost dashboard against `GET /costs` (settle field names such as `agentVersion` when typing it).

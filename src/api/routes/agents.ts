@@ -78,6 +78,10 @@ export type ActiveAgentData = {
   runId: string;
   taskInstanceId: string;
   taskStatus: string;
+  /** Spec §15.1 screen 1 "current Task Instance's mission": the Task Definition's name and the Goal's title. */
+  taskDefinitionName: string | null;
+  /** Null for a standalone Task Instance, which has no Workflow Run to reach a Goal through. */
+  goalTitle: string | null;
   latestActivitySummary: string | null;
 };
 
@@ -337,6 +341,13 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       const agentDefinition = run.agentDefinitionId
         ? await deps.db.query.agentDefinitions.findFirst({ where: eq(agentDefinitions.id, run.agentDefinitionId) })
         : null;
+      const taskDefinition = taskInstance
+        ? await deps.db.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.id, taskInstance.taskDefinitionId) })
+        : undefined;
+      const workflowRun = taskInstance?.workflowRunId
+        ? await deps.db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, taskInstance.workflowRunId) })
+        : undefined;
+      const goal = workflowRun ? await deps.db.query.goals.findFirst({ where: eq(goals.id, workflowRun.goalId) }) : undefined;
       const latestActivitySummary = await latestActivitySummaryForRun(deps, run.id);
 
       agents.push({
@@ -345,6 +356,8 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
         runId: run.id,
         taskInstanceId: run.taskInstanceId,
         taskStatus: taskInstance?.status ?? "unknown",
+        taskDefinitionName: taskDefinition?.name ?? null,
+        goalTitle: goal?.title ?? null,
         latestActivitySummary,
       });
     }
