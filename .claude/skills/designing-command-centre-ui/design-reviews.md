@@ -246,3 +246,18 @@ Seven more states: Goals (no goals yet, start goal failed), Events (feed reconne
 - The "Start a goal" tab reading as a button: it is the shared tab style on every board.
 - Keeping typed values after a failed `createGoal`: the inputs are client state and the frame is a template.
 - "Produced by" on dark vellum and the lower panels cut off at the frame edge: both belong to the approved base Artifacts screen, not to its states. Revisit in implementation.
+
+## Registry and Cost in pixel, Artifacts cleanup (2026-09-14)
+
+Gated screens redrawn in D19 from real read models only. **Registry** (read-only armory): `AgentDetail.grants`, one key per grant, no autonomy or revoke controls. **Cost** (ledger): run budget counters per `resourceUnit` and per-agent `budgetTotals`, never summed, no scope totals. Neither has a top-bar slot; they are reached from Agents and Workflows. Artifacts base: the reading panels end above the notice strip, and "Produced by" became a short parchment card.
+
+**Critic scores:** Registry 6, Cost 4, Artifacts 6. **Verdict:** one more pass.
+
+**Accepted and applied:**
+1. **Light matches state.** The Registry room is the Researcher's workshop, and the roster says active, so its cyan light is restored.
+2. **Keys map to cards.** Keys carry tags 1 and 2, cards are titled "Key 1 · capability …", and the cards fill the column.
+3. **Skeletons are never bars.** Cost's empty gauge tracks are removed; a gauge appears only with loaded values.
+4. **Every pixel screen has a room.** Cost gets a small bevel-framed engine-room view: the forge burns fuel, which reads as consumption without claiming any value. The cards widen, and the footer states the gap plainly.
+5. **No dev notation.** "invocation (kind · #seq)" became "invocation".
+
+**Rejected:** putting Preview and Referenced-by on parchment. The rule is parchment for short summaries and dark wood for lists and long reading, so the short parchment "Produced by" card next to two wood panels is correct. The dead band under the Registry room comes from the approved Agents layout.
