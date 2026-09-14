@@ -21,7 +21,8 @@
  * stuck after Task A with no route able to progress it.
  */
 import type { FastifyInstance } from "fastify";
-import { goals } from "../../db/schema.js";
+import { inArray } from "drizzle-orm";
+import { goals, workflowRuns } from "../../db/schema.js";
 import type { ApiDeps } from "../server.js";
 import { startWorkflowRun } from "../../workflow/interpreter.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
@@ -32,7 +33,63 @@ import { emitLifecycleEvent, NO_CORRELATION } from "../../events/lifecycle.js";
 
 type CreateGoalBody = { title?: string; description?: string };
 
+/** Most recent Goals returned by `GET /goals`. Ample for a single operator; a paged listing can follow real volume. */
+const GOALS_LIST_LIMIT = 500;
+
 export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
+  /**
+   * `GET /goals` (2026-09-14) — spec §15.1 screen 5 (Goals & Projects): every
+   * Project with its Goals (newest first), each with its Workflow Runs.
+   * Read-only. Three queries grouped in memory rather than one per row.
+   */
+  app.get("/goals", async (_request, reply) => {
+    const projectRows = await deps.db.query.projects.findMany({ orderBy: (p, { asc }) => asc(p.name) });
+    const goalRows = await deps.db.query.goals.findMany({
+      orderBy: (g, { desc }) => desc(g.createdAt),
+      limit: GOALS_LIST_LIMIT,
+    });
+    const runRows =
+      goalRows.length > 0
+        ? await deps.db.query.workflowRuns.findMany({
+            where: inArray(
+              workflowRuns.goalId,
+              goalRows.map((g) => g.id)
+            ),
+            orderBy: (w, { desc }) => desc(w.createdAt),
+          })
+        : [];
+
+    const runsByGoal = new Map<string, { id: string; status: string; createdAt: Date; completedAt: Date | null }[]>();
+    for (const run of runRows) {
+      const list = runsByGoal.get(run.goalId) ?? [];
+      list.push({ id: run.id, status: run.status, createdAt: run.createdAt, completedAt: run.completedAt });
+      runsByGoal.set(run.goalId, list);
+    }
+
+    const goalsByProject = new Map<string, unknown[]>();
+    for (const goal of goalRows) {
+      const list = goalsByProject.get(goal.projectId) ?? [];
+      list.push({
+        id: goal.id,
+        title: goal.title,
+        description: goal.description,
+        status: goal.status,
+        createdAt: goal.createdAt,
+        workflowRuns: runsByGoal.get(goal.id) ?? [],
+      });
+      goalsByProject.set(goal.projectId, list);
+    }
+
+    return reply.send({
+      projects: projectRows.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        goals: goalsByProject.get(p.id) ?? [],
+      })),
+    });
+  });
+
   app.post<{ Body: CreateGoalBody }>("/goals", async (request, reply) => {
     const { title, description } = request.body ?? {};
     if (!title || typeof title !== "string") {

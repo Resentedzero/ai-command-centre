@@ -1,12 +1,12 @@
 # Phase 9 and follow-on hardening: Closure
 
 **Date:** 2026-09-14.
-**Status:** 12 local commits on `main` after `7648cc2`, none pushed.
+**Status:** local commits on `main` after `7648cc2`, none pushed. The table below lists them; later work appends rows.
 
-**Verification at `40c61d6`:**
+**Verification at `d2377dc`:**
 - backend `tsc --noEmit` clean;
-- backend vitest: 39 files, 619 passed, 2 skipped (both are the gated live-CLI smoke tests);
-- web `tsc` clean, web vitest 13 passed;
+- backend vitest: 39 files, 621 passed, 2 skipped (both are the gated live-CLI smoke tests);
+- web `tsc` clean, web vitest 17 passed;
 - `git diff --check` clean.
 
 No live Claude invocations were made. Every dispatch-capable test mocks all three provider adapters.
@@ -27,6 +27,8 @@ No live Claude invocations were made. Every dispatch-capable test mocks all thre
 | `ecefb93` | Failure text redacted in events; SSE replay paged and bounded; UI reconnect backoff |
 | `ca2d011` | Fixes from the adversarial review of the six commits above |
 | `40c61d6` | Approved content pinned by hash; approvals queue shows goal, action, agent and a content preview |
+| `9598cae` | This closure record |
+| `d2377dc` | Workflow/Task view (spec §15.1 screen 3): read API plus `/workflows` list and detail pages |
 
 The authoritative write-ups are:
 - `docs/architecture/DURABLE_EXECUTION.md`;

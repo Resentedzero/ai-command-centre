@@ -424,6 +424,25 @@ type WorkflowRunDetailBody = {
   }>;
 };
 
+describe("GET /goals (spec 15.1 screen 5)", () => {
+  it("groups goals under their project, each with its workflow runs", async () => {
+    const created = await createGoal("Goals-list Goal", "goals list report");
+
+    const res = await app.inject({ method: "GET", url: "/goals" });
+    expect(res.statusCode).toBe(200);
+    const { projects } = res.json() as {
+      projects: Array<{ id: string; goals: Array<{ id: string; title: string; workflowRuns: Array<{ id: string }> }> }>;
+    };
+
+    const goalRow = await testDb.query.goals.findFirst({ where: eq(schema.goals.id, created.goalId) });
+    const project = projects.find((p) => p.id === goalRow!.projectId);
+    expect(project).toBeDefined();
+    const goal = project!.goals.find((g) => g.id === created.goalId);
+    expect(goal).toMatchObject({ title: "Goals-list Goal" });
+    expect(goal!.workflowRuns.map((w) => w.id)).toEqual([created.workflowRunId]);
+  });
+});
+
 describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", () => {
   it("lists the run and details every step, Run, Invocation and per-unit budget counter", async () => {
     const created = await driveToTaskBAwaitingApproval("Workflow-view Goal", "workflow view report");

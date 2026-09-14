@@ -1402,7 +1402,14 @@ provenance chains visible (Phase 5.13/7).
 >     counters per unit, exact amounts, never summed across units.
 >   - **Graph library:** none. The interpreter supports linear graphs only, so
 >     steps render as an ordered list; a library is warranted once branching exists.
-> - **Not built:** screens 2 (Agent Detail), 5, 6, 7 and 8.
+> - **Screen 5 (Goals & Projects), built.**
+>   - **API:** `GET /goals` groups Goals under their Project, with each Goal's
+>     Workflow Runs.
+>   - **UI:** `/goals` lists them and starts a new Goal through the existing
+>     `POST /goals` command (§15.2).
+>   - **Cost of starting a Goal:** its workflow runs synchronously, so it can take
+>     minutes and uses subscription quota. The form says so.
+> - **Not built:** screens 2 (Agent Detail), 6, 7 and 8.
 
 ### 15.2 UI commands vs. Invocations — not the same model
 

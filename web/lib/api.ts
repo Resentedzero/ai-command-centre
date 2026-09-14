@@ -223,6 +223,43 @@ export async function getWorkflowRun(id: string): Promise<WorkflowRunDetail> {
 }
 
 // ---------------------------------------------------------------------------
+// Goals & Projects (spec 15.1 screen 5)
+// ---------------------------------------------------------------------------
+
+export type GoalWorkflowRun = { id: string; status: string; createdAt: string; completedAt: string | null };
+
+export type GoalSummary = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  createdAt: string;
+  workflowRuns: GoalWorkflowRun[];
+};
+
+export type ProjectGoals = { id: string; name: string; description: string | null; goals: GoalSummary[] };
+
+export async function listGoals(): Promise<ProjectGoals[]> {
+  const data = await apiFetch<{ projects: ProjectGoals[] }>("/goals");
+  return data.projects;
+}
+
+/**
+ * Starts REAL work: the API creates the Goal and drives its Workflow Run
+ * synchronously, which can take minutes and consumes subscription quota. No
+ * client-side policy logic — governance runs server-side as for any request.
+ */
+export async function createGoal(
+  title: string,
+  description?: string
+): Promise<{ goalId: string; workflowRunId: string; status: string }> {
+  return apiFetch("/goals", {
+    method: "POST",
+    body: JSON.stringify({ title, ...(description ? { description } : {}) }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // subscribeToActivity (Ruling 5)
 // ---------------------------------------------------------------------------
 
