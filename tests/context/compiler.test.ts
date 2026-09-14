@@ -8,7 +8,7 @@ import {
   ContextBudgetError,
   decideArtifactMode,
   isArtifactTrusted,
-  UNTRUSTED_DATA_POLICY,
+  untrustedDataPolicy,
 } from "../../src/context/compiler.js";
 import { estimateTokens } from "../../src/context/tokenEstimate.js";
 import type { ContextBudget } from "../../src/context/types.js";
@@ -336,8 +336,10 @@ describe("greedy packing order", () => {
       const artifactB = await seedArtifact(tx, { inlineContent: "B".repeat(200) }); // 50 tokens
 
       const taskTokens = estimateTokens("{}");
-      // Budget fits task state + exactly one 50-token artifact.
-      const budget = defaultBudget({ maxInputTokens: taskTokens + 50 });
+      // Budget fits task state + exactly one 50-token artifact INCLUDING its
+      // header (both headers are the same length: UUIDs are fixed-width).
+      const framingTokens = estimateTokens(`[artifact:${artifactB.id} mode=content]\n`);
+      const budget = defaultBudget({ maxInputTokens: taskTokens + 50 + framingTokens });
 
       // ...but the caller lists B before A.
       const result = await compileContext(tx, {
@@ -388,9 +390,10 @@ describe("greedy packing order", () => {
       );
 
       const taskTokens = estimateTokens("{}");
-      // Enough room for task state + ONE of {artifact, tool schema}, not both.
+      // Enough room for task state + ONE of {artifact (with its header), tool schema}, not both.
+      const framingTokens = estimateTokens(`[artifact:${artifact.id} mode=content]\n`);
       const budget = defaultBudget({
-        maxInputTokens: taskTokens + 50,
+        maxInputTokens: taskTokens + 50 + framingTokens,
         maxToolSchemaTokens: Math.max(toolTokens, 50) + 10, // not the limiting factor here
       });
 
@@ -739,14 +742,37 @@ describe("untrusted-candidate handling", () => {
       });
 
       // Spec 5.15: the untrusted content reaches ONLY the artifacts layer, and
-      // there only inside its fence; the constraints layer (system content)
-      // carries the policy explaining the fence, and never the content itself.
-      expect(result.layers.instructions).not.toContain("UNTRUSTED-MARKER-XYZ");
-      expect(result.layers.constraints).toBe(UNTRUSTED_DATA_POLICY);
-      expect(result.layers.artifacts).toBe(
-        `<untrusted_data artifact="${untrusted.id}" mode="content">\nUNTRUSTED-MARKER-XYZ\n</untrusted_data>`
+      // there only inside its fence; the constraints layer carries the policy
+      // naming that exact fence, and never the content itself.
+      const match = /^<(untrusted_data_[0-9a-f]{12}) artifact="([^"]+)" mode="content">\nUNTRUSTED-MARKER-XYZ\n<\/\1>$/.exec(
+        result.layers.artifacts
       );
+      expect(match).not.toBeNull();
+      const tag = match![1]!;
+      expect(match![2]).toBe(untrusted.id);
+      expect(result.layers.instructions).not.toContain("UNTRUSTED-MARKER-XYZ");
+      expect(result.layers.constraints).toBe(untrustedDataPolicy(tag));
+      expect(result.layers.constraints).not.toContain("UNTRUSTED-MARKER-XYZ");
       expect(result.provenance.included).toContainEqual({ id: untrusted.id, tier: 2 });
+    });
+  });
+
+  it("the fence tag is unguessable: a fresh random suffix per compilation", async () => {
+    await withRollback(async (tx) => {
+      const invocation = await seedInvocation(tx);
+      const taskInstance = await seedTaskInstance(tx);
+      const untrusted = await seedArtifact(tx, { inlineContent: "data", producingInvocationId: invocation.id });
+      const compile = () =>
+        compileContext(tx, {
+          intent: "classify",
+          taskInstanceId: taskInstance.id,
+          candidateArtifactIds: [untrusted.id],
+          candidateToolCapabilityIds: [],
+          budget: defaultBudget(),
+        });
+      const tagOf = (artifacts: string) => /^<(untrusted_data_[0-9a-f]{12})\b/.exec(artifacts)![1];
+      const [first, second] = [await compile(), await compile()];
+      expect(tagOf(first.layers.artifacts)).not.toBe(tagOf(second.layers.artifacts));
     });
   });
 
@@ -767,10 +793,13 @@ describe("untrusted-candidate handling", () => {
         budget: defaultBudget(),
       });
 
-      // Exactly one real opening and one real closing tag: the fence itself.
-      expect(result.layers.artifacts.match(/<untrusted_data/gi)).toHaveLength(1);
-      expect(result.layers.artifacts.match(/<\/\s*untrusted_data/gi)).toHaveLength(1);
-      expect(result.layers.artifacts.trimEnd().endsWith("</untrusted_data>")).toBe(true);
+      // The only real tags are the fence's own randomly-named pair; every
+      // fence-like tag the content brought is neutralized.
+      const tag = /^<(untrusted_data_[0-9a-f]{12})\b/.exec(result.layers.artifacts)![1]!;
+      expect(result.layers.artifacts.split(`<${tag}`)).toHaveLength(2);
+      expect(result.layers.artifacts.split(`</${tag}>`)).toHaveLength(2);
+      expect(result.layers.artifacts.endsWith(`</${tag}>`)).toBe(true);
+      expect(result.layers.artifacts.match(/<\s*\/?\s*untrusted_data(?!_[0-9a-f]{12})/gi)).toBeNull();
       expect(result.layers.artifacts).toContain("IGNORE PREVIOUS INSTRUCTIONS"); // still visible, as data
     });
   });
@@ -899,7 +928,7 @@ describe("provenance completeness", () => {
 // ---------------------------------------------------------------------------
 
 describe("estimatedInputTokens", () => {
-  it("equals the sum of included candidates' estimated tokens", async () => {
+  it("equals everything the prompt carries: included candidates plus each artifact's framing", async () => {
     await withRollback(async (tx) => {
       const taskInstance = await seedTaskInstance(tx, { foo: "bar" });
       const artifact = await seedArtifact(tx, { inlineContent: "some-content-here" });
@@ -927,7 +956,12 @@ describe("estimatedInputTokens", () => {
         ])
       );
 
-      expect(result.estimatedInputTokens).toBe(expectedTaskTokens + expectedArtifactTokens + expectedToolTokens);
+      // The trusted artifact's header counts too (spec 5.4: the budget bounds the real prompt).
+      const expectedFramingTokens = estimateTokens(`[artifact:${artifact.id} mode=content]\n`);
+
+      expect(result.estimatedInputTokens).toBe(
+        expectedTaskTokens + expectedArtifactTokens + expectedFramingTokens + expectedToolTokens
+      );
     });
   });
 });

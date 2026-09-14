@@ -26,3 +26,11 @@ type TransactionSource = { transaction: <T>(fn: (tx: DrizzleTransaction) => Prom
 export function transactionRunner(source: TransactionSource): TransactionRunner {
   return (fn) => source.transaction(fn);
 }
+
+/**
+ * Supplies the runner to use for work on ONE Workflow Run. Background drivers
+ * (the startup re-drive, the approval TTL sweep) take this so production can
+ * hand them a runner that relays each commit's events to live subscribers
+ * (`createWorkflowRelay`), exactly as request-driven work does.
+ */
+export type WorkflowRunnerFactory = (workflowRunId: string) => Promise<TransactionRunner>;

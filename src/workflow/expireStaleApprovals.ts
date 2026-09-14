@@ -14,6 +14,10 @@
  * Without step 2 the hold would stay reserved and the Workflow Run would sit
  * `in_progress` until some unrelated request happened to touch it.
  *
+ * Both steps run on the runner `runnerFor` supplies for that Workflow Run, so
+ * in production (`src/api/start.ts`) the expiry and its consequences reach live
+ * subscribers as they commit, like any request-driven change.
+ *
  * Refusal of a late human decision is NOT this sweep's job: `resolveApproval`'s
  * conditional UPDATE already refuses any past-TTL Approval, and
  * `GET /approvals` already hides one. The sweep makes the expiry a recorded
@@ -26,7 +30,7 @@
  */
 import { and, eq, isNotNull, lt } from "drizzle-orm";
 import { approvals, invocations, runs, taskInstances } from "../db/schema.js";
-import type { TransactionRunner } from "../db/transactionRunner.js";
+import type { TransactionRunner, WorkflowRunnerFactory } from "../db/transactionRunner.js";
 import { expirePendingApproval } from "../governance/approvals.js";
 import { advanceWorkflowRunUntilBlocked, type InvocationSpecBuilderFactory } from "./advanceWorkflowRunUntilBlocked.js";
 
@@ -40,33 +44,28 @@ export type ApprovalExpiryReport = {
 export async function expireStaleApprovals(
   runInTx: TransactionRunner,
   makeBuilder: InvocationSpecBuilderFactory,
-  now: Date = new Date()
+  now: Date = new Date(),
+  runnerFor: WorkflowRunnerFactory = async () => runInTx
 ): Promise<ApprovalExpiryReport> {
   const stale = await runInTx((tx) =>
     tx
-      .select({ id: approvals.id })
+      .select({ id: approvals.id, workflowRunId: taskInstances.workflowRunId })
       .from(approvals)
+      .innerJoin(invocations, eq(approvals.invocationId, invocations.id))
+      .innerJoin(runs, eq(invocations.runId, runs.id))
+      .innerJoin(taskInstances, eq(runs.taskInstanceId, taskInstances.id))
       .where(and(eq(approvals.status, "pending"), isNotNull(approvals.ttl), lt(approvals.ttl, now)))
   );
 
   const report: ApprovalExpiryReport = { expired: [], failed: [] };
-  for (const { id } of stale) {
+  for (const { id, workflowRunId } of stale) {
     try {
-      const workflowRunId = await runInTx(async (tx) => {
-        if (!(await expirePendingApproval(tx, id, APPROVAL_TTL_ACTOR))) return undefined;
-        const [row] = await tx
-          .select({ workflowRunId: taskInstances.workflowRunId })
-          .from(approvals)
-          .innerJoin(invocations, eq(approvals.invocationId, invocations.id))
-          .innerJoin(runs, eq(invocations.runId, runs.id))
-          .innerJoin(taskInstances, eq(runs.taskInstanceId, taskInstances.id))
-          .where(eq(approvals.id, id));
-        return row?.workflowRunId ?? null;
-      });
-      if (workflowRunId === undefined) continue; // resolved concurrently — nothing to do
+      const runner = workflowRunId ? await runnerFor(workflowRunId) : runInTx;
+      const expired = await runner((tx) => expirePendingApproval(tx, id, APPROVAL_TTL_ACTOR));
+      if (!expired) continue; // resolved concurrently — nothing to do
       report.expired.push(id);
       if (workflowRunId) {
-        await advanceWorkflowRunUntilBlocked(runInTx, workflowRunId, makeBuilder);
+        await advanceWorkflowRunUntilBlocked(runner, workflowRunId, makeBuilder);
       }
     } catch (error) {
       report.failed.push({ approvalId: id, error: error instanceof Error ? error.message : String(error) });

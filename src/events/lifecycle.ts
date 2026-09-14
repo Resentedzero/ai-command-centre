@@ -12,8 +12,11 @@
  * to the step's RUN, so they share that Run's per-run `sequence_no` and take
  * only that Run's event advisory lock — not the global null-run bucket, which
  * would add a lock shared across every Run to transactions already holding
- * per-run locks. Only `goal_created` and `workflow_run_started`, which precede
- * any Run, use the null-run sequence.
+ * per-run locks. Of the events in this module, only `goal_created` and
+ * `workflow_run_started` (which precede any Run) use the null-run sequence in
+ * practice; `budget_consumed` falls back to it only for a reservation with no
+ * run hold, which no current caller makes. Elsewhere, `capability_grant_revoked`
+ * and the emergency-stop events use it by design.
  *
  * Idempotency keys are `<eventType>:<subjectId>` for events that can happen
  * once per subject. `task_instance_transitioned` can recur (e.g. active ->

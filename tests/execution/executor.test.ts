@@ -474,6 +474,11 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
       const granted = runEvents.find((e) => e.eventType === "approval_granted");
       expect(granted!.runId).toBe(runId);
       expect(granted!.actor).toBe("human:reviewer");
+
+      // A tool reports no cost, so its consumption is recorded as the estimate
+      // it is — never as a measured amount (spec 8.5 basis).
+      const consumed = runEvents.find((e) => e.eventType === "budget_consumed");
+      expect(consumed!.payload).toMatchObject({ basis: "estimate", resourceUnit: "usd" });
     });
   });
 
@@ -590,12 +595,15 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
       expect(invocation?.toolBindingId).toBe(toolBindingId);
       const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
 
-      // Drift while pending: the binding is downgraded AND the Grant's bar raised.
-      await tx.update(schema.toolBindings).set({ trustLevel: 0 }).where(eq(schema.toolBindings.id, toolBindingId));
+      // Drift while pending, of the BINDING ALONE: the Grant's bar stays at the
+      // fixture's 1 while the persisted binding drops to 0. A second, untouched
+      // high-trust binding for the same capability is a decoy: if trust were
+      // resolved from "some binding of this capability" rather than the one
+      // persisted on the Invocation, the decoy would let this through.
       await tx
-        .update(schema.capabilityGrants)
-        .set({ maxTrustLevelRequired: 99 })
-        .where(eq(schema.capabilityGrants.capabilityId, capabilityId));
+        .insert(schema.toolBindings)
+        .values({ capabilityId, kind: "internal", config: {}, trustLevel: 2, version: 2 });
+      await tx.update(schema.toolBindings).set({ trustLevel: 0 }).where(eq(schema.toolBindings.id, toolBindingId));
       await resolveApproval(tx, approval!.id, "approved", "reviewer");
 
       expect(await executeRun(tx, runId, [spec])).toEqual({ status: "failed", runId });
@@ -610,6 +618,48 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
       });
       expect(Number(counter!.reservedAmount)).toBe(0);
       expect(Number(counter!.consumedAmount)).toBe(0);
+    });
+  });
+
+  it("a Grant whose trust bar is raised above the unchanged binding while its Approval is pending never executes after approval", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+      expect(await executeRun(tx, runId, [spec])).toEqual({ status: "awaiting_approval", runId });
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+
+      // Drift of the GRANT ALONE: the binding keeps its trust of 2.
+      await tx
+        .update(schema.capabilityGrants)
+        .set({ maxTrustLevelRequired: 3 })
+        .where(eq(schema.capabilityGrants.capabilityId, capabilityId));
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+      expect(await executeRun(tx, runId, [spec])).toEqual({ status: "failed", runId });
+      expect(spec.execute).not.toHaveBeenCalled();
+      const failed = await tx.query.events.findFirst({
+        where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_failed")),
+      });
+      expect(failed?.payload).toMatchObject({ reason: "reauthorization_policy_denied" });
+    });
+  });
+
+  it("control: with no trust drift, the same approve-then-resume executes", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "ALWAYS_APPROVE",
+      });
+      const spec = buildToolSpec({ capabilityId, toolBindingId, permission });
+      expect(await executeRun(tx, runId, [spec])).toEqual({ status: "awaiting_approval", runId });
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+      expect(await executeRun(tx, runId, [spec])).toEqual({ status: "completed", runId });
+      expect(spec.execute).toHaveBeenCalledTimes(1);
     });
   });
 

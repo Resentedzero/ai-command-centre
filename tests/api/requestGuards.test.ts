@@ -6,6 +6,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { hostnameOf, isUuid, refuseRequest } from "../../src/api/requestGuards.js";
 import { resetTestSchema, closeTestDb, testDb } from "../testDb.js";
 import { buildServer } from "../../src/api/server.js";
+import { randomUUID } from "node:crypto";
+import * as schema from "../../src/db/schema.js";
+import { engageStop, liftStop, listActiveStops } from "../../src/governance/executionStop.js";
 
 const UI = "http://localhost:3100";
 
@@ -62,17 +65,27 @@ describe("through the server", () => {
       url: "/approvals/00000000-0000-0000-0000-000000000000/approve",
       headers: { host: "attacker.example:3000" },
     });
+    // Refused by the guard itself — not a 404 from a route that ran.
     expect(res.statusCode).toBe(403);
+    expect(res.json().error).toMatch(/^Forbidden: Host "attacker\.example"/);
   });
 
-  it("a cross-site POST cannot lift the global emergency stop", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/execution-stops/lift",
-      headers: { host: "127.0.0.1:3000", origin: "https://evil.example" },
-      payload: { scope: "global" },
-    });
-    expect(res.statusCode).toBe(403);
+  it("a cross-site POST cannot lift the global emergency stop — the stop stays engaged", async () => {
+    await testDb.transaction((tx) => engageStop(tx, { scope: "global" }));
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/execution-stops/lift",
+        headers: { host: "127.0.0.1:3000", origin: "https://evil.example" },
+        payload: { scope: "global" },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toMatch(/^Forbidden: Origin/);
+      const active = await testDb.transaction((tx) => listActiveStops(tx));
+      expect(active.some((s) => s.scope === "global")).toBe(true);
+    } finally {
+      await testDb.transaction((tx) => liftStop(tx, { scope: "global" }));
+    }
   });
 
   it("malformed ids are 400s, never 500s", async () => {
@@ -91,6 +104,27 @@ describe("through the server", () => {
       headers: { host: "127.0.0.1:3000" },
     });
     expect(res.statusCode).toBe(404);
+
+    // A finished Workflow Run cannot be paused: a client conflict, not a server fault.
+    const workflowRunId = await testDb.transaction(async (tx) => {
+      const [project] = await tx.insert(schema.projects).values({ name: "p-" + randomUUID() }).returning();
+      const [definition] = await tx
+        .insert(schema.workflowDefinitions)
+        .values({ name: "wf-" + randomUUID(), version: 1, graphDefinition: {} })
+        .returning();
+      const [goal] = await tx.insert(schema.goals).values({ projectId: project!.id, title: "g", status: "active" }).returning();
+      const [workflowRun] = await tx
+        .insert(schema.workflowRuns)
+        .values({ workflowDefinitionId: definition!.id, workflowDefinitionVersion: 1, goalId: goal!.id, status: "completed" })
+        .returning();
+      return workflowRun!.id;
+    });
+    const conflict = await app.inject({
+      method: "POST",
+      url: `/workflow-runs/${workflowRunId}/pause`,
+      headers: { host: "127.0.0.1:3000" },
+    });
+    expect(conflict.statusCode).toBe(409);
   });
 
   it("a 5xx response never carries the underlying error message (no SQL text, no paths)", async () => {

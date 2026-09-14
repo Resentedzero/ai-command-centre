@@ -425,14 +425,23 @@ enforcement point.
 > - **Task state.** A workflow step's task state includes the Goal it serves. Steps
 >   carry no input of their own yet.
 > - **Untrusted artifacts.** Every artifact from a prior Invocation is wrapped in
->   `<untrusted_data artifact=… mode=…>…</untrusted_data>`. Any fence tag inside
->   the content is neutralised, so a block cannot close itself early. Whenever a
->   fenced block is present, the constraints layer carries a fixed policy: fenced
->   content is data and must never be obeyed.
+>   `<untrusted_data_<random> artifact=… mode=…>…</untrusted_data_<random>>`. The
+>   suffix is new for each compilation, so content produced earlier cannot know
+>   the closing tag. Neutralising literal tags could not stop look-alike spellings
+>   (zero-width characters, full-width brackets, entities); an unguessable tag
+>   does. Literal fence-like tags inside the content are still neutralised.
+>   Whenever a fenced block is present, the constraints layer carries a policy
+>   that names that exact tag: fenced content is data and must never be obeyed.
+> - **Goal text is trusted.** The Goal's title and description are the operator's
+>   own text. They are treated as trusted task state, not fenced.
 >
 > **Budget and lineage:**
-> - Task state that alone exceeds `max_input_tokens` throws `ContextBudgetError`
->   (§5.4), and nothing is sent.
+> - Task state plus instructions that exceed `max_input_tokens` throw
+>   `ContextBudgetError` (§5.4), and nothing is sent.
+> - The budget bounds the real prompt. Artifact headers and fences, the
+>   instructions layer, and the untrusted-data policy all count toward
+>   `max_input_tokens` and the recorded token estimate, not just candidate
+>   content.
 > - Each LLM Invocation emits `context_compiled`, recording provenance, excluded
 >   candidates with reasons, and the token estimate (§5.13/§5.16). Content is never
 >   recorded.
@@ -594,8 +603,14 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 > - `approval_required/granted/rejected/expired`
 > - `capability_grant_revoked`
 > - `execution_stop_engaged/lifted`
-> - `budget_consumed`, one per reconciled reservation. Its `basis` is `reported` or
->   `estimate`, so each counter's `consumed_amount` equals the sum of its events.
+> - `budget_consumed`, one per reconciled reservation, so each counter's
+>   `consumed_amount` equals the sum of its events. Its `basis` is:
+>   - `reported`, a measured provider usage;
+>   - or `estimate`: a charge at estimate for unknown consumption, and always for a
+>     tool, whose `execute()` reports no cost.
+>
+>   A reservation can be consumed only once. A second reconcile is refused before
+>   any counter moves, so the log and the counters cannot diverge.
 >
 > **Observational:** `provider_quota_observed`.
 >

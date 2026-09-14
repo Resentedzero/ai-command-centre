@@ -19,6 +19,7 @@ vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeS
 
 import { advanceWorkflowRun, startWorkflowRun } from "../../src/workflow/interpreter.js";
 import { chargeReservationAtEstimate, reconcileBudget, releaseReservation, reserveBudget } from "../../src/governance/budget.js";
+import { dayScopeRef } from "../../src/governance/dailyBudgetPolicy.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -147,6 +148,79 @@ describe("budget counters are reconstructible from budget_consumed events", () =
       const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
       expect(fromEvents).toBe(Number(counter!.consumedAmount));
       expect(fromEvents).toBe(1_140);
+      expect(Number(counter!.reservedAmount)).toBe(0);
+    });
+  });
+
+  it("a multi-hold reservation (run + day) is ONE event naming both counters, and each counter still sums from the log", async () => {
+    await withRollback(async (tx) => {
+      const runId = randomUUID();
+      const now = new Date("2026-09-14T12:00:00Z");
+      const dayRef = dayScopeRef(now);
+      await tx.insert(schema.budgetCounters).values({
+        scope: "run",
+        scopeRefId: runId,
+        resourceUnit: "subscription_tokens",
+        limitAmount: "100000",
+        reservedAmount: "0",
+        consumedAmount: "0",
+      });
+      const options = { dailyCeilings: { subscription_tokens: "500000" }, now };
+      const r = await reserveBudget(tx, "run", runId, "llm", "subscription_tokens", 800, options);
+      if (!r.authorized) throw new Error("unexpected refusal");
+      await reconcileBudget(tx, r.reservationId, 300);
+
+      const consumed = await tx
+        .select()
+        .from(schema.events)
+        .where(and(eq(schema.events.runId, runId), eq(schema.events.eventType, "budget_consumed")));
+      expect(consumed).toHaveLength(1);
+      const holds = (consumed[0]!.payload as { holds: { scope: string; scopeRefId: string }[] }).holds;
+      expect(holds).toEqual([
+        { scope: "day", scopeRefId: dayRef },
+        { scope: "run", scopeRefId: runId },
+      ]);
+
+      const sumFor = (scope: string, scopeRefId: string) =>
+        consumed
+          .filter((e) => (e.payload as { holds: { scope: string; scopeRefId: string }[] }).holds.some((h) => h.scope === scope && h.scopeRefId === scopeRefId))
+          .reduce((s, e) => s + Number((e.payload as { amount: string }).amount), 0);
+      for (const [scope, scopeRefId] of [
+        ["run", runId],
+        ["day", dayRef],
+      ] as const) {
+        const counter = await tx.query.budgetCounters.findFirst({
+          where: and(
+            eq(schema.budgetCounters.scope, scope),
+            eq(schema.budgetCounters.scopeRefId, scopeRefId),
+            eq(schema.budgetCounters.resourceUnit, "subscription_tokens")
+          ),
+        });
+        expect(sumFor(scope, scopeRefId), scope).toBe(Number(counter!.consumedAmount));
+      }
+    });
+  });
+
+  it("a reservation cannot be consumed twice: the second attempt is refused before any counter moves", async () => {
+    await withRollback(async (tx) => {
+      const runId = randomUUID();
+      await tx.insert(schema.budgetCounters).values({
+        scope: "run",
+        scopeRefId: runId,
+        resourceUnit: "subscription_tokens",
+        limitAmount: "100000",
+        reservedAmount: "0",
+        consumedAmount: "0",
+      });
+      const r = await reserveBudget(tx, "run", runId, "llm", "subscription_tokens", 1_000);
+      if (!r.authorized) throw new Error("unexpected refusal");
+      await reconcileBudget(tx, r.reservationId, 400);
+
+      await expect(chargeReservationAtEstimate(tx, r.reservationId)).rejects.toThrow(/already consumed/);
+      await expect(reconcileBudget(tx, r.reservationId, 400)).rejects.toThrow(/already consumed/);
+
+      const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, runId) });
+      expect(Number(counter!.consumedAmount)).toBe(400);
       expect(Number(counter!.reservedAmount)).toBe(0);
     });
   });

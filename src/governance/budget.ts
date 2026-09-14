@@ -66,7 +66,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
-import { budgetCounters } from "../db/schema.js";
+import { budgetCounters, events } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { correlationForRun, emitLifecycleEvent, NO_CORRELATION } from "../events/lifecycle.js";
 import type { CostClass } from "./costClass.js";
@@ -395,10 +395,17 @@ async function lockHeldCounters(tx: DrizzleTransaction, operation: string, reser
 export async function reconcileBudget(
   tx: DrizzleTransaction,
   reservationId: string,
-  actualAmount: number
+  actualAmount: number,
+  /**
+   * `reported`: an amount something measured (a provider's usage report).
+   * `estimate`: the caller's own estimate standing in for a measurement it
+   * cannot make (e.g. a tool whose `execute()` reports no cost). Recorded on
+   * the `budget_consumed` event so measured and estimated spend stay separable.
+   */
+  basis: "reported" | "estimate" = "reported"
 ): Promise<void> {
   const reservation = decodeReservationId(reservationId);
-  await reconcileDecoded(tx, "reconcileBudget", reservation, String(actualAmount), "reported");
+  await reconcileDecoded(tx, "reconcileBudget", reservation, String(actualAmount), basis);
 }
 
 /**
@@ -433,6 +440,22 @@ async function reconcileDecoded(
   actualAmount: string,
   basis: "reported" | "estimate"
 ): Promise<void> {
+  // A reservation is consumed at most once. The counter update below is not
+  // idempotent but the event is (keyed by the reservation's nonce), so a second
+  // reconcile would move the counters again while the log still showed one
+  // consumption — silently breaking "consumed = sum of budget_consumed". No
+  // current path can reconcile twice (every settle is gated on Invocation
+  // status under row locks); this makes a future mistake loud instead of silent.
+  const alreadyConsumed = await tx.query.events.findFirst({
+    where: eq(events.idempotencyKey, `budget_consumed:${reservation.nonce}`),
+  });
+  if (alreadyConsumed) {
+    throw new Error(
+      `${operation}: this reservation was already consumed (budget_consumed event "${alreadyConsumed.id}"); ` +
+        "refusing to move the counters a second time."
+    );
+  }
+
   const rows = await lockHeldCounters(tx, operation, reservation);
 
   for (const row of rows) {

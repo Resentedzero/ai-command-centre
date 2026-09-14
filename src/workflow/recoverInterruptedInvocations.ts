@@ -44,7 +44,7 @@
  */
 import { eq } from "drizzle-orm";
 import { invocations, runs, taskInstances, workflowRuns } from "../db/schema.js";
-import type { TransactionRunner } from "../db/transactionRunner.js";
+import type { TransactionRunner, WorkflowRunnerFactory } from "../db/transactionRunner.js";
 import { failInterruptedInvocation, isDispatchInFlight } from "../execution/executor.js";
 import { settleWorkflowStepForFailedRun } from "./interpreter.js";
 import { advanceWorkflowRunUntilBlocked, type InvocationSpecBuilderFactory } from "./advanceWorkflowRunUntilBlocked.js";
@@ -85,7 +85,10 @@ export async function recoverInterruptedInvocations(runInTx: TransactionRunner):
 
 export async function redriveInProgressWorkflowRuns(
   runInTx: TransactionRunner,
-  makeBuilder: InvocationSpecBuilderFactory
+  makeBuilder: InvocationSpecBuilderFactory,
+  // Production passes a relaying runner per Workflow Run (see src/api/start.ts),
+  // so re-driven work reaches live subscribers as it commits.
+  runnerFor: WorkflowRunnerFactory = async () => runInTx
 ): Promise<{ redriven: { workflowRunId: string; status: string }[]; failed: { workflowRunId: string; error: string }[] }> {
   const inProgress = await runInTx((tx) =>
     tx.select({ id: workflowRuns.id }).from(workflowRuns).where(eq(workflowRuns.status, "in_progress"))
@@ -94,7 +97,7 @@ export async function redriveInProgressWorkflowRuns(
   const report = { redriven: [] as { workflowRunId: string; status: string }[], failed: [] as { workflowRunId: string; error: string }[] };
   for (const { id } of inProgress) {
     try {
-      const result = await advanceWorkflowRunUntilBlocked(runInTx, id, makeBuilder);
+      const result = await advanceWorkflowRunUntilBlocked(await runnerFor(id), id, makeBuilder);
       report.redriven.push({ workflowRunId: id, status: result.status });
     } catch (error) {
       report.failed.push({ workflowRunId: id, error: error instanceof Error ? error.message : String(error) });

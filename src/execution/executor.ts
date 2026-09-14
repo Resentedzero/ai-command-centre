@@ -243,7 +243,9 @@ async function executeToolAndFinalize(
     const result = await spec.execute();
 
     if (isRealReservation(reservationId)) {
-      await reconcileBudget(tx, reservationId, estimatedCost);
+      // Basis `estimate`: `execute()` reports no cost, so the reserved estimate
+      // stands in for a measurement that was never made.
+      await reconcileBudget(tx, reservationId, estimatedCost, "estimate");
     }
     reconciled = true; // from here on, releasing reservationId would double-decrement reserved_amount.
 
@@ -678,7 +680,7 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
         included: compiledContext.provenance.included,
         excluded: compiledContext.provenance.excluded,
         instructionsPresent: compiledContext.layers.instructions.length > 0,
-        untrustedDataFenced: compiledContext.layers.constraints.length > 0,
+        untrustedDataFenced: /<untrusted_data_[0-9a-f]+\b/.test(compiledContext.layers.artifacts),
       },
     });
   } catch (error) {

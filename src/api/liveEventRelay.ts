@@ -91,22 +91,33 @@ export function createWorkflowRelay(db: Database): WorkflowRelay {
   const tracked = new Map<string, Tracked>();
 
   async function track(workflowRunId: string, opts: { fresh?: boolean } = {}): Promise<void> {
-    const workflowRun = await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, workflowRunId) });
-    const goalId = workflowRun?.goalId ?? null;
-    const state: Tracked = { goalId, runSeq: new Map(), nullSeq: 0 };
-    if (!opts.fresh) {
-      for (const runId of await runsUnder(db, workflowRunId)) {
-        state.runSeq.set(runId, await maxSeq(db, runId));
+    // Never throws, like `flush`: it can run AFTER a mutation committed (e.g.
+    // POST /goals tracks the Workflow Run it just created), and a relay problem
+    // must never turn a committed mutation into a failed request. On failure it
+    // falls back to relaying from the start — subscribers already holding those
+    // events are protected by the SSE route's per-connection de-dup.
+    try {
+      const workflowRun = await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, workflowRunId) });
+      const goalId = workflowRun?.goalId ?? null;
+      const state: Tracked = { goalId, runSeq: new Map(), nullSeq: 0 };
+      if (!opts.fresh) {
+        for (const runId of await runsUnder(db, workflowRunId)) {
+          state.runSeq.set(runId, await maxSeq(db, runId));
+        }
+        const [top] = await db
+          .select({ seq: events.sequenceNo })
+          .from(events)
+          .where(nullRunEventsFor(workflowRunId, goalId))
+          .orderBy(desc(events.sequenceNo))
+          .limit(1);
+        state.nullSeq = top?.seq ?? 0;
       }
-      const [top] = await db
-        .select({ seq: events.sequenceNo })
-        .from(events)
-        .where(nullRunEventsFor(workflowRunId, goalId))
-        .orderBy(desc(events.sequenceNo))
-        .limit(1);
-      state.nullSeq = top?.seq ?? 0;
+      tracked.set(workflowRunId, state);
+    } catch (err) {
+      tracked.set(workflowRunId, { goalId: null, runSeq: new Map(), nullSeq: 0 });
+      // eslint-disable-next-line no-console
+      console.error("liveEventRelay: could not record relay positions; relaying this Workflow Run from its start.", err);
     }
-    tracked.set(workflowRunId, state);
   }
 
   async function flush(): Promise<void> {
