@@ -15,7 +15,7 @@ If a lower tier disagrees with a higher one, the higher tier wins. The spec's da
   - quota state and telemetry, and the disabled quota guardrail;
   - the tier ladder and candidate routing. (Phases 6–7H)
 
-Module-level contracts live in the header comment of each source file, and CLAUDE.md files sit alongside modules (spec §17.2).
+Module-level contracts live in the header comment of each source file. The root `CLAUDE.md` is the orientation summary. Spec §17.2 anticipates per-module `CLAUDE.md` files, but none exist yet.
 
 ## 3. Development records: phase closures and reviews
 - [`development/PHASE8_CLOSURE.md`](development/PHASE8_CLOSURE.md): Phase 8, runtime containment. Emergency stop, DAY budget, run budgets, quota telemetry, deferred decisions.

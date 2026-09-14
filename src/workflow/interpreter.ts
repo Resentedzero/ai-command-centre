@@ -150,6 +150,12 @@ import type { DrizzleTransaction } from "../events/emit.js";
 import { createWorkflowTaskInstance } from "../execution/taskInstance.js";
 import { executeRun } from "../execution/executor.js";
 import type { PendingModelDispatch, PlannedInvocationSpec, RunOutcome } from "../execution/types.js";
+import {
+  emitLifecycleEvent,
+  NO_CORRELATION,
+  recordTaskInstanceTransition,
+  type Correlation,
+} from "../events/lifecycle.js";
 import { isLinearGraphDefinition, type LinearGraphDefinition } from "./graphTypes.js";
 
 /**
@@ -295,6 +301,13 @@ export async function startWorkflowRun(
     })
     .returning();
 
+  await emitLifecycleEvent(tx, {
+    eventType: "workflow_run_started",
+    subjectId: row!.id,
+    correlation: { ...NO_CORRELATION, goalId, workflowRunId: row!.id },
+    producer: "workflow-interpreter",
+    payload: { workflowDefinitionId: definition.id, workflowDefinitionVersion: definition.version },
+  });
   return { workflowRunId: row!.id };
 }
 
@@ -373,19 +386,47 @@ export async function resumeWorkflowRun(tx: DrizzleTransaction, workflowRunId: s
 
 /** Ruling 2: translates a RunOutcome into the owning Task Instance's status, then
  *  determines the Workflow Run-level result (algorithm steps 7-11). */
+/** The step being resolved, with everything its lifecycle events are correlated by. */
+type StepRef = { workflowRunId: string; goalId: string; taskInstanceId: string; runId: string };
+
+function stepCorrelation(step: StepRef): Correlation {
+  return { goalId: step.goalId, workflowRunId: step.workflowRunId, taskInstanceId: step.taskInstanceId, runId: step.runId, invocationId: null };
+}
+
+/** Terminal Workflow Run status + its §8.2 event, same transaction. Correlated to the Run that ended it. */
+async function finishWorkflowRun(tx: DrizzleTransaction, step: StepRef, status: "completed" | "failed"): Promise<void> {
+  await tx.update(workflowRuns).set({ status, completedAt: new Date() }).where(eq(workflowRuns.id, step.workflowRunId));
+  await emitLifecycleEvent(tx, {
+    eventType: status === "completed" ? "workflow_run_completed" : "workflow_run_failed",
+    subjectId: step.workflowRunId,
+    correlation: stepCorrelation(step),
+    producer: "workflow-interpreter",
+  });
+}
+
 async function resolveStepOutcome(
   tx: DrizzleTransaction,
-  workflowRunId: string,
-  taskInstanceId: string,
+  step: StepRef,
   isLastStep: boolean,
   outcome: RunOutcome
 ): Promise<AdvanceResult> {
   const taskInstanceStatus = mapRunOutcomeToTaskInstanceStatus(outcome.status);
-  await tx.update(taskInstances).set({ status: taskInstanceStatus, updatedAt: new Date() }).where(eq(taskInstances.id, taskInstanceId));
+  const previous = await tx.query.taskInstances.findFirst({ where: eq(taskInstances.id, step.taskInstanceId) });
+  await tx
+    .update(taskInstances)
+    .set({ status: taskInstanceStatus, updatedAt: new Date() })
+    .where(eq(taskInstances.id, step.taskInstanceId));
+  await recordTaskInstanceTransition(tx, {
+    taskInstanceId: step.taskInstanceId,
+    from: previous?.status ?? null,
+    to: taskInstanceStatus,
+    correlation: stepCorrelation(step),
+    producer: "workflow-interpreter",
+  });
 
   if (outcome.status === "completed") {
     if (isLastStep) {
-      await tx.update(workflowRuns).set({ status: "completed", completedAt: new Date() }).where(eq(workflowRuns.id, workflowRunId));
+      await finishWorkflowRun(tx, step, "completed");
       return { status: "completed" };
     }
     // Step 9: do NOT create the next step's Task Instance within this same
@@ -394,7 +435,7 @@ async function resolveStepOutcome(
   }
 
   if (outcome.status === "failed") {
-    await tx.update(workflowRuns).set({ status: "failed", completedAt: new Date() }).where(eq(workflowRuns.id, workflowRunId));
+    await finishWorkflowRun(tx, step, "failed");
     return { status: "failed" };
   }
 
@@ -428,9 +469,23 @@ export async function settleWorkflowStepForFailedRun(tx: DrizzleTransaction, run
     .from(workflowRuns)
     .where(eq(workflowRuns.id, taskInstance.workflowRunId))
     .for("update");
+  if (!workflowRun) return;
+  const step: StepRef = {
+    workflowRunId: workflowRun.id,
+    goalId: workflowRun.goalId,
+    taskInstanceId: taskInstance.id,
+    runId,
+  };
   await tx.update(taskInstances).set({ status: "failed", updatedAt: new Date() }).where(eq(taskInstances.id, taskInstance.id));
-  if (workflowRun && workflowRun.status !== "completed" && workflowRun.status !== "failed") {
-    await tx.update(workflowRuns).set({ status: "failed", completedAt: new Date() }).where(eq(workflowRuns.id, workflowRun.id));
+  await recordTaskInstanceTransition(tx, {
+    taskInstanceId: taskInstance.id,
+    from: taskInstance.status,
+    to: "failed",
+    correlation: stepCorrelation(step),
+    producer: "workflow-interpreter",
+  });
+  if (workflowRun.status !== "completed" && workflowRun.status !== "failed") {
+    await finishWorkflowRun(tx, step, "failed");
   }
 }
 
@@ -450,6 +505,21 @@ async function createAndRunStep(
 
   const [runRow] = await tx.insert(runs).values({ taskInstanceId, status: "active" }).returning();
   const runId = runRow!.id;
+
+  const stepRef: StepRef = { workflowRunId: workflowRun.id, goalId: workflowRun.goalId, taskInstanceId, runId };
+  await emitLifecycleEvent(tx, {
+    eventType: "task_instance_created",
+    subjectId: taskInstanceId,
+    correlation: stepCorrelation(stepRef),
+    producer: "workflow-interpreter",
+    payload: { taskDefinitionId: step.taskDefinitionId, taskDefinitionVersion: step.taskDefinitionVersion, stepIndex },
+  });
+  await emitLifecycleEvent(tx, {
+    eventType: "run_started",
+    subjectId: runId,
+    correlation: stepCorrelation(stepRef),
+    producer: "workflow-interpreter",
+  });
 
   // Single write of both bookkeeping arrays together — see module header's
   // "writes variables exactly ONCE per call" note.
@@ -476,7 +546,12 @@ async function createAndRunStep(
   });
 
   const outcome = await executeRun(tx, runId, specs);
-  return resolveStepOutcome(tx, workflowRun.id, taskInstanceId, stepIndex === graph.steps.length - 1, outcome);
+  return resolveStepOutcome(
+    tx,
+    { workflowRunId: workflowRun.id, goalId: workflowRun.goalId, taskInstanceId, runId },
+    stepIndex === graph.steps.length - 1,
+    outcome
+  );
 }
 
 /** Algorithm step 6: resume the EXISTING Run for a step whose Task Instance already exists and is non-terminal. */
@@ -508,7 +583,12 @@ async function resumeStep(
   // stepRunIds extension) — never re-derived via a taskInstanceId lookup,
   // which would be nondeterministic without a unique index. See module header.
   const outcome = await executeRun(tx, runId, specs);
-  return resolveStepOutcome(tx, workflowRun.id, taskInstanceId, stepIndex === graph.steps.length - 1, outcome);
+  return resolveStepOutcome(
+    tx,
+    { workflowRunId: workflowRun.id, goalId: workflowRun.goalId, taskInstanceId, runId },
+    stepIndex === graph.steps.length - 1,
+    outcome
+  );
 }
 
 export async function advanceWorkflowRun(
@@ -579,7 +659,11 @@ export async function advanceWorkflowRun(
   if (currentTaskInstance.status === "completed") {
     if (lastFilledIndex === lastIndex) {
       // Algorithm step 4's "all non-null, last step completed" case.
-      await tx.update(workflowRuns).set({ status: "completed", completedAt: new Date() }).where(eq(workflowRuns.id, workflowRunId));
+      await finishWorkflowRun(
+        tx,
+        { workflowRunId, goalId: workflowRun.goalId, taskInstanceId: currentTaskInstanceId, runId: currentRunId },
+        "completed"
+      );
       return { status: "completed" };
     }
     // This step is done and it wasn't the last one — a NEW advanceWorkflowRun
@@ -590,7 +674,11 @@ export async function advanceWorkflowRun(
   if (currentTaskInstance.status === "failed") {
     // Algorithm step 4's "all non-null, last step failed" case, generalized:
     // a failure at ANY step halts the whole Workflow Run immediately.
-    await tx.update(workflowRuns).set({ status: "failed", completedAt: new Date() }).where(eq(workflowRuns.id, workflowRunId));
+    await finishWorkflowRun(
+      tx,
+      { workflowRunId, goalId: workflowRun.goalId, taskInstanceId: currentTaskInstanceId, runId: currentRunId },
+      "failed"
+    );
     return { status: "failed" };
   }
 

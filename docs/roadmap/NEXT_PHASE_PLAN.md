@@ -164,12 +164,12 @@ roadmap order.
   `agent_xp_projection` instead of `agent_performance` is a Critical finding,
   not a Minor one. (b) Non-idempotent replay handling causing double-counted
   XP after any crash-recovery replay.
-- **What must be built first:** Nothing beyond what V1 already has — Events
-  (Unit 1) already carry everything the XP rules need (Phase 16.1's event
-  patterns: `task_instance_completed`, `artifact_created`+referenced,
-  `approval_granted`+successful-outcome are all already-emitted event types in
-  the current V1 taxonomy). The one genuine prerequisite is building the
-  shared async-projector infrastructure itself.
+- **What must be built first:** The shared async-projector infrastructure
+  itself. *(Corrected 2026-09-14: this section originally said that
+  `task_instance_completed` and `artifact_created` were "already-emitted" in V1.
+  They were not. They have been emitted since the lifecycle-events change; see
+  the spec §8.2 implementation note. `artifact_referenced` is still not emitted,
+  so the "artifact created + referenced" XP rule needs it first.)*
 - **What must NOT be built yet:** The "human-graded high-value outcome ->
   largest XP" rule (Phase 16.1's fourth bullet) — it explicitly depends on
   Phase 8.9's evaluation system, which is itself deferred to V4. Build the

@@ -272,7 +272,8 @@ describe("executeRun on all-deterministic specs", () => {
       expect(invocation?.kind).toBe("deterministic");
 
       const events = await tx.query.events.findMany({ where: eq(schema.events.invocationId, invocation!.id) });
-      expect(events.map((e) => e.eventType).sort()).toEqual(["invocation_completed", "invocation_started"]);
+      // artifact_created (spec §8.2) accompanies the persisted non-empty result.
+      expect(events.map((e) => e.eventType).sort()).toEqual(["artifact_created", "invocation_completed", "invocation_started"]);
       expect(events.every((e) => e.producer === "executor")).toBe(true);
 
       const artifact = await tx.query.artifacts.findFirst({
@@ -454,13 +455,19 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
         where: eq(schema.events.runId, runId),
         orderBy: (e, { asc }) => asc(e.sequenceNo),
       });
+      // Lifecycle/accounting events (spec §8.2/§8.5) share the same per-run
+      // sequence: reconcile -> budget_consumed, persist -> artifact_created,
+      // then completion, then the Run's own terminal event.
       expect(runEvents.map((e) => e.eventType)).toEqual([
         "invocation_started",
         "approval_required",
         "approval_granted",
+        "budget_consumed",
+        "artifact_created",
         "invocation_completed",
+        "run_completed",
       ]);
-      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4]);
+      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4, 5, 6, 7]);
 
       // The resolution event really is interleaved into the SAME per-run
       // counter as the invocation events — not a separate, unordered stream.
@@ -492,8 +499,9 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
         "approval_required",
         "approval_rejected",
         "invocation_failed",
+        "run_failed",
       ]);
-      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4]);
+      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4, 5]);
     });
   });
 

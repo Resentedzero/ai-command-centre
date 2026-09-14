@@ -26,9 +26,12 @@ events, never a replay.
 **Only the Model Router may call LLM providers directly.** See Phase 4 of
 the spec. Provider SDKs and API keys live only inside that module. No other
 module — Workflow Interpreter, Executor, Tool Adapters, UI — ever imports a
-provider SDK or holds a model API key. The Model Router does not exist yet
-as of this unit; when it lands, this rule is what every review should check
-first.
+provider SDK or holds a model API key. The Model Router lives in
+`src/router/` (adapters under `src/router/providers/`); this rule is what
+every review should check first. Provider calls are never made inside a
+database transaction — see `docs/architecture/DURABLE_EXECUTION.md`.
+
+Documentation index: `docs/README.md`.
 
 ## Module boundaries (Phase 4)
 

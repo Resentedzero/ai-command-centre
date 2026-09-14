@@ -76,6 +76,7 @@ import { and, asc, eq, lt } from "drizzle-orm";
 import { approvals, artifacts, invocations, runs, taskInstances, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
+import { correlationForRun, emitLifecycleEvent } from "../events/lifecycle.js";
 import type { ApprovalRequiredPayload } from "../events/types.js";
 import {
   chargeReservationAtEstimate,
@@ -186,6 +187,14 @@ async function failRun(tx: DrizzleTransaction, runId: string): Promise<void> {
     .update(runs)
     .set({ status: "failed", completedAt: new Date(), outcome: { status: "failed" } })
     .where(eq(runs.id, runId));
+  // Spec §8.2 `run_failed`, same transaction. The cause is the
+  // `invocation_failed` event earlier in this Run's own sequence.
+  await emitLifecycleEvent(tx, {
+    eventType: "run_failed",
+    subjectId: runId,
+    correlation: await correlationForRun(tx, runId),
+    producer: "executor",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -902,6 +911,13 @@ export async function failInterruptedInvocation(tx: DrizzleTransaction, invocati
       outcome: { status: "failed", reason: "invocation_interrupted", invocationId },
     })
     .where(eq(runs.id, runRow.id));
+  await emitLifecycleEvent(tx, {
+    eventType: "run_failed",
+    subjectId: runRow.id,
+    correlation: await correlationForRun(tx, runRow.id),
+    producer: "executor",
+    payload: { reason: "invocation_interrupted", invocationId },
+  });
   return true;
 }
 
@@ -1256,6 +1272,12 @@ export async function executeRun(
     .update(runs)
     .set({ status: "completed", completedAt: new Date(), outcome: { status: "completed" } })
     .where(eq(runs.id, runId));
+  await emitLifecycleEvent(tx, {
+    eventType: "run_completed",
+    subjectId: runId,
+    correlation: await correlationForRun(tx, runId),
+    producer: "executor",
+  });
   return { status: "completed", runId };
   }
 }

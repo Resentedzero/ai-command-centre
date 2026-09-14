@@ -68,6 +68,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { budgetCounters } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
+import { correlationForRun, emitLifecycleEvent, NO_CORRELATION } from "../events/lifecycle.js";
 import type { CostClass } from "./costClass.js";
 import { DAILY_BUDGET_CEILINGS, dayScopeRef } from "./dailyBudgetPolicy.js";
 import { isResourceUnit, type ResourceUnit } from "./resourceUnit.js";
@@ -104,6 +105,8 @@ interface DecodedReservation {
   /** Which counters this reservation belongs to. Rejected — never defaulted — when absent. */
   resourceUnit: ResourceUnit;
   estimatedAmount: string;
+  /** Unique per reservation; keys its `budget_consumed` event, so one reservation is recorded as consumed at most once. */
+  nonce: string;
 }
 
 function sortHolds(holds: Hold[]): Hold[] {
@@ -176,7 +179,7 @@ function decodeReservationId(reservationId: string): DecodedReservation {
     );
   }
 
-  return { holds: sortHolds(holds), resourceUnit: p.resourceUnit, estimatedAmount: p.estimatedAmount };
+  return { holds: sortHolds(holds), resourceUnit: p.resourceUnit, estimatedAmount: p.estimatedAmount, nonce: p.nonce };
 }
 
 /**
@@ -395,7 +398,7 @@ export async function reconcileBudget(
   actualAmount: number
 ): Promise<void> {
   const reservation = decodeReservationId(reservationId);
-  await reconcileDecoded(tx, "reconcileBudget", reservation, String(actualAmount));
+  await reconcileDecoded(tx, "reconcileBudget", reservation, String(actualAmount), "reported");
 }
 
 /**
@@ -416,7 +419,7 @@ export async function chargeReservationAtEstimate(
   reservationId: string
 ): Promise<{ chargedAmount: string; resourceUnit: ResourceUnit }> {
   const reservation = decodeReservationId(reservationId);
-  await reconcileDecoded(tx, "chargeReservationAtEstimate", reservation, reservation.estimatedAmount);
+  await reconcileDecoded(tx, "chargeReservationAtEstimate", reservation, reservation.estimatedAmount, "estimate");
   // Returned so the caller can record the charge as an immutable fact: no usage
   // event exists for it, so without this the counter could not be explained
   // from the event log.
@@ -427,7 +430,8 @@ async function reconcileDecoded(
   tx: DrizzleTransaction,
   operation: string,
   reservation: DecodedReservation,
-  actualAmount: string
+  actualAmount: string,
+  basis: "reported" | "estimate"
 ): Promise<void> {
   const rows = await lockHeldCounters(tx, operation, reservation);
 
@@ -441,6 +445,29 @@ async function reconcileDecoded(
       })
       .where(eq(budgetCounters.id, row.id));
   }
+
+  // Spec §8.5 `budget_consumed`, in the same transaction as the counter
+  // update, so every counter's `consumed_amount` is the sum of these events'
+  // amounts for its (scope, scopeRefId, resourceUnit) — reconstructible from
+  // the log alone. One event per reservation, naming every counter it moved.
+  // `basis` separates a provider- or caller-reported amount from a charge at
+  // the reservation's estimate (consumption unknown — see
+  // `chargeReservationAtEstimate`). Carries no `usage`: that envelope field is
+  // a model-usage observation, and this is the counter fact.
+  const runHold = reservation.holds.find((h) => h.scope === "run");
+  await emitLifecycleEvent(tx, {
+    eventType: "budget_consumed",
+    subjectId: reservation.nonce,
+    correlation: runHold ? await correlationForRun(tx, runHold.scopeRefId) : NO_CORRELATION,
+    producer: "budget-governor",
+    payload: {
+      resourceUnit: reservation.resourceUnit,
+      amount: actualAmount,
+      estimatedAmount: reservation.estimatedAmount,
+      basis,
+      holds: reservation.holds,
+    },
+  });
 }
 
 /**

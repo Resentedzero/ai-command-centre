@@ -542,6 +542,42 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 `policy_evaluated`, `approval_required/granted/rejected`, `budget_denied`,
 `budget_consumed`); Operational (`agent_paused/resumed`).
 
+> **Implementation note (2026-09-14): what is emitted.** Every status change below is
+> recorded in the same transaction as the write it describes (`src/events/lifecycle.ts`).
+>
+> **Lifecycle:**
+> - `goal_created`
+> - `workflow_run_started/completed/failed`
+> - `task_instance_created/transitioned/completed/failed`
+> - `run_started/completed/failed`, plus `run_halted` for an emergency stop
+>
+> A Run's terminal event is exactly one of `run_completed`, `run_failed` or
+> `run_halted`.
+>
+> **Invocation:** `invocation_started/completed/failed`.
+>
+> **Artifact:** `artifact_created`.
+>
+> **Governance and accounting:**
+> - `approval_required/granted/rejected/expired`
+> - `capability_grant_revoked`
+> - `execution_stop_engaged/lifted`
+> - `budget_consumed`, one per reconciled reservation. Its `basis` is `reported` or
+>   `estimate`, so each counter's `consumed_amount` equals the sum of its events.
+>
+> **Observational:** `provider_quota_observed`.
+>
+> **Correlation.** `emitEvent` completes correlation from `runId`: a null task
+> instance, workflow run or goal id is filled from the Run's own rows. Lifecycle
+> events about a step share that Run's sequence.
+>
+> **Not yet emitted:**
+> - `tool_called`, `tool_result_received` (covered by the invocation events)
+> - `artifact_updated/referenced`
+> - the Memory events
+> - `capability_granted`, `policy_evaluated`, `budget_denied`
+> - `agent_paused/resumed`
+
 ### 8.3 Projections — the general pattern
 
 **Synchronous** (same transaction as the event write): Task Instance/Run/Workflow Run

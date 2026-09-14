@@ -29,6 +29,7 @@ import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvoc
 import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { runWorkflowMutationAndRelay } from "../liveEventRelay.js";
 import { transactionRunner } from "../../db/transactionRunner.js";
+import { emitLifecycleEvent, NO_CORRELATION } from "../../events/lifecycle.js";
 
 type CreateGoalBody = { title?: string; description?: string };
 
@@ -54,6 +55,16 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
           .values({ projectId: seed.projectId, title, description: description ?? null, status: "active" })
           .returning();
         const goalId = goalRow!.id;
+        // Spec §8.2 `goal_created`, same transaction as the row. The V1 operator
+        // identity, as for Approval resolutions (routes/approvals.ts).
+        await emitLifecycleEvent(tx, {
+          eventType: "goal_created",
+          subjectId: goalId,
+          correlation: { ...NO_CORRELATION, goalId },
+          producer: "api",
+          actor: "human:operator",
+          payload: { title },
+        });
 
         const { workflowRunId } = await startWorkflowRun(tx, seed.workflowDefinitionId, goalId);
         return { seed, goalId, workflowRunId };

@@ -682,9 +682,9 @@ describe("callModel", () => {
         where: eq(schema.events.runId, runId),
         orderBy: (events, { asc }) => [asc(events.sequenceNo)],
       });
-      expect(rows.map((r) => r.eventType)).toEqual(["invocation_started", "invocation_completed"]);
-      expect(rows[0]!.sequenceNo).toBe(1);
-      expect(rows[1]!.sequenceNo).toBe(2);
+      // budget_consumed (spec §8.5) is written by the reconcile, in the same run sequence.
+      expect(rows.map((r) => r.eventType)).toEqual(["invocation_started", "budget_consumed", "invocation_completed"]);
+      expect(rows.map((r) => r.sequenceNo)).toEqual([1, 2, 3]);
     });
   });
 

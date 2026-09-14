@@ -78,6 +78,43 @@ function assertPersistedResourceUnit(value: string | null, eventId: string) {
 }
 
 /**
+ * Completes an event's correlation from its Run (spec §8.1: correlation carries
+ * goal, workflow run, task instance, run and invocation).
+ *
+ * A Run determines its Task Instance, which determines its Workflow Run and
+ * Goal, so any of those an emitter left null is derived here rather than
+ * trusted to every call site — many emitters (the Executor, the Model Router,
+ * governance) only know the run. Only NULL fields are filled; a value the
+ * emitter supplied is never overwritten. Events with no run are unchanged.
+ */
+async function completeCorrelation(
+  tx: DrizzleTransaction,
+  correlation: EmitEventInput["correlation"]
+): Promise<EmitEventInput["correlation"]> {
+  if (!correlation.runId) return correlation;
+  if (correlation.taskInstanceId && correlation.workflowRunId && correlation.goalId) return correlation;
+
+  const [row] = await tx
+    .select({
+      taskInstanceId: schema.taskInstances.id,
+      workflowRunId: schema.taskInstances.workflowRunId,
+      goalId: schema.workflowRuns.goalId,
+    })
+    .from(schema.runs)
+    .innerJoin(schema.taskInstances, eq(schema.runs.taskInstanceId, schema.taskInstances.id))
+    .leftJoin(schema.workflowRuns, eq(schema.taskInstances.workflowRunId, schema.workflowRuns.id))
+    .where(eq(schema.runs.id, correlation.runId));
+  if (!row) return correlation;
+
+  return {
+    ...correlation,
+    taskInstanceId: correlation.taskInstanceId ?? row.taskInstanceId,
+    workflowRunId: correlation.workflowRunId ?? row.workflowRunId,
+    goalId: correlation.goalId ?? row.goalId,
+  };
+}
+
+/**
  * Inserts one Event row, computing its `sequenceNo` as the next monotonic
  * value scoped to `input.correlation.runId` (independent counters per
  * `runId`, including a shared counter for events with `runId: null`).
@@ -115,6 +152,7 @@ export async function emitEvent(
   }
 
   const runId = input.correlation.runId;
+  const correlation = await completeCorrelation(tx, input.correlation);
 
   // Serialize sequence-number allocation per runId within this transaction
   // using a transaction-scoped advisory lock (released automatically at
@@ -138,11 +176,11 @@ export async function emitEvent(
       eventVersion: input.eventVersion,
       sequenceNo: nextSeq,
       causationId: input.causationId,
-      goalId: input.correlation.goalId,
-      workflowRunId: input.correlation.workflowRunId,
-      taskInstanceId: input.correlation.taskInstanceId,
-      runId: input.correlation.runId,
-      invocationId: input.correlation.invocationId,
+      goalId: correlation.goalId,
+      workflowRunId: correlation.workflowRunId,
+      taskInstanceId: correlation.taskInstanceId,
+      runId: correlation.runId,
+      invocationId: correlation.invocationId,
       actor: input.actor,
       producer: input.producer,
       payload: input.payload,

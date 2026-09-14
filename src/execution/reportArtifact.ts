@@ -28,6 +28,7 @@
 import { createHash } from "node:crypto";
 import { artifacts } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
+import { emitArtifactCreated } from "../events/lifecycle.js";
 
 export async function persistReportArtifact(
   tx: DrizzleTransaction,
@@ -52,5 +53,7 @@ export async function persistReportArtifact(
     })
     .returning();
 
+  // Spec §8.2 `artifact_created`, in the same transaction as the row.
+  await emitArtifactCreated(tx, row!);
   return { artifactId: row!.id };
 }
