@@ -23,7 +23,8 @@
  * filesystem side effect with no transactional undo.
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
-import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
@@ -901,6 +902,26 @@ describe("Structural: publishReport's destination is always local, relative, und
 
     await expect(publishReport(request("other bytes", "idempotent/report.txt"))).rejects.toMatchObject({ consumption: "none" });
     expect(readFileSync(onDisk, "utf8")).toBe("same bytes");
+  });
+
+  it("refuses a destination reached through a junction under published/ that points outside it, and writes nothing there", async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), "publish-outside-"));
+    const publishedRoot = path.resolve(process.env.ARTIFACT_ROOT!, "published");
+    mkdirSync(publishedRoot, { recursive: true });
+    const linkName = `junction-${Date.now()}`;
+    const link = path.join(publishedRoot, linkName);
+    // A junction needs no elevation on Windows; elsewhere the type is ignored and a directory symlink is made.
+    symlinkSync(outside, link, "junction");
+    try {
+      await expect(publishReport(request("escaped", `${linkName}/report.json`))).rejects.toMatchObject({
+        consumption: "none",
+        message: expect.stringMatching(/through a link outside/),
+      });
+      expect(readdirSync(outside)).toEqual([]);
+    } finally {
+      rmdirSync(link); // removes the link only, never its target's contents
+      rmdirSync(outside);
+    }
   });
 });
 

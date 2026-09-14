@@ -4,7 +4,10 @@
  * visible", §5.13 lineage). Read-only.
  *
  * - `artifact`: metadata, a bounded `preview` of inline content (the same bound
- *   the Approval queue uses) with `truncated`, and `contentHashMatches` — whether
+ *   the Approval queue uses) with `truncated`; with `?full=1`, also `content`, the
+ *   whole inline content, so an approver can read everything a publish would write
+ *   (spec §9.5: the exact action is identifiable), not only the preview; and
+ *   `contentHashMatches` — whether
  *   the stored content still hashes to the stored hash (null when there is no
  *   inline content; nothing is read from the filesystem here). The preview is
  *   model or tool output: clients render it as text, never HTML.
@@ -26,7 +29,8 @@ import { APPROVAL_PREVIEW_CHARS } from "./approvals.js";
 const REFERENCE_LIMIT = 100;
 
 export function registerArtifactsRoutes(app: FastifyInstance, deps: ApiDeps): void {
-  app.get<{ Params: { id: string } }>("/artifacts/:id", async (request, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { full?: string } }>("/artifacts/:id", async (request, reply) => {
+    const full = request.query.full === "1";
     const artifactId = request.params.id;
     if (!isUuid(artifactId)) return reply.status(400).send({ error: "artifact id must be a UUID" });
     const row = await deps.db.query.artifacts.findFirst({ where: eq(artifacts.id, artifactId) });
@@ -88,6 +92,7 @@ export function registerArtifactsRoutes(app: FastifyInstance, deps: ApiDeps): vo
         storedInline: content !== null,
         preview: content === null ? null : content.slice(0, APPROVAL_PREVIEW_CHARS),
         truncated: content !== null && content.length > APPROVAL_PREVIEW_CHARS,
+        ...(full ? { content } : {}),
         contentHashMatches: content === null ? null : createHash("sha256").update(content).digest("hex") === row.hash,
       },
       producedBy: producer

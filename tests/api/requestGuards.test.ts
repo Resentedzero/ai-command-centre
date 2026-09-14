@@ -3,7 +3,7 @@
  * for the localhost API. See `src/api/requestGuards.ts` for the threat model.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { hostnameOf, isUuid, refuseRequest } from "../../src/api/requestGuards.js";
+import { hostnameOf, isUiOrigin, isUuid, refuseRequest } from "../../src/api/requestGuards.js";
 import { resetTestSchema, closeTestDb, testDb } from "../testDb.js";
 import { buildServer } from "../../src/api/server.js";
 import { randomUUID } from "node:crypto";
@@ -38,14 +38,32 @@ describe("refuseRequest (pure)", () => {
     expect(refuseRequest({ method: "GET", host, origin: "https://evil.example" }, { uiOrigin: UI })).toBeNull();
   });
 
-  it("refuses cross-site requests of any method unless they come from the UI's origin; same-site is untouched", () => {
+  it("refuses cross-site and same-site requests of any method unless they carry the UI's origin", () => {
     const host = "127.0.0.1:3000";
     // A no-cors GET from another site carries no Origin, only Sec-Fetch-Site.
     expect(refuseRequest({ method: "GET", host, origin: undefined, secFetchSite: "cross-site" }, { uiOrigin: UI })).toMatch(/cross-site/);
     expect(refuseRequest({ method: "GET", host, origin: "https://evil.example", secFetchSite: "cross-site" }, { uiOrigin: UI })).toMatch(/cross-site/);
-    expect(refuseRequest({ method: "GET", host, origin: undefined, secFetchSite: "same-site" }, { uiOrigin: UI })).toBeNull();
+    // Every localhost port is the same site: another local dev server's page is `same-site`.
+    expect(refuseRequest({ method: "GET", host, origin: undefined, secFetchSite: "same-site" }, { uiOrigin: UI })).toMatch(/same-site/);
+    expect(refuseRequest({ method: "GET", host, origin: "http://localhost:5173", secFetchSite: "same-site" }, { uiOrigin: UI })).toMatch(/same-site/);
+    // The UI calls with CORS, so it carries its Origin; same-origin and non-browser requests pass.
+    expect(refuseRequest({ method: "GET", host, origin: UI, secFetchSite: "same-site" }, { uiOrigin: UI })).toBeNull();
     expect(refuseRequest({ method: "GET", host, origin: UI, secFetchSite: "cross-site" }, { uiOrigin: UI })).toBeNull();
+    expect(refuseRequest({ method: "GET", host, origin: undefined, secFetchSite: "same-origin" }, { uiOrigin: UI })).toBeNull();
     expect(refuseRequest({ method: "GET", host, origin: undefined, secFetchSite: "none" }, { uiOrigin: UI })).toBeNull();
+  });
+
+  it("treats the UI opened under another loopback name, same scheme and port, as the UI; nothing else", () => {
+    const host = "127.0.0.1:3000";
+    for (const origin of ["http://127.0.0.1:3100", "http://[::1]:3100"]) {
+      expect(isUiOrigin(origin, UI), origin).toBe(true);
+      expect(refuseRequest({ method: "GET", host, origin, secFetchSite: "same-site" }, { uiOrigin: UI }), origin).toBeNull();
+      expect(refuseRequest({ method: "POST", host, origin }, { uiOrigin: UI }), origin).toBeNull();
+    }
+    for (const origin of ["http://127.0.0.1:3101", "https://localhost:3100", "http://localhost.evil:3100", "null", "not a url"]) {
+      expect(isUiOrigin(origin, UI), origin).toBe(false);
+      expect(refuseRequest({ method: "POST", host, origin }, { uiOrigin: UI }), origin).toMatch(/may not change state/);
+    }
   });
 
   it("parses hostnames and UUIDs strictly", () => {
@@ -110,6 +128,34 @@ describe("through the server", () => {
 
     const head = await app.inject({ method: "HEAD", url: "/events/stream?sinceEventCursor=foo", headers: { host: "127.0.0.1:3000" } });
     expect(head.statusCode).toBe(404);
+  });
+
+  it("another local page cannot hold an event stream open either: same-site GET without the UI's origin is refused", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/events/stream?sinceEventCursor=foo",
+      headers: { host: "127.0.0.1:3000", "sec-fetch-site": "same-site" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toMatch(/same-site/);
+  });
+
+  it("free-text fields are bounded: an oversized Goal title or description, or stop reason, is a 400 and writes nothing", async () => {
+    const huge = "x".repeat(10_001);
+    for (const payload of [{ title: huge }, { title: "ok", description: huge }, { title: "ok", description: 42 }]) {
+      const res = await app.inject({ method: "POST", url: "/goals", headers: { host: "127.0.0.1:3000" }, payload });
+      expect(res.statusCode, JSON.stringify(payload).slice(0, 40)).toBe(400);
+    }
+    expect(await testDb.query.goals.findMany()).toEqual([]);
+
+    const stop = await app.inject({
+      method: "POST",
+      url: "/execution-stops",
+      headers: { host: "127.0.0.1:3000" },
+      payload: { scope: "run", scopeRefId: randomUUID(), reason: huge },
+    });
+    expect(stop.statusCode).toBe(400);
+    expect(await testDb.transaction((tx) => listActiveStops(tx))).toEqual([]);
   });
 
   it("malformed ids are 400s, never 500s", async () => {

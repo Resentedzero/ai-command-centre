@@ -109,6 +109,23 @@ describe("GET /artifacts/:id", () => {
     }
   });
 
+  it("returns the whole content only when asked (?full=1), beyond the preview bound, so an approver can read all of it", async () => {
+    const original = await testDb.query.artifacts.findFirst({ where: eq(schema.artifacts.id, researchRun.reportArtifactId) });
+    const long = "y".repeat(5_000) + "HIDDEN-TAIL";
+    await testDb.update(schema.artifacts).set({ inlineContent: long }).where(eq(schema.artifacts.id, researchRun.reportArtifactId));
+    try {
+      const preview = (await app.inject({ method: "GET", url: `/artifacts/${researchRun.reportArtifactId}` })).json();
+      expect(preview.artifact.truncated).toBe(true);
+      expect(preview.artifact.preview).not.toContain("HIDDEN-TAIL");
+      expect(preview.artifact).not.toHaveProperty("content");
+
+      const full = (await app.inject({ method: "GET", url: `/artifacts/${researchRun.reportArtifactId}?full=1` })).json();
+      expect(full.artifact.content).toBe(long);
+    } finally {
+      await testDb.update(schema.artifacts).set({ inlineContent: original!.inlineContent }).where(eq(schema.artifacts.id, researchRun.reportArtifactId));
+    }
+  });
+
   it("rejects a malformed id and reports an unknown Artifact", async () => {
     expect((await app.inject({ method: "GET", url: "/artifacts/nope" })).statusCode).toBe(400);
     expect((await app.inject({ method: "GET", url: "/artifacts/00000000-0000-4000-8000-000000000000" })).statusCode).toBe(404);

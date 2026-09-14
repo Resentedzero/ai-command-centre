@@ -41,6 +41,7 @@ import {
 } from "../../governance/executionStop.js";
 import { relayCommittedEvent } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
+import { MAX_TEXT_LENGTH } from "../../definitions/registryWrites.js";
 
 const SCOPES: readonly ExecutionStopScope[] = [
   "global",
@@ -65,8 +66,8 @@ function validate(body: StopBody): string | null {
   if (body.scopeRefId !== undefined && body.scopeRefId !== null && typeof body.scopeRefId !== "string") {
     return `"scopeRefId" must be a string when provided`;
   }
-  if (body.reason !== undefined && body.reason !== null && typeof body.reason !== "string") {
-    return `"reason" must be a string when provided`;
+  if (body.reason !== undefined && body.reason !== null && (typeof body.reason !== "string" || body.reason.length > MAX_TEXT_LENGTH)) {
+    return `"reason" must be a string of at most ${MAX_TEXT_LENGTH} characters when provided`;
   }
   if (body.stopId !== undefined && body.stopId !== null && !isUuid(body.stopId)) {
     return `"stopId" must be a UUID when provided`;

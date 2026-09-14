@@ -37,7 +37,7 @@
  * performed.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /** An error proving nothing was written (see `providerConsumptionFrom`). */
@@ -134,6 +134,15 @@ export async function publishReport(request: PublishReportRequest): Promise<{ pu
     );
   }
 
+  await mkdir(path.dirname(destination), { recursive: true });
+  // The lexical check above cannot see a link or junction under published/ that
+  // points elsewhere; the real directory must still be inside the real root, before
+  // anything is read or written there.
+  const [realRoot, realDirectory] = await Promise.all([realpath(publishedRoot), realpath(path.dirname(destination))]);
+  if (realDirectory !== realRoot && !realDirectory.startsWith(realRoot + path.sep)) {
+    throw refusal(`publishReport: "${publishedPath}" resolves through a link outside ARTIFACT_ROOT/published/; refusing to publish.`);
+  }
+
   const existing = await readFile(destination).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return null;
     throw error;
@@ -145,7 +154,6 @@ export async function publishReport(request: PublishReportRequest): Promise<{ pu
     throw refusal(`publishReport: "${publishedPath}" already holds different content; refusing to overwrite it.`);
   }
 
-  await mkdir(path.dirname(destination), { recursive: true });
   const temporary = `${destination}.${sha256(request.idempotencyKey).slice(0, 16)}.tmp`;
   await writeFile(temporary, request.content, "utf8");
   await rename(temporary, destination);

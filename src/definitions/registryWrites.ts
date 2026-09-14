@@ -88,9 +88,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** The longest free-text field any API write accepts. */
+export const MAX_TEXT_LENGTH = 10_000;
+
 function requireText(body: Body, field: string): string {
   const value = body[field];
-  if (typeof value !== "string" || value.trim() === "" || value.length > 10_000) refuse(`"${field}" must be a non-empty string.`);
+  if (typeof value !== "string" || value.trim() === "" || value.length > MAX_TEXT_LENGTH) refuse(`"${field}" must be a non-empty string.`);
   // A name is an exact-match identity: " publish.report" would be a different Capability.
   if (value !== value.trim()) refuse(`"${field}" must not start or end with whitespace.`);
   return value;

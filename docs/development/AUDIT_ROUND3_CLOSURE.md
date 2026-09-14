@@ -59,3 +59,27 @@ A read-only review of the stop point found no correctness bug in the two newest 
 | G2 streams ignore the gap signal | 1 fails |
 
 Full suite after the follow-up: 65 files, 804 passed, 2 skipped; `tsc` exit 0. Web not changed (the client already reconnects from its highest cursor when a stream ends).
+
+## 5. Follow-up: security review (Fable) and stale-code sweep (Opus)
+
+A read-only security review of the local API (browser-origin attacks, input validation, filesystem, subprocess, prompt-injection containment, authorization, resource exhaustion) found nothing critical or high. Checked sound: Host and Origin guards against DNS rebinding and CSRF, UUID and body validation, server-side actors, advancement through Policy/stop/budget re-checks, the Claude CLI's static argv and allow-listed environment, untrusted-artifact fencing, local-corpus containment, and SSE and list bounds.
+
+| Finding | Outcome |
+|---|---|
+| An approver sees only the first 2,000 characters of what a publish writes (§9.5 "the exact action") | **Built**: `GET /artifacts/:id?full=1` returns the whole inline `content`; the approval-card link is a UI handoff (`ROADMAP_STATUS.md` §7) |
+| Another localhost page (same-site) could hold SSE slots and repeat heavy reads without an `Origin` | **Built**: `same-site` requests are refused unless they carry the UI's origin, as `cross-site` already were; the UI opened under another loopback name on the same port still counts as the UI |
+| Publish containment was lexical: a junction under `published/` could redirect the write | **Built**: the real directory must lie inside the real `published/` root before anything is read or written |
+| Goal title/description and stop reason had no length bound; a non-string description reached the database | **Built**: bounded at the Registry's `MAX_TEXT_LENGTH` (10,000), type-checked, 400 before any write |
+
+The sweep found no dead code (`noUnusedLocals`/`noUnusedParameters` are on and clean). It corrected stale comments in `compiler.ts`, `lookupSeed.ts`, `interpreter.ts`, `reportArtifact.ts`, `schema.ts`, `server.ts` and `budget.ts`, `CONTEXT_COMPILER.md` (the §5.17 window cap is built), `.env.example` (nothing stores Artifact bytes on disk yet) and a historical line in `PHASE8_CLOSURE.md`.
+
+| Mutant | Result |
+|---|---|
+| S1 same-site requests no longer refused | 2 fail |
+| S2 `?full=1` returns no content | 1 fails |
+| S3 the publish path not checked through links | 1 fails |
+| S4 an oversized Goal title accepted | 1 fails |
+| S5 an oversized stop reason accepted | 1 fails |
+| S6 the UI-origin match ignores the port | 2 fail |
+
+Full suite after this follow-up: 65 files, 809 passed, 2 skipped; `tsc` exit 0. Web not changed.

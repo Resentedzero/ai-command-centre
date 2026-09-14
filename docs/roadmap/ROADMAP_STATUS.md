@@ -133,6 +133,8 @@ Surfaced by a second independent review (Fable: event catalogue, column write co
 ## 7. Handoffs and operator actions
 
 UI workstream (APIs built, no UI):
+- Approval card: link a truncated preview to `GET /artifacts/:id?full=1`, which returns the whole inline `content`, so an approver can read everything a publish would write (spec §9.5; the preview stops at 2,000 characters).
+- The API now refuses `Sec-Fetch-Site: same-site` requests that do not carry the UI's `Origin` (another local dev server's page is same-site). The UI's CORS fetches and EventSource send `Origin`; the UI opened under another loopback name on the same port (127.0.0.1:3100 for localhost:3100) counts as the UI. If the UI is ever served from a different port than `UI_ORIGIN`, set `UI_ORIGIN` to match.
 - Overview Active Agents (§15.1 screen 1 "one card per Agent Definition currently bound to a running Run"): `GET /agents/active` returns one entry per active Run, now with `taskDefinitionName` and `goalTitle` (the "mission"; add both to `AgentCardData` in `web/lib/api.ts`). Group entries by `agentDefinitionId` for one card per Agent Definition.
 - Registry screen against `GET /registry` and the six create routes plus revocation (`CAPABILITY_PLATFORM.md` §5).
 - Agent Detail: `web/lib/api.ts` still types `performance` as `null`; the API returns rows.

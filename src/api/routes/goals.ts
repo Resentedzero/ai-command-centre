@@ -25,6 +25,7 @@ import { requireSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { emitLifecycleEvent, NO_CORRELATION } from "../../events/lifecycle.js";
 import { isUuid } from "../requestGuards.js";
+import { MAX_TEXT_LENGTH } from "../../definitions/registryWrites.js";
 
 type CreateGoalBody = { title?: string; description?: string; workflowDefinitionId?: string; projectId?: string };
 
@@ -90,6 +91,12 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
       request.body ?? {};
     if (!title || typeof title !== "string") {
       return reply.status(400).send({ error: "title is required" });
+    }
+    if (title.length > MAX_TEXT_LENGTH) {
+      return reply.status(400).send({ error: `title must be at most ${MAX_TEXT_LENGTH} characters` });
+    }
+    if (description !== undefined && description !== null && (typeof description !== "string" || description.length > MAX_TEXT_LENGTH)) {
+      return reply.status(400).send({ error: `description must be a string of at most ${MAX_TEXT_LENGTH} characters` });
     }
     for (const [field, value] of [
       ["workflowDefinitionId", requestedWorkflowDefinitionId],

@@ -26,10 +26,13 @@
  *      notably `GET /events/stream`, which replays the event log and holds one
  *      of a capped number of stream slots — with no Origin header at all (a
  *      no-cors fetch sends none). Browsers do send `Sec-Fetch-Site`; a
- *      `cross-site` request is refused unless it comes from the UI's own
- *      origin. The UI and API on localhost ports are `same-site`, so the real
- *      UI is unaffected. HEAD routes are not exposed (`server.ts`) so a HEAD
- *      cannot hold a stream either.
+ *      `cross-site` or `same-site` request is refused unless it carries the UI's
+ *      own origin. `same-site` matters here because every localhost port is the
+ *      same site: another local dev server's page is `same-site` too. The real UI
+ *      calls this API with CORS (EventSource and fetch both send `Origin`), so it
+ *      is unaffected; same-origin and non-browser requests carry no such header
+ *      or `same-origin`/`none`. HEAD routes are not exposed (`server.ts`) so a
+ *      HEAD cannot hold a stream either.
  */
 import type { FastifyReply, FastifyRequest } from "fastify";
 
@@ -62,6 +65,23 @@ export type RequestGuardConfig = {
 const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
+ * Whether `origin` is the UI: exactly `uiOrigin`, or the same scheme and port under
+ * another loopback name (the UI opened at 127.0.0.1:3100 instead of localhost:3100).
+ */
+export function isUiOrigin(origin: string | undefined, uiOrigin: string): boolean {
+  if (origin === undefined) return false;
+  if (origin === uiOrigin) return true;
+  try {
+    const a = new URL(origin);
+    const b = new URL(uiOrigin);
+    const loopback = (host: string) => LOOPBACK_HOSTNAMES.has(host.replace(/^\[|\]$/g, "").toLowerCase());
+    return a.protocol === b.protocol && a.port === b.port && loopback(a.hostname) && loopback(b.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Returns a refusal reason, or null when the request may proceed. Pure, so it
  * is tested directly as well as through the server.
  */
@@ -74,11 +94,12 @@ export function refuseRequest(
   const allowed = LOOPBACK_HOSTNAMES.has(hostname) || (config.extraAllowedHosts ?? []).includes(hostname);
   if (!allowed) return `Host "${hostname}" is not an allowed name for this API`;
 
-  if (req.secFetchSite?.toLowerCase() === "cross-site" && req.origin !== config.uiOrigin) {
-    return "cross-site requests are not accepted by this API";
+  const site = req.secFetchSite?.toLowerCase();
+  if ((site === "cross-site" || site === "same-site") && !isUiOrigin(req.origin, config.uiOrigin)) {
+    return `${site} requests are not accepted by this API`;
   }
 
-  if (STATE_CHANGING.has(req.method.toUpperCase()) && req.origin !== undefined && req.origin !== config.uiOrigin) {
+  if (STATE_CHANGING.has(req.method.toUpperCase()) && req.origin !== undefined && !isUiOrigin(req.origin, config.uiOrigin)) {
     return `Origin "${req.origin}" may not change state through this API`;
   }
   return null;
