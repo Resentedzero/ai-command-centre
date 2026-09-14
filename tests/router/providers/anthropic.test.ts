@@ -110,7 +110,7 @@ function buildCompiledContext(overrides: Partial<CompiledContext["layers"]> = {}
       ...overrides,
     },
     provenance: {
-      included: [{ id: "PROVENANCE_INCLUDED_CANARY", tier: 1 }],
+      included: [{ id: "PROVENANCE_INCLUDED_CANARY", tier: 1, kind: "task_state", trusted: true, estimatedTokens: 1 }],
       excluded: [{ id: "PROVENANCE_EXCLUDED_CANARY", reason: "budget" }],
     },
     estimatedInputTokens: 123,

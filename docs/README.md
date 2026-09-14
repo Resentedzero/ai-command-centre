@@ -10,6 +10,10 @@ If a lower tier disagrees with a higher one, the higher tier wins. The spec's da
   - the transaction boundaries around provider calls;
   - the `executing` state and interruption recovery;
   - the single-executor-process invariant and lock order. (Phase 9)
+- [`architecture/CONTEXT_COMPILER.md`](architecture/CONTEXT_COMPILER.md) covers:
+  - what may enter a model's context, and the invariants that bound it;
+  - grant-scoped tool schemas, trusted/untrusted separation, budgets and provenance;
+  - open questions (cacheable prefix, reference mode). (Phase 5)
 - [`architecture/SUBSCRIPTION_PROVIDER_DESIGN.md`](architecture/SUBSCRIPTION_PROVIDER_DESIGN.md) covers:
   - the Claude Max (`claude -p`) provider adapter;
   - quota state and telemetry, and the disabled quota guardrail;

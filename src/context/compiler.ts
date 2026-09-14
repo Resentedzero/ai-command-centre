@@ -1,10 +1,10 @@
 /**
  * Context Compiler — Phase 5's compilation pipeline at Unit 4 (MVP) scope.
  *
- * Zero dependency on Units 2/3 (`src/governance/*`): this unit's own
- * Dependencies line lists only Unit 1. No budget reservation, no policy/risk
+ * No import from `src/governance/*`. No budget reservation, no policy/risk
  * evaluation, no approvals happen here — this module only assembles a
- * `CompiledContext` from already-persisted rows.
+ * `CompiledContext` from already-persisted rows. It does read the Run's
+ * Capability Grants, which bound what tool schemas may enter context (§5.7).
  *
  * ---------------------------------------------------------------------------
  * Design decisions not fully pinned down by the frozen interface
@@ -83,8 +83,12 @@
  *    resolves against `capabilities.id` (matching this function's
  *    `candidateToolCapabilityIds: string[]` parameter). The actual schema
  *    content looked up for `layers.toolSchemas` is the capability's eligible
- *    `toolBindings` rows, each rendered as:
- *      `{ capabilityId, capabilityName, toolBindingId, kind, config }`.
+ *    `toolBindings` rows, each rendered in the minimal variant:
+ *      `{ capabilityId, capabilityName, description, toolBindingId, kind }`.
+ *    Binding `config` is never included: it is adapter configuration and may
+ *    carry endpoints or credentials. Only capabilities the Run's Agent holds an
+ *    unrevoked Grant for are eligible; the rest are excluded `"unauthorized"`
+ *    (see `resolveGrantedCapabilityIds`).
  *    A capability with zero tool bindings has nothing to load and is
  *    excluded with reason `"irrelevant"` rather than causing an error. A
  *    capability with multiple bindings contributes multiple entries to
@@ -134,11 +138,12 @@
  *    the resolved budget, so there is nothing for this unit to do with
  *    `expectedOutputTokens` itself.
  *
- * `"unauthorized"` is a declared `ExclusionReason` that is UNREACHABLE in
- * this unit: authorization is Unit 2/3's concern (Policy/Grants), which this
- * unit has zero dependency on by design. It is kept in the type only because
- * it's part of the frozen `CompiledContext` interface; no code path here
- * ever produces it.
+ * `"unauthorized"` (reachable since 2026-09-14): a tool_schema candidate the
+ * Run's Agent holds no unrevoked Grant for, or any tool_schema candidate when no
+ * Run with a bound Agent is given. Context never widens what an Agent may use.
+ *
+ * Provenance (§5.13): each included entry records its kind, trust, the tokens
+ * it added (framing included), and for an artifact its version and hash.
  *
  * ---------------------------------------------------------------------------
  * Pipeline order actually implemented (vs. the spec's conceptual 10 steps)
@@ -153,14 +158,15 @@
  *      for consistency: both ID lists represent "must be a persisted,
  *      addressable record" per this unit's stated objective.
  *   4. Build the tier-1 candidate (task state) — unconditionally eligible.
- *   5. Build tier-2 candidates: dedup (first occurrence wins; repeats
- *      excluded as `"duplicate"`), staleness filter, then the
+ *   5. Build tier-2 candidates: dedup by id (first occurrence wins; repeats
+ *      excluded as `"duplicate"`), staleness filter, dedup by content hash
+ *      (§5.10, also `"duplicate"`), then the
  *      reference-vs-content decision per artifact (this MUST happen before
  *      token totals are known, since the two modes have different token
  *      costs), then the per-artifact `maxArtifactTokens` structural check.
  *   6. Apply `maxRetrievedItems` to the surviving tier-2 candidates.
- *   7. Build tier-3 candidates: dedup, tool-binding lookup, `"irrelevant"`
- *      check.
+ *   7. Build tier-3 candidates: dedup, Grant check (`"unauthorized"`),
+ *      tool-binding lookup, `"irrelevant"` check.
  *   8. Priority-tiered greedy packing over tiers 1 -> 2 -> 3 against
  *      `maxInputTokens` (tier 3 additionally against `maxToolSchemaTokens`).
  *   9. Layered assembly in the fixed declared order.
@@ -168,8 +174,18 @@
  *      and finalized at the end.
  */
 import { randomBytes } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
-import { agentDefinitions, artifacts, capabilities, goals, runs, taskInstances, toolBindings, workflowRuns } from "../db/schema.js";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import {
+  agentDefinitions,
+  artifacts,
+  capabilities,
+  capabilityGrants,
+  goals,
+  runs,
+  taskInstances,
+  toolBindings,
+  workflowRuns,
+} from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { estimateTokens } from "./tokenEstimate.js";
 import type {
@@ -178,6 +194,7 @@ import type {
   ContextBudget,
   ContextCandidate,
   ExclusionReason,
+  IncludedProvenance,
 } from "./types.js";
 
 type ArtifactRow = typeof artifacts.$inferSelect;
@@ -254,10 +271,10 @@ function trustedArtifactHeader(artifactId: string, mode: "content" | "ref"): str
   return `[artifact:${artifactId} mode=${mode}]\n`;
 }
 
+type RunRow = typeof runs.$inferSelect;
+
 /** Spec §5.14 layer 1: the bound Agent Definition's role, objective and instructions. Trusted configuration. */
-async function resolveInstructions(tx: DrizzleTransaction, runId: string | undefined): Promise<string> {
-  if (!runId) return "";
-  const run = await tx.query.runs.findFirst({ where: eq(runs.id, runId) });
+async function resolveInstructions(tx: DrizzleTransaction, run: RunRow | undefined): Promise<string> {
   if (!run?.agentDefinitionId || run.agentDefinitionVersion === null) return "";
   const agent = await tx.query.agentDefinitions.findFirst({
     where: and(eq(agentDefinitions.id, run.agentDefinitionId), eq(agentDefinitions.version, run.agentDefinitionVersion)),
@@ -281,6 +298,32 @@ async function resolveTaskState(tx: DrizzleTransaction, taskInstanceRow: typeof 
   const goal = workflowRun ? await tx.query.goals.findFirst({ where: eq(goals.id, workflowRun.goalId) }) : undefined;
   if (!goal) return JSON.stringify(input);
   return JSON.stringify({ goal: { title: goal.title, description: goal.description }, input });
+}
+
+/**
+ * Spec §5.7 / §5.18: tool schemas start from the bound Agent's Capability
+ * Grants. A capability is authorized for context when the Run's Agent
+ * Definition version holds an unrevoked Grant for it with at least one
+ * permission: the same row filter `resolveCapabilityGrant` applies, without
+ * naming a permission, because a schema describes a tool rather than using it.
+ * Fails closed: no Run, or no bound Agent, authorizes nothing. Every actual use
+ * is still authorized separately through Policy at execution time.
+ */
+async function resolveGrantedCapabilityIds(
+  tx: DrizzleTransaction,
+  run: RunRow | undefined,
+  capabilityIds: string[]
+): Promise<Set<string>> {
+  if (!run?.agentDefinitionId || run.agentDefinitionVersion === null || capabilityIds.length === 0) return new Set();
+  const grants = await tx.query.capabilityGrants.findMany({
+    where: and(
+      eq(capabilityGrants.agentDefinitionId, run.agentDefinitionId),
+      eq(capabilityGrants.agentDefinitionVersion, run.agentDefinitionVersion),
+      inArray(capabilityGrants.capabilityId, Array.from(new Set(capabilityIds))),
+      isNull(capabilityGrants.revokedAt)
+    ),
+  });
+  return new Set(grants.filter((g) => Array.isArray(g.permissions) && g.permissions.length > 0).map((g) => g.capabilityId));
 }
 
 export type ResolvedArtifactCandidate = {
@@ -355,7 +398,6 @@ async function resolveOrThrow<Row extends { id: string }>(
   return byId;
 }
 
-type IncludedEntry = { id: string; tier: number };
 type ExcludedEntry = { id: string; reason: ExclusionReason };
 
 export async function compileContext(
@@ -385,7 +427,18 @@ export async function compileContext(
     (uniqueIds) => tx.query.capabilities.findMany({ where: inArray(capabilities.id, uniqueIds) })
   );
 
-  const included: IncludedEntry[] = [];
+  // The Run supplies instructions and bounds tool schemas by its Grants, so a Run
+  // of a different Task Instance must not be usable to borrow another Agent's.
+  let runRow: RunRow | undefined;
+  if (runId) {
+    runRow = await tx.query.runs.findFirst({ where: eq(runs.id, runId) });
+    if (!runRow || runRow.taskInstanceId !== taskInstanceId) {
+      throw new Error(`compileContext: runId "${runId}" does not resolve to a Run of taskInstanceId "${taskInstanceId}".`);
+    }
+  }
+  const grantedCapabilityIds = await resolveGrantedCapabilityIds(tx, runRow, candidateToolCapabilityIds);
+
+  const included: IncludedProvenance[] = [];
   const excluded: ExcludedEntry[] = [];
 
   // --- Step 4: tier-1 task_state candidate — unconditionally eligible ---
@@ -394,7 +447,7 @@ export async function compileContext(
   const taskStateTokens = estimateTokens(taskStateText);
   // Instructions are as required as the task's own state: both count toward the
   // budget, and together they are what tier 1 may never be truncated for.
-  const instructionsText = await resolveInstructions(tx, runId);
+  const instructionsText = await resolveInstructions(tx, runRow);
   const instructionsTokens = estimateTokens(instructionsText);
   if (taskStateTokens + instructionsTokens > budget.maxInputTokens) {
     throw new ContextBudgetError(
@@ -416,9 +469,16 @@ export async function compileContext(
 
   // --- Step 5: tier-2 artifact candidates (dedup, staleness, ref-vs-content, per-artifact cap) ---
 
-  type PreparedArtifact = { candidate: ContextCandidate; kind: "artifact_ref" | "artifact_content"; text: string };
+  type PreparedArtifact = {
+    candidate: ContextCandidate;
+    kind: "artifact_ref" | "artifact_content";
+    text: string;
+    version: number;
+    hash: string;
+  };
   const preparedArtifacts: PreparedArtifact[] = [];
   const seenArtifactIds = new Set<string>();
+  const seenArtifactHashes = new Set<string>();
 
   const freshnessRequirementMs =
     budget.freshnessRequirementSeconds > 0 ? budget.freshnessRequirementSeconds * 1000 : null;
@@ -440,6 +500,14 @@ export async function compileContext(
       }
     }
 
+    // Spec §5.10: the same content under a different artifact id is a duplicate
+    // too. The first surviving occurrence is the caller's highest-priority one.
+    if (seenArtifactHashes.has(row.hash)) {
+      excluded.push({ id, reason: "duplicate" });
+      continue;
+    }
+    seenArtifactHashes.add(row.hash);
+
     const resolved = decideArtifactMode(row, budget);
     if (resolved.estimatedTokens > budget.maxArtifactTokens) {
       // Neither mode fits under the per-artifact cap: nothing usable to include.
@@ -458,6 +526,8 @@ export async function compileContext(
       },
       kind: resolved.kind,
       text: resolved.text,
+      version: row.version,
+      hash: row.hash,
     });
   }
 
@@ -488,6 +558,11 @@ export async function compileContext(
     }
     seenCapabilityIds.add(id);
 
+    if (!grantedCapabilityIds.has(id)) {
+      excluded.push({ id, reason: "unauthorized" });
+      continue;
+    }
+
     const capabilityRow = capabilityRowById.get(id)!; // guaranteed to exist
 
     const bindingRows: ToolBindingRow[] = (
@@ -499,12 +574,15 @@ export async function compileContext(
       continue;
     }
 
+    // The minimal schema variant (spec §5.7). A binding's `config` is adapter
+    // configuration that may name endpoints or credentials, so it never enters
+    // context.
     const entries: Record<string, unknown>[] = bindingRows.map((binding) => ({
       capabilityId: id,
       capabilityName: capabilityRow.name,
+      description: capabilityRow.description,
       toolBindingId: binding.id,
       kind: binding.kind,
-      config: binding.config,
     }));
     const tokens = estimateTokens(JSON.stringify(entries));
 
@@ -526,7 +604,7 @@ export async function compileContext(
   let runningTotal = 0;
 
   // Tier 1: always included (its fit was checked up front, with instructions).
-  included.push({ id: taskStateCandidate.id, tier: 1 });
+  included.push({ id: taskStateCandidate.id, tier: 1, kind: "task_state", trusted: true, estimatedTokens: taskStateTokens });
   runningTotal += taskStateCandidate.estimatedTokens + instructionsTokens;
 
   // Tier 2: greedy, in caller-supplied array order (already reflected by
@@ -549,7 +627,15 @@ export async function compileContext(
       packedArtifacts.push(a);
       runningTotal += cost;
       if (policyTokens > 0) policyCounted = true;
-      included.push({ id: a.candidate.id, tier: 2 });
+      included.push({
+        id: a.candidate.id,
+        tier: 2,
+        kind: a.kind,
+        trusted: a.candidate.trusted,
+        estimatedTokens: cost,
+        version: a.version,
+        hash: a.hash,
+      });
     } else {
       excluded.push({ id: a.candidate.id, reason: "budget" });
     }
@@ -566,7 +652,7 @@ export async function compileContext(
       packedToolSchemas.push(t);
       runningTotal += tokens;
       toolSchemaRunningTotal += tokens;
-      included.push({ id: t.candidate.id, tier: 3 });
+      included.push({ id: t.candidate.id, tier: 3, kind: "tool_schema", trusted: true, estimatedTokens: tokens });
     } else {
       excluded.push({ id: t.candidate.id, reason: "budget" });
     }

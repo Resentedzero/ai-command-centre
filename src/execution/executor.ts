@@ -683,7 +683,10 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
         included: compiledContext.provenance.included,
         excluded: compiledContext.provenance.excluded,
         instructionsPresent: compiledContext.layers.instructions.length > 0,
-        untrustedDataFenced: /<untrusted_data_[0-9a-f]+\b/.test(compiledContext.layers.artifacts),
+        // The constraints layer is non-empty exactly when the Compiler fenced
+        // untrusted data. Matching the fence text in the artifacts layer instead
+        // was fooled by a trusted artifact that merely contains such a tag.
+        untrustedDataFenced: compiledContext.layers.constraints.length > 0,
       },
     });
   } catch (error) {

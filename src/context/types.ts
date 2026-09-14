@@ -26,6 +26,21 @@ export type ContextCandidate = {
 
 export type ExclusionReason = "budget" | "stale" | "duplicate" | "irrelevant" | "unauthorized";
 
+/**
+ * One included candidate's lineage (spec §5.13, extended 2026-09-14): what it
+ * was, whether it was trusted, what it added to the prompt (framing included),
+ * and for an artifact the exact version and content hash that went in.
+ */
+export type IncludedProvenance = {
+  id: string;
+  tier: number;
+  kind: ContextCandidateKind;
+  trusted: boolean;
+  estimatedTokens: number;
+  version?: number;
+  hash?: string;
+};
+
 export type CompiledContext = {
   layers: {
     instructions: string;
@@ -36,7 +51,7 @@ export type CompiledContext = {
     toolSchemas: Record<string, unknown>[];
   };
   provenance: {
-    included: { id: string; tier: number }[];
+    included: IncludedProvenance[];
     excluded: { id: string; reason: ExclusionReason }[];
   };
   estimatedInputTokens: number;
@@ -54,7 +69,9 @@ export type CompileContextInput = {
   /**
    * The Run this compilation serves (added 2026-09-14). Its bound Agent
    * Definition supplies the instructions layer (spec §5.14 layer 1: system/role
-   * instructions). Optional: without it the instructions layer is empty.
+   * instructions), and its Capability Grants bound which tool schemas may be
+   * included (§5.7). Optional: without it the instructions layer is empty and
+   * every tool schema is excluded as `unauthorized`.
    */
   runId?: string;
   candidateArtifactIds: string[];

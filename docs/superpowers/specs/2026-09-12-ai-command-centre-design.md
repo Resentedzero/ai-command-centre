@@ -457,6 +457,17 @@ enforcement point.
 > - **Not built:** compression (§5.9), caching (§5.11) and relevance scoring
 >   (§5.3).
 
+> **Implementation note (2026-09-14, later): authorization, minimal schemas,
+> hash dedup, provenance.** The authoritative write-up is
+> `docs/architecture/CONTEXT_COMPILER.md`.
+> - **§5.7 / §5.18.** A tool schema enters context only if the Run's Agent
+>   Definition version holds an unrevoked Grant for its capability. With no Run,
+>   every tool schema is excluded `unauthorized`.
+> - **§5.7 minimal variant.** Schema entries carry no Tool Binding `config`.
+> - **§5.10.** Artifacts are also deduplicated by content hash.
+> - **§5.13.** Included entries record kind, trust, tokens added, and artifact
+>   version and hash.
+
 ### 5.16 Measuring context efficiency
 
 Per Invocation, recorded as Event data: input tokens included, cache hit/miss per

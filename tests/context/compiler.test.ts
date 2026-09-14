@@ -89,6 +89,7 @@ async function seedArtifact(
     storageReference: string | null;
     producingInvocationId: string | null;
     createdAt: Date;
+    hash: string;
   }> = {}
 ) {
   const [row] = await tx
@@ -96,7 +97,7 @@ async function seedArtifact(
     .values({
       type: "text",
       version: 1,
-      hash: "hash-" + randomUUID(),
+      hash: overrides.hash ?? "hash-" + randomUUID(),
       size: 10,
       inlineContent: "inlineContent" in overrides ? overrides.inlineContent! : "default-content",
       summary: overrides.summary ?? null,
@@ -129,6 +130,33 @@ async function seedCapability(tx: DrizzleTransaction, opts: { bindings?: number 
     bindings.push(binding!);
   }
   return { capability: capability!, bindings };
+}
+
+/**
+ * A Run of `taskInstanceId` whose bound Agent Definition holds an unrevoked
+ * Grant for each of `capabilityIds` — what a tool schema needs to be eligible
+ * (spec 5.7). `instructionsTokens` is what that Agent's instructions layer adds.
+ */
+async function seedGrantedRun(tx: DrizzleTransaction, taskInstanceId: string, capabilityIds: string[]) {
+  const [agent] = await tx
+    .insert(schema.agentDefinitions)
+    .values({ name: "a-" + randomUUID(), version: 1, role: "r", objective: "o", instructions: "i" })
+    .returning();
+  const [run] = await tx
+    .insert(schema.runs)
+    .values({ taskInstanceId, status: "active", agentDefinitionId: agent!.id, agentDefinitionVersion: 1 })
+    .returning();
+  for (const capabilityId of capabilityIds) {
+    await tx.insert(schema.capabilityGrants).values({
+      agentDefinitionId: agent!.id,
+      agentDefinitionVersion: 1,
+      capabilityId,
+      permissions: ["EXECUTE"],
+      maxTrustLevelRequired: 1,
+      autonomyState: "ALLOW",
+    });
+  }
+  return { run: run!, agent: agent!, instructionsTokens: estimateTokens("Role: r\nObjective: o\n\ni") };
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +261,7 @@ describe("tier-1 task state", () => {
         candidateToolCapabilityIds: [],
         budget: defaultBudget({ maxInputTokens: taskStateTokens }),
       });
-      expect(result.provenance.included).toContainEqual({ id: taskInstance.id, tier: 1 });
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: taskInstance.id, tier: 1 }));
       expect(result.provenance.excluded).toContainEqual({ id: artifact.id, reason: "budget" });
       expect(result.estimatedInputTokens).toBe(taskStateTokens);
     });
@@ -350,7 +378,7 @@ describe("greedy packing order", () => {
         budget,
       });
 
-      expect(result.provenance.included).toContainEqual({ id: artifactB.id, tier: 2 });
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: artifactB.id, tier: 2 }));
       expect(result.provenance.excluded).toContainEqual({ id: artifactA.id, reason: "budget" });
       expect(result.layers.artifacts).toContain("B".repeat(10));
       expect(result.layers.artifacts).not.toContain("A".repeat(10));
@@ -385,27 +413,26 @@ describe("greedy packing order", () => {
       const taskInstance = await seedTaskInstance(tx);
       const artifact = await seedArtifact(tx, { inlineContent: "Z".repeat(200) }); // 50 tokens
       const { capability } = await seedCapability(tx);
-      const toolTokens = estimateTokens(
-        JSON.stringify([{ capabilityId: capability.id, capabilityName: capability.name, toolBindingId: "x", kind: "internal", config: { foo: "bar", i: 0 } }])
-      );
+      const { run, instructionsTokens } = await seedGrantedRun(tx, taskInstance.id, [capability.id]);
 
       const taskTokens = estimateTokens("{}");
-      // Enough room for task state + ONE of {artifact (with its header), tool schema}, not both.
+      // Enough room for task state + instructions + ONE of {artifact (with its header), tool schema}, not both.
       const framingTokens = estimateTokens(`[artifact:${artifact.id} mode=content]\n`);
       const budget = defaultBudget({
-        maxInputTokens: taskTokens + 50 + framingTokens,
-        maxToolSchemaTokens: Math.max(toolTokens, 50) + 10, // not the limiting factor here
+        maxInputTokens: taskTokens + instructionsTokens + 50 + framingTokens,
+        maxToolSchemaTokens: 1_000, // not the limiting factor here
       });
 
       const result = await compileContext(tx, {
         intent: "classify",
         taskInstanceId: taskInstance.id,
+        runId: run.id,
         candidateArtifactIds: [artifact.id],
         candidateToolCapabilityIds: [capability.id],
         budget,
       });
 
-      expect(result.provenance.included).toContainEqual({ id: artifact.id, tier: 2 });
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: artifact.id, tier: 2 }));
       expect(result.provenance.excluded).toContainEqual({ id: capability.id, reason: "budget" });
     });
   });
@@ -483,7 +510,7 @@ describe("reference-vs-content threshold, end to end", () => {
       expect(result.layers.artifacts).toContain("filesystem-backed summary");
 
       for (const a of [small, oversized, filesystemOnly]) {
-        expect(result.provenance.included).toContainEqual({ id: a.id, tier: 2 });
+        expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: a.id, tier: 2 }));
       }
     });
   });
@@ -528,7 +555,7 @@ describe("deduplication", () => {
       });
 
       const includedForArtifact = result.provenance.included.filter((e) => e.id === artifact.id);
-      expect(includedForArtifact).toEqual([{ id: artifact.id, tier: 2 }]);
+      expect(includedForArtifact).toEqual([expect.objectContaining({ id: artifact.id, tier: 2 })]);
       expect(result.provenance.excluded).toContainEqual({ id: artifact.id, reason: "duplicate" });
     });
   });
@@ -537,18 +564,41 @@ describe("deduplication", () => {
     await withRollback(async (tx) => {
       const taskInstance = await seedTaskInstance(tx);
       const { capability } = await seedCapability(tx);
+      const { run } = await seedGrantedRun(tx, taskInstance.id, [capability.id]);
 
       const result = await compileContext(tx, {
         intent: "classify",
         taskInstanceId: taskInstance.id,
+        runId: run.id,
         candidateArtifactIds: [],
         candidateToolCapabilityIds: [capability.id, capability.id],
         budget: defaultBudget(),
       });
 
       const includedForCap = result.provenance.included.filter((e) => e.id === capability.id);
-      expect(includedForCap).toEqual([{ id: capability.id, tier: 3 }]);
+      expect(includedForCap).toEqual([expect.objectContaining({ id: capability.id, tier: 3 })]);
       expect(result.provenance.excluded).toContainEqual({ id: capability.id, reason: "duplicate" });
+    });
+  });
+
+  it("excludes a second artifact with the same content hash as duplicate (spec 5.10), keeping the first in caller order", async () => {
+    await withRollback(async (tx) => {
+      const taskInstance = await seedTaskInstance(tx);
+      const hash = "hash-" + randomUUID();
+      const first = await seedArtifact(tx, { inlineContent: "same-bytes", hash });
+      const second = await seedArtifact(tx, { inlineContent: "same-bytes", hash });
+
+      const result = await compileContext(tx, {
+        intent: "classify",
+        taskInstanceId: taskInstance.id,
+        candidateArtifactIds: [second.id, first.id],
+        candidateToolCapabilityIds: [],
+        budget: defaultBudget(),
+      });
+
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: second.id, tier: 2 }));
+      expect(result.provenance.excluded).toContainEqual({ id: first.id, reason: "duplicate" });
+      expect(result.layers.artifacts.split("same-bytes")).toHaveLength(2);
     });
   });
 });
@@ -595,7 +645,7 @@ describe("freshness / staleness", () => {
         budget: defaultBudget({ freshnessRequirementSeconds: 0 }),
       });
 
-      expect(result.provenance.included).toContainEqual({ id: old.id, tier: 2 });
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: old.id, tier: 2 }));
       expect(result.provenance.excluded.find((e) => e.id === old.id)).toBeUndefined();
     });
   });
@@ -621,8 +671,8 @@ describe("maxRetrievedItems", () => {
         budget: defaultBudget({ maxRetrievedItems: 2, maxInputTokens: 100_000 }),
       });
 
-      expect(result.provenance.included).toContainEqual({ id: a1.id, tier: 2 });
-      expect(result.provenance.included).toContainEqual({ id: a2.id, tier: 2 });
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: a1.id, tier: 2 }));
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: a2.id, tier: 2 }));
       expect(result.provenance.excluded).toContainEqual({ id: a3.id, reason: "budget" });
     });
   });
@@ -637,10 +687,12 @@ describe("tool_schema candidates", () => {
     await withRollback(async (tx) => {
       const taskInstance = await seedTaskInstance(tx);
       const { capability } = await seedCapability(tx, { bindings: 0 });
+      const { run } = await seedGrantedRun(tx, taskInstance.id, [capability.id]);
 
       const result = await compileContext(tx, {
         intent: "classify",
         taskInstanceId: taskInstance.id,
+        runId: run.id,
         candidateArtifactIds: [],
         candidateToolCapabilityIds: [capability.id],
         budget: defaultBudget(),
@@ -651,28 +703,30 @@ describe("tool_schema candidates", () => {
     });
   });
 
-  it("produces one toolSchemas entry per binding, with the documented shape", async () => {
+  it("produces one toolSchemas entry per binding, in the minimal documented shape (no binding config)", async () => {
     await withRollback(async (tx) => {
       const taskInstance = await seedTaskInstance(tx);
       const { capability, bindings } = await seedCapability(tx, { bindings: 1 });
       const binding = bindings[0]!;
+      const { run } = await seedGrantedRun(tx, taskInstance.id, [capability.id]);
 
       const result = await compileContext(tx, {
         intent: "classify",
         taskInstanceId: taskInstance.id,
+        runId: run.id,
         candidateArtifactIds: [],
         candidateToolCapabilityIds: [capability.id],
         budget: defaultBudget(),
       });
 
-      expect(result.provenance.included).toContainEqual({ id: capability.id, tier: 3 });
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: capability.id, tier: 3 }));
       expect(result.layers.toolSchemas).toEqual([
         {
           capabilityId: capability.id,
           capabilityName: capability.name,
+          description: "fixture capability",
           toolBindingId: binding.id,
           kind: binding.kind,
-          config: binding.config,
         },
       ]);
     });
@@ -683,6 +737,7 @@ describe("tool_schema candidates", () => {
       const taskInstance = await seedTaskInstance(tx);
       const { capability: cheapCap } = await seedCapability(tx, { bindings: 1 });
       const { capability: expensiveCap } = await seedCapability(tx, { bindings: 1 });
+      const { run } = await seedGrantedRun(tx, taskInstance.id, [cheapCap.id, expensiveCap.id]);
 
       // Compute actual sizes so the budget can be set precisely relative to
       // them. Re-estimating tokens from `probe.layers.toolSchemas` (the
@@ -694,6 +749,7 @@ describe("tool_schema candidates", () => {
       const probe = await compileContext(tx, {
         intent: "classify",
         taskInstanceId: taskInstance.id,
+        runId: run.id,
         candidateArtifactIds: [],
         candidateToolCapabilityIds: [cheapCap.id],
         budget: defaultBudget({ maxToolSchemaTokens: 1_000_000, maxInputTokens: 1_000_000 }),
@@ -703,13 +759,121 @@ describe("tool_schema candidates", () => {
       const result = await compileContext(tx, {
         intent: "classify",
         taskInstanceId: taskInstance.id,
+        runId: run.id,
         candidateArtifactIds: [],
         candidateToolCapabilityIds: [cheapCap.id, expensiveCap.id],
         budget: defaultBudget({ maxToolSchemaTokens: cheapTokens, maxInputTokens: 1_000_000 }),
       });
 
-      expect(result.provenance.included).toContainEqual({ id: cheapCap.id, tier: 3 });
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: cheapCap.id, tier: 3 }));
       expect(result.provenance.excluded).toContainEqual({ id: expensiveCap.id, reason: "budget" });
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool-schema authorization (spec 5.7 / 5.18): context never widens what the
+// Run's Agent may use, and binding configuration never enters context.
+// ---------------------------------------------------------------------------
+
+describe("tool-schema authorization", () => {
+  it("fails closed: with no runId every tool schema is excluded as unauthorized", async () => {
+    await withRollback(async (tx) => {
+      const taskInstance = await seedTaskInstance(tx);
+      const { capability } = await seedCapability(tx);
+
+      const result = await compileContext(tx, {
+        intent: "classify",
+        taskInstanceId: taskInstance.id,
+        candidateArtifactIds: [],
+        candidateToolCapabilityIds: [capability.id],
+        budget: defaultBudget(),
+      });
+
+      expect(result.provenance.excluded).toContainEqual({ id: capability.id, reason: "unauthorized" });
+      expect(result.layers.toolSchemas).toEqual([]);
+    });
+  });
+
+  it("includes only capabilities the Run's Agent version holds an unrevoked, non-empty Grant for", async () => {
+    await withRollback(async (tx) => {
+      const taskInstance = await seedTaskInstance(tx);
+      const { capability: granted } = await seedCapability(tx);
+      const { capability: ungranted } = await seedCapability(tx);
+      const { capability: revoked } = await seedCapability(tx);
+      const { capability: otherVersion } = await seedCapability(tx);
+      const { capability: noPermissions } = await seedCapability(tx);
+      const { run, agent } = await seedGrantedRun(tx, taskInstance.id, [granted.id]);
+      const grant = { agentDefinitionId: agent.id, maxTrustLevelRequired: 1, autonomyState: "ALLOW" };
+      await tx.insert(schema.capabilityGrants).values([
+        { ...grant, agentDefinitionVersion: 1, capabilityId: revoked.id, permissions: ["EXECUTE"], revokedAt: new Date() },
+        { ...grant, agentDefinitionVersion: 2, capabilityId: otherVersion.id, permissions: ["EXECUTE"] },
+        { ...grant, agentDefinitionVersion: 1, capabilityId: noPermissions.id, permissions: [] },
+      ]);
+
+      const result = await compileContext(tx, {
+        intent: "classify",
+        taskInstanceId: taskInstance.id,
+        runId: run.id,
+        candidateArtifactIds: [],
+        candidateToolCapabilityIds: [granted.id, ungranted.id, revoked.id, otherVersion.id, noPermissions.id],
+        budget: defaultBudget(),
+      });
+
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: granted.id, tier: 3 }));
+      for (const c of [ungranted, revoked, otherVersion, noPermissions]) {
+        expect(result.provenance.excluded).toContainEqual({ id: c.id, reason: "unauthorized" });
+      }
+      expect(result.layers.toolSchemas.map((e) => e.capabilityId)).toEqual([granted.id]);
+    });
+  });
+
+  it("rejects a runId that belongs to a different Task Instance (no borrowing another Agent's Grants)", async () => {
+    await withRollback(async (tx) => {
+      const taskInstance = await seedTaskInstance(tx);
+      const otherTaskInstance = await seedTaskInstance(tx);
+      const { capability } = await seedCapability(tx);
+      const { run } = await seedGrantedRun(tx, otherTaskInstance.id, [capability.id]);
+
+      await expect(
+        compileContext(tx, {
+          intent: "classify",
+          taskInstanceId: taskInstance.id,
+          runId: run.id,
+          candidateArtifactIds: [],
+          candidateToolCapabilityIds: [capability.id],
+          budget: defaultBudget(),
+        })
+      ).rejects.toThrow(/runId/);
+    });
+  });
+
+  it("never places a Tool Binding's config anywhere in the compiled context", async () => {
+    await withRollback(async (tx) => {
+      const taskInstance = await seedTaskInstance(tx);
+      const { capability } = await seedCapability(tx, { bindings: 0 });
+      await tx.insert(schema.toolBindings).values({
+        capabilityId: capability.id,
+        kind: "direct_api",
+        config: { endpoint: "https://CONFIG_ENDPOINT_CANARY", apiKey: "CONFIG_SECRET_CANARY" },
+        trustLevel: 1,
+        version: 1,
+      });
+      const { run } = await seedGrantedRun(tx, taskInstance.id, [capability.id]);
+
+      const result = await compileContext(tx, {
+        intent: "classify",
+        taskInstanceId: taskInstance.id,
+        runId: run.id,
+        candidateArtifactIds: [],
+        candidateToolCapabilityIds: [capability.id],
+        budget: defaultBudget(),
+      });
+
+      expect(result.layers.toolSchemas).toHaveLength(1);
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain("CONFIG_SECRET_CANARY");
+      expect(serialized).not.toContain("CONFIG_ENDPOINT_CANARY");
     });
   });
 });
@@ -753,7 +917,7 @@ describe("untrusted-candidate handling", () => {
       expect(result.layers.instructions).not.toContain("UNTRUSTED-MARKER-XYZ");
       expect(result.layers.constraints).toBe(untrustedDataPolicy(tag));
       expect(result.layers.constraints).not.toContain("UNTRUSTED-MARKER-XYZ");
-      expect(result.provenance.included).toContainEqual({ id: untrusted.id, tier: 2 });
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: untrusted.id, tier: 2 }));
     });
   });
 
@@ -881,13 +1045,16 @@ describe("provenance completeness", () => {
         createdAt: new Date(Date.now() - 1000 * 1000),
       });
       const { capability: irrelevantCap } = await seedCapability(tx, { bindings: 0 });
+      const { capability: unauthorizedCap } = await seedCapability(tx);
+      const { run } = await seedGrantedRun(tx, taskInstance.id, [irrelevantCap.id]);
 
       const candidateArtifactIdsUsed = [included1.id, duplicate.id, duplicate.id, stale.id];
-      const candidateToolCapabilityIdsUsed = [irrelevantCap.id];
+      const candidateToolCapabilityIdsUsed = [irrelevantCap.id, unauthorizedCap.id];
 
       const result = await compileContext(tx, {
         intent: "classify",
         taskInstanceId: taskInstance.id,
+        runId: run.id,
         candidateArtifactIds: candidateArtifactIdsUsed,
         candidateToolCapabilityIds: candidateToolCapabilityIdsUsed,
         budget: defaultBudget({ freshnessRequirementSeconds: 60 }),
@@ -902,19 +1069,15 @@ describe("provenance completeness", () => {
       expect(excludedById.get(duplicate.id)).toBe("duplicate");
       expect(excludedById.get(stale.id)).toBe("stale");
       expect(excludedById.get(irrelevantCap.id)).toBe("irrelevant");
+      expect(excludedById.get(unauthorizedCap.id)).toBe("unauthorized");
 
-      expect(result.provenance.included).toContainEqual({ id: taskInstance.id, tier: 1 });
-      expect(result.provenance.included).toContainEqual({ id: included1.id, tier: 2 });
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: taskInstance.id, tier: 1 }));
+      expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: included1.id, tier: 2 }));
 
       // Stronger "never silent" accounting: every candidate id — counting
       // each occurrence in the caller-supplied arrays, plus the one implicit
       // tier-1 task_state candidate — appears in exactly one of
       // included/excluded. Nothing is silently dropped without a record.
-      // (Note: "unauthorized" is a declared ExclusionReason this unit never
-      // produces — authorization is Unit 2/3's concern, which this
-      // dependency-free unit does not import — so it never appears above;
-      // it remains in `validReasons` only because it's part of the frozen
-      // `ExclusionReason` type.)
       const totalCandidateOccurrences = 1 + candidateArtifactIdsUsed.length + candidateToolCapabilityIdsUsed.length;
       expect(result.provenance.included.length + result.provenance.excluded.length).toBe(
         totalCandidateOccurrences
@@ -933,10 +1096,12 @@ describe("estimatedInputTokens", () => {
       const taskInstance = await seedTaskInstance(tx, { foo: "bar" });
       const artifact = await seedArtifact(tx, { inlineContent: "some-content-here" });
       const { capability, bindings } = await seedCapability(tx, { bindings: 1 });
+      const { run, instructionsTokens } = await seedGrantedRun(tx, taskInstance.id, [capability.id]);
 
       const result = await compileContext(tx, {
         intent: "classify",
         taskInstanceId: taskInstance.id,
+        runId: run.id,
         candidateArtifactIds: [artifact.id],
         candidateToolCapabilityIds: [capability.id],
         budget: defaultBudget(),
@@ -949,9 +1114,9 @@ describe("estimatedInputTokens", () => {
           {
             capabilityId: capability.id,
             capabilityName: capability.name,
+            description: capability.description,
             toolBindingId: bindings[0]!.id,
             kind: bindings[0]!.kind,
-            config: bindings[0]!.config,
           },
         ])
       );
@@ -960,8 +1125,27 @@ describe("estimatedInputTokens", () => {
       const expectedFramingTokens = estimateTokens(`[artifact:${artifact.id} mode=content]\n`);
 
       expect(result.estimatedInputTokens).toBe(
-        expectedTaskTokens + expectedArtifactTokens + expectedFramingTokens + expectedToolTokens
+        instructionsTokens + expectedTaskTokens + expectedArtifactTokens + expectedFramingTokens + expectedToolTokens
       );
+
+      // Provenance (spec 5.13) records what each entry added, and which artifact
+      // version and content went in; the entries plus instructions account for
+      // the whole estimate.
+      expect(result.provenance.included).toEqual([
+        { id: taskInstance.id, tier: 1, kind: "task_state", trusted: true, estimatedTokens: expectedTaskTokens },
+        {
+          id: artifact.id,
+          tier: 2,
+          kind: "artifact_content",
+          trusted: true,
+          estimatedTokens: expectedArtifactTokens + expectedFramingTokens,
+          version: artifact.version,
+          hash: artifact.hash,
+        },
+        { id: capability.id, tier: 3, kind: "tool_schema", trusted: true, estimatedTokens: expectedToolTokens },
+      ]);
+      const provenanceTotal = result.provenance.included.reduce((sum, e) => sum + e.estimatedTokens, 0);
+      expect(provenanceTotal + instructionsTokens).toBe(result.estimatedInputTokens);
     });
   });
 });

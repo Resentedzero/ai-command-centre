@@ -1499,7 +1499,7 @@ describe("persistInvocationResultAsArtifact integration with compileContext (Uni
         },
       });
 
-      expect(compiled.provenance.included).toContainEqual({ id: artifact!.id, tier: 2 });
+      expect(compiled.provenance.included).toContainEqual(expect.objectContaining({ id: artifact!.id, tier: 2 }));
       expect(compiled.layers.artifacts).toContain(JSON.stringify({ hello: "world" }));
     });
   });
