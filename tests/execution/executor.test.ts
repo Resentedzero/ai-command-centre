@@ -1551,6 +1551,34 @@ describe("persistInvocationResultAsArtifact integration with compileContext (Uni
     });
   });
 
+  it("invocation_completed records which included artifacts the output referenced by id, deterministically (spec §5.16, Phase 20 #8)", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx);
+      const artifact = async (text: string) =>
+        (await tx.insert(schema.artifacts).values({ type: "text", version: 1, hash: "hash-" + randomUUID(), size: 10, inlineContent: text }).returning())[0]!;
+      const cited = await artifact("the cited notes");
+      const ignored = await artifact("notes nobody cited");
+      vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
+        // Upper case: ids are matched case-insensitively.
+        result: { answer: `per artifact ${cited.id.toUpperCase()}` },
+        usage: { tokensIn: 5, tokensOut: 5, costAmount: 10, costUnit: "subscription_tokens" },
+      });
+      await executeRun(tx, runId, [buildLlmSpec({ candidateArtifactIds: [cited.id, ignored.id] })]);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const compiled = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `context_compiled:${invocation!.id}`) });
+      const tokensOf = (id: string) =>
+        (compiled!.payload as { included: { id: string; estimatedTokens: number }[] }).included.find((e) => e.id === id)!.estimatedTokens;
+      const completed = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `invocation_completed:${invocation!.id}`) });
+      expect((completed!.payload as Record<string, unknown>).artifactReferences).toEqual({
+        includedArtifactIds: [cited.id, ignored.id],
+        referencedArtifactIds: [cited.id],
+        includedArtifactTokens: tokensOf(cited.id) + tokensOf(ignored.id),
+        referencedArtifactTokens: tokensOf(cited.id),
+      });
+    });
+  });
+
   it("context_compiled.untrustedDataFenced is false for a trusted artifact whose text merely looks like a fence", async () => {
     await withRollback(async (tx) => {
       const { runId } = await seedGenericRunFixture(tx);

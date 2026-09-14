@@ -15,11 +15,12 @@
  *
  * Correctness/ordering: publishing happens only after `db.transaction` has
  * resolved, so a subscriber never sees an event Postgres does not durably hold.
- * A failure in the relay itself is logged and swallowed — the mutation already
- * committed. Postgres holds the events, but a connected subscriber may never see
- * them: it reconnects from the highest cursor it received, which can already be
- * past them. A page reload (cursor 0) or a projection query shows them
- * (ROADMAP_STATUS §5a, the SSE cursor residual).
+ * A failure in the relay itself is logged, never thrown — the mutation already
+ * committed — and ends every open stream (`signalLiveDeliveryGap`), so each
+ * client reconnects and replays from the highest cursor it received. That
+ * recovers the unpublished events unless the client already holds a higher
+ * cursor from a concurrent commit; then a page reload (cursor 0) or a projection
+ * query shows them (ROADMAP_STATUS §5a, the SSE cursor residual).
  *
  * ---------------------------------------------------------------------------
  * Why per-run watermarks (and why they cannot skip an event)
@@ -45,7 +46,7 @@ import { and, asc, desc, eq, gt, isNull, or } from "drizzle-orm";
 import { events, runs, taskInstances, workflowRuns } from "../db/schema.js";
 import type { Database } from "../db/client.js";
 import type { TransactionRunner } from "../db/transactionRunner.js";
-import { publishLiveEvent } from "./eventBus.js";
+import { publishLiveEvent, signalLiveDeliveryGap } from "./eventBus.js";
 import { rowToEventEnvelope } from "./eventEnvelopeRow.js";
 
 type Tracked = { goalId: string | null; runSeq: Map<string, number>; nullSeq: number };
@@ -150,10 +151,11 @@ export function createWorkflowRelay(db: Database): WorkflowRelay {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(
-        "liveEventRelay: post-commit relay failed. The mutation itself committed and its events are in Postgres, " +
-          "but open Activity feeds may not show them until reloaded.",
+        "liveEventRelay: post-commit relay failed. The mutation itself committed and its events are in Postgres; " +
+          "open event streams are ended so their clients replay them.",
         err
       );
+      signalLiveDeliveryGap();
     }
   }
 
@@ -177,6 +179,7 @@ export async function relayCommittedEvent(db: Database, idempotencyKey: string):
     if (row) publishLiveEvent(rowToEventEnvelope(row));
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error("liveEventRelay: failed to relay a committed event; it remains available via replay.", err);
+    console.error("liveEventRelay: failed to relay a committed event; ending open streams so clients replay it.", err);
+    signalLiveDeliveryGap();
   }
 }

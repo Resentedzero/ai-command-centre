@@ -109,7 +109,7 @@ import type { FastifyInstance } from "fastify";
 import { asc, gt } from "drizzle-orm";
 import { events } from "../../db/schema.js";
 import type { ApiDeps } from "../server.js";
-import { subscribeToLiveEvents } from "../eventBus.js";
+import { onLiveDeliveryGap, subscribeToLiveEvents } from "../eventBus.js";
 import { rowToEventEnvelope } from "../eventEnvelopeRow.js";
 import type { WireEventEnvelope } from "../eventEnvelopeRow.js";
 
@@ -204,11 +204,15 @@ export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       }
     });
 
+    // Live delivery may have missed committed events: end, and the client replays them by cursor.
+    const unsubscribeGap = onLiveDeliveryGap(() => endStream());
+
     const cleanup = () => {
       if (closed) return;
       closed = true;
       openStreams--;
       unsubscribe();
+      unsubscribeGap();
     };
     const endStream = () => {
       cleanup();

@@ -45,6 +45,8 @@ import type { EventEnvelope } from "../../src/events/types.js";
 import { publishLiveEvent } from "../../src/api/eventBus.js";
 import { rowToEventEnvelope } from "../../src/api/eventEnvelopeRow.js";
 import { buildServer } from "../../src/api/server.js";
+import { createWorkflowRelay } from "../../src/api/liveEventRelay.js";
+import type { Database } from "../../src/db/client.js";
 import { sseLimits, sseTestHooks } from "../../src/api/routes/events.js";
 
 // Fix round 2, Important #2: mocked ONLY for the new "real relay path" test
@@ -421,6 +423,34 @@ describe("GET /events/stream — resource bounds", () => {
       if (status !== 200) await res.body?.cancel();
     }
     expect(status).toBe(200);
+  });
+});
+
+describe("GET /events/stream — a failed relay ends open streams", () => {
+  it("a relay failure after a commit ends the stream, so the client reconnects and replays by cursor", async () => {
+    await seedEvents(1);
+    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=0`);
+    try {
+      await client.waitForCount(1);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const unavailable = () => {
+        throw new Error("connection lost");
+      };
+      const brokenDb = { query: { workflowRuns: { findFirst: unavailable }, events: { findMany: unavailable } } } as unknown as Database;
+      const relay = createWorkflowRelay(brokenDb);
+      await relay.track(randomUUID(), { fresh: true });
+      await relay.flush();
+
+      // Ended: the body completes, rather than waiting for a live event that will never come.
+      const ended = await Promise.race([
+        client.waitUntil(() => false).then(() => true),
+        new Promise<boolean>((r) => setTimeout(() => r(false), 3000)),
+      ]);
+      expect(ended).toBe(true);
+    } finally {
+      client.close();
+      vi.mocked(console.error).mockRestore();
+    }
   });
 });
 

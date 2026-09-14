@@ -52,7 +52,7 @@ import { reserveBudget, reconcileBudget } from "../governance/budget.js";
 import { evaluateQuotaGuardrail } from "../governance/quotaGuardrail.js";
 import { recordInvocationQuotaObservation } from "../governance/quotaTelemetry.js";
 import type { ResourceUnit } from "../governance/resourceUnit.js";
-import type { CompiledContext } from "../context/types.js";
+import type { ArtifactReferenceMeasurement, CompiledContext } from "../context/types.js";
 import {
   providerCandidates,
   type CandidateCapability,
@@ -620,7 +620,9 @@ export async function finalizeModelCall(
 export async function emitModelInvocationCompleted(
   tx: DrizzleTransaction,
   route: RouteResult,
-  providerResult: ProviderCallResult
+  providerResult: ProviderCallResult,
+  /** §5.16: which included artifacts the output referenced, measured by the Executor. */
+  artifactReferences?: ArtifactReferenceMeasurement
 ): Promise<void> {
   await emitEvent(tx, {
     idempotencyKey: `invocation_completed:${route.invocationId}`,
@@ -639,6 +641,7 @@ export async function emitModelInvocationCompleted(
     payload: {
       tier: route.tier,
       modelId: route.modelId,
+      ...(artifactReferences ? { artifactReferences } : {}),
     },
     usage: {
       tokensIn: providerResult.usage.tokensIn,

@@ -95,7 +95,7 @@ import {
   ExecutionStoppedError,
   type ActiveStop,
 } from "../governance/executionStop.js";
-import { compileContext } from "../context/compiler.js";
+import { compileContext, measureArtifactReferences } from "../context/compiler.js";
 import {
   authorizeRoute,
   emitModelInvocationCompleted,
@@ -869,7 +869,12 @@ export async function completeModelDispatch(
     );
     // Only now, with the result persisted, is the Invocation's completion a
     // fact — so exactly ONE terminal event is ever recorded for it.
-    await emitModelInvocationCompleted(tx, route, providerResult);
+    await emitModelInvocationCompleted(
+      tx,
+      route,
+      providerResult,
+      measureArtifactReferences(dispatch.compiledContext.provenance.included, providerResult.result)
+    );
     await completeInvocation(tx, { invocationId, runId, taskInstanceId, payload: { artifactId }, emitEvent: false });
     return "completed";
   } catch (error) {

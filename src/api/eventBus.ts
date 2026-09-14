@@ -61,3 +61,19 @@ export function subscribeToLiveEvents(handler: (e: WireEventEnvelope) => void): 
   emitter.on(LIVE_EVENT, handler);
   return () => emitter.off(LIVE_EVENT, handler);
 }
+
+const LIVE_GAP = "live-gap";
+
+/**
+ * Says committed events may not have been published (a relay failed after its
+ * commit). Open streams then end, so each client reconnects and replays from
+ * Postgres by the highest cursor it received, rather than never seeing them.
+ */
+export function signalLiveDeliveryGap(): void {
+  emitter.emit(LIVE_GAP);
+}
+
+export function onLiveDeliveryGap(handler: () => void): () => void {
+  emitter.on(LIVE_GAP, handler);
+  return () => emitter.off(LIVE_GAP, handler);
+}

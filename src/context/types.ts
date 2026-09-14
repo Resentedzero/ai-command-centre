@@ -41,6 +41,17 @@ export type IncludedProvenance = {
   hash?: string;
 };
 
+/**
+ * Spec §5.16 "tokens actually used", measured deterministically: which included
+ * artifacts the output references by id. Recorded on `invocation_completed`.
+ */
+export type ArtifactReferenceMeasurement = {
+  includedArtifactIds: string[];
+  referencedArtifactIds: string[];
+  includedArtifactTokens: number;
+  referencedArtifactTokens: number;
+};
+
 export type CompiledContext = {
   layers: {
     instructions: string;

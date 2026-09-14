@@ -190,6 +190,7 @@ import {
 import type { DrizzleTransaction } from "../events/emit.js";
 import { estimateTokens } from "./tokenEstimate.js";
 import type {
+  ArtifactReferenceMeasurement,
   CompiledContext,
   CompileContextInput,
   ContextBudget,
@@ -703,5 +704,25 @@ export async function compileContext(
     layers,
     provenance: { included, excluded },
     estimatedInputTokens: runningTotal,
+  };
+}
+
+/**
+ * Which included artifacts an Invocation's output references (spec §5.16; Phase 20
+ * #8: build the deterministic measurement early). An id match in the output, never a
+ * model call. Every artifact is framed with its id in the prompt, but models are not
+ * yet asked to cite, so this mostly records zero until a citation convention exists
+ * (ROADMAP_STATUS §6); that zero is the measurement.
+ */
+export function measureArtifactReferences(included: IncludedProvenance[], output: unknown): ArtifactReferenceMeasurement {
+  const text = JSON.stringify(output ?? null).toLowerCase();
+  const artifacts = included.filter((entry) => entry.kind === "artifact_ref" || entry.kind === "artifact_content");
+  const referenced = artifacts.filter((entry) => text.includes(entry.id.toLowerCase()));
+  const tokens = (entries: IncludedProvenance[]) => entries.reduce((sum, entry) => sum + entry.estimatedTokens, 0);
+  return {
+    includedArtifactIds: artifacts.map((entry) => entry.id),
+    referencedArtifactIds: referenced.map((entry) => entry.id),
+    includedArtifactTokens: tokens(artifacts),
+    referencedArtifactTokens: tokens(referenced),
   };
 }
