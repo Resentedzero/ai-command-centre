@@ -121,6 +121,12 @@ These live in the Figma "Spacing" collection; CSS names follow the same rule (`s
 
 - **Frames:** every chrome frame is a pixel bevel, meaning a 2 px `pixel/outline` around a panel with a 2 px `pixel/wood-edge` or `pixel/parchment-shade` edge. Corners are square. There are no hairline glass panels, rounded SaaS cards, drop shadows or glows.
 - **Grouping:** wood holds navigation and world tags; parchment cards hold short summaries, and long reading sits on dark vellum (see "Reading surfaces"). Buttons are bevel frames too, with a dark fill and a state-coloured edge: a dark red fill with a red edge for Stop. Solid saturated button fills are too loud.
+- **Interaction states** (component sets `PixelButton`, `PixelTab`, `PixelPlaque`, `PixelInput` on `03 — Components`):
+  - **Focus:** a 2 px cream ring (`pixel/label`, 14:1 on wood-dark) outside the outline. Every variant reserves that ring slot transparently, so focus never shifts layout. Keyboard focus is always visible; never rely on hover alone.
+  - **Hover:** one step lighter fill. **Pressed:** one step darker, and the label drops 2 px inside the same outer size.
+  - **Disabled:** wood-dark fill, wood-edge border, label-dim text, marker at 50%. No state colour, because a disabled Stop must not look armed.
+  - **Selection:** a cream edge, never a state colour, since state colours mean runtime state. A pending row that is selected shows its amber marker plus the cream edge.
+  - **Inputs:** focus is an ink edge plus the ring; an error is a red edge plus a red message on wood (5.3:1).
 - **Effects:** never put an effect on an image-filled sprite rectangle. It applies to the bounds and draws a box.
 - Group with hairlines and section labels, not with more boxes. One panel with dense rows beats a grid of cards.
 - Pixel-GUI framing (the parchment/wood panels in reference image 2) is the chrome everywhere since D19: boards, cards, plaques, buttons. No sci-fi HUD panels remain.

@@ -293,3 +293,22 @@ Built "@1440×900" and "@1280×800" variants of Overview (world-first) and Appro
 5. **Hash check below the fold at 1280×800.** "What it will act on" carries the hash check, the signal that approving will fail. It sat under the action bar. The request card now hugs its content (it had about 80 px of empty padding) and the stack gap is 16 px, so the hash row ends at 602 px of 604 and only the strip's bottom edge scrolls.
 
 **Rule recorded in `screens.md`:** world-first screens pan and narrow their board; reading-first screens stack and scroll with act-now controls pinned; the safety-relevant signal (Stop, hash match) stays above the fold. Below 1280 × 800 is not designed.
+
+## Interaction states (2026-09-14)
+
+Every pixel control had only a resting look: no hover, pressed, keyboard focus or disabled treatment. Built from the existing bevel styles as component sets on `03 — Components`:
+- **PixelButton:** neutral, danger and approve, each in default, hover, pressed, focus and disabled (15 variants).
+- **PixelTab:** inactive, hover, active, focus.
+- **PixelPlaque:** default, hover, selected, focus.
+- **PixelInput:** default, focus, error, disabled.
+
+**Decisions:**
+1. **Focus is a 2 px cream ring in a reserved slot.** Every variant carries the transparent slot, so focusing never shifts layout. Cream is 14:1 on wood-dark and visible on every surface.
+2. **Pressed keeps the outer size;** the label drops 2 px inside.
+3. **Disabled carries no state colour.** A disabled Stop or Approve must not look armed: wood-dark fill, wood-edge border, label-dim text, marker at 50%.
+4. **Selection is cream, never a state colour.** Applied to the live Approvals frames: the selected pending row had an amber edge that doubled its amber marker, and now has a cream edge with the marker kept. The selected Workflows run already used cream.
+5. **Input error** is a red edge plus a red message on wood (5.3:1). Focus is an ink edge plus the ring.
+
+**Verified:** screenshots of all four sets and the Approvals screen.
+
+**Follow-up for implementation:** `PixelTopBar` still draws its slots directly. When built, its slots should use `PixelTab`, so the top bar gets hover and focus.
