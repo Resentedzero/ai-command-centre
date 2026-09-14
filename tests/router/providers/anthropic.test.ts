@@ -334,6 +334,13 @@ describe("no tool access is ever granted to the model", () => {
     expect(Object.keys(requestBody()).sort()).toEqual(["max_tokens", "messages", "model", "system"]);
   });
 
+  it("reports a cache hit only when the API says it read from the prompt cache", async () => {
+    messagesCreate.mockResolvedValueOnce(buildProviderResponse({ input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 900 }));
+    expect((await callAnthropicModel("model-x", buildCompiledContext(), {}, CHEAP_PRICING)).usage).toMatchObject({ cacheHit: true, tokensIn: 10 });
+    messagesCreate.mockResolvedValueOnce(buildProviderResponse({ input_tokens: 10, output_tokens: 5, cache_read_input_tokens: null }));
+    expect((await callAnthropicModel("model-x", buildCompiledContext(), {}, CHEAP_PRICING)).usage.cacheHit).toBe(false);
+  });
+
   it("does not forward the compiled context's toolSchemas layer to the model", async () => {
     messagesCreate.mockResolvedValueOnce(buildProviderResponse());
     await callAnthropicModel("model-x", buildCompiledContext(), {}, CHEAP_PRICING);

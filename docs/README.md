@@ -42,6 +42,7 @@ Module-level contracts live in the header comment of each source file. The root 
 - [`development/COST_VIEWS_CLOSURE.md`](development/COST_VIEWS_CLOSURE.md): the Cost/Budget read API (`GET /costs`, spec screen 7) — counters by scope, per-unit totals, cost-vs-success; review dispositions.
 - [`development/OBSERVABILITY_CLOSURE.md`](development/OBSERVABILITY_CLOSURE.md): spec-conformance batch after the V2 read APIs — `policy_evaluated`, `budget_denied`, the Run trace and Artifact read APIs, the approved-Approval TTL and revocation-relay fixes, the pre-dispatch stop check.
 - [`development/TIER_PREFERENCE_CLOSURE.md`](development/TIER_PREFERENCE_CLOSURE.md): the minimum sample criterion (N unset) and the Model Router's measured tier preference (§10.5); why `CONDITIONAL` autonomy is not built; review dispositions.
+- [`development/ROUTING_RECORD_CLOSURE.md`](development/ROUTING_RECORD_CLOSURE.md): the complete routing decision record (including refusals), API output capped at the reserved estimate, provider cache hits recorded; audit residuals.
 ## 4. Planning and research (advisory, authorizes nothing)
 - [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
 - [`roadmap/ROADMAP_STATUS.md`](roadmap/ROADMAP_STATUS.md): **where the implementation actually is**, by roadmap stage (V1–V6); what the phase labels mean; current milestone; open governance decisions. Status only, not an authorization.

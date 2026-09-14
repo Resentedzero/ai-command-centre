@@ -659,7 +659,7 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
     // The reason comes from authorizeRoute, not a constant: a quota-guardrail
     // refusal and an exhausted budget are different operator situations, and
     // flattening both to "insufficient_budget" would hide which one happened.
-    await failInvocation(tx, { invocationId, runId, taskInstanceId, reason: route.reason });
+    await failInvocation(tx, { invocationId, runId, taskInstanceId, reason: route.reason, details: { routingDecision: route.decision } });
     await failRun(tx, runId);
     return { status: "failed", runId };
   }

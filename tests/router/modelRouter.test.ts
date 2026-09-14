@@ -256,7 +256,7 @@ describe("authorizeRoute budget failure", () => {
       const { runId, taskInstanceId, invocationId } = await seedFixtureChain(tx, { limitAmount: "0.00" });
       const route = await authorizeRoute(tx, buildRequest({ runId, taskInstanceId, invocationId }));
       // The reason distinguishes a budget denial from a Phase 7C quota refusal.
-      expect(route).toEqual({ authorized: false, reason: "insufficient_budget" });
+      expect(route).toMatchObject({ authorized: false, reason:"insufficient_budget" });
 
       const eventRow = await tx.query.events.findFirst({ where: eq(schema.events.invocationId, invocationId) });
       expect(eventRow).toBeUndefined();
@@ -664,6 +664,25 @@ describe("callModel", () => {
     });
   });
 
+  it("records the adapter's cache-hit report on invocation_completed", async () => {
+    await withRollback(async (tx) => {
+      const { runId, taskInstanceId, invocationId } = await seedFixtureChain(tx);
+      const route = await authorizeRoute(tx, buildRequest({ runId, taskInstanceId, invocationId }));
+      assertAuthorized(route);
+
+      vi.mocked(callAnthropicModel).mockResolvedValueOnce({
+        result: {},
+        usage: { tokensIn: 10, tokensOut: 5, costAmount: 0.01, costUnit: "usd", cacheHit: true },
+      });
+      await callModel(tx, route, buildCompiledContext(), {});
+
+      const eventRow = await tx.query.events.findFirst({
+        where: and(eq(schema.events.invocationId, invocationId), eq(schema.events.eventType, "invocation_completed")),
+      });
+      expect(eventRow!.cacheHit).toBe(true);
+    });
+  });
+
   it("invocation_completed's sequenceNo is scoped to the real per-run counter, not the shared null-runId bucket (regression guard for Important #1)", async () => {
     await withRollback(async (tx) => {
       const { runId, taskInstanceId, invocationId } = await seedFixtureChain(tx);
@@ -756,8 +775,15 @@ describe("authorizeRoute invocation_started event", () => {
         taskDifficulty: "complex",
         riskTier: "medium",
         contextBudgetMaxInputTokens: req.contextBudget.maxInputTokens,
+        contextBudget: req.contextBudget,
         defaultTier: "STRONG",
         historicalPerformance: { consulted: false, reason: "no_criterion" },
+        budgetAuthorization: {
+          authorized: true,
+          provider: route.provider,
+          resourceUnit: route.accounting.unit,
+          estimatedAmount: req.contextBudget.maxInputTokens + req.contextBudget.expectedOutputTokens,
+        },
         resultingTier: route.tier,
         resultingModelId: route.modelId,
       });
@@ -945,7 +971,12 @@ describe("quota guardrail integration", () => {
         const { runId, taskInstanceId, invocationId } = await seedFixtureChain(tx);
         const route = await authorizeRoute(tx, buildRequest({ runId, taskInstanceId, invocationId }));
 
-        expect(route).toEqual({ authorized: false, reason: "quota_guardrail" });
+        // The refusal records why: the refused candidate, and nothing past it (no fallback).
+        expect(route).toMatchObject({
+          authorized: false,
+          reason: "quota_guardrail",
+          decision: { defaultTier: "CHEAP", attemptedTier: "CHEAP", excludedCandidates: expect.arrayContaining([expect.objectContaining({ reason: "quota_refused" })]) },
+        });
 
         // Nothing was dispatched, so nothing may stay reserved.
         const counter = await tx.query.budgetCounters.findFirst({
@@ -981,7 +1012,7 @@ describe("quota guardrail integration", () => {
       await withRollback(async (tx) => {
         const { runId, taskInstanceId, invocationId } = await seedFixtureChain(tx);
         const route = await authorizeRoute(tx, buildRequest({ runId, taskInstanceId, invocationId }));
-        expect(route).toEqual({ authorized: false, reason: "provider_quota_rejected" });
+        expect(route).toMatchObject({ authorized: false, reason:"provider_quota_rejected" });
       });
     } finally {
       spy.mockRestore();
@@ -1028,7 +1059,7 @@ describe("quota guardrail integration", () => {
           subscriptionTokenLimit: "0",
         });
         const route = await authorizeRoute(tx, buildRequest({ runId, taskInstanceId, invocationId }));
-        expect(route).toEqual({ authorized: false, reason: "insufficient_budget" });
+        expect(route).toMatchObject({ authorized: false, reason:"insufficient_budget" });
       });
     } finally {
       spy.mockRestore();

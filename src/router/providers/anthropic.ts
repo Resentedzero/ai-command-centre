@@ -139,6 +139,7 @@ export async function callAnthropicModel(
 
   const tokensIn = assertReportedTokenCount(response.usage?.input_tokens, "input_tokens", modelId);
   const tokensOut = assertReportedTokenCount(response.usage?.output_tokens, "output_tokens", modelId);
+  const cacheRead = response.usage?.cache_read_input_tokens;
 
   return {
     result: response.content,
@@ -147,6 +148,7 @@ export async function callAnthropicModel(
       tokensOut,
       costAmount: tokensIn * pricing.inputPerToken + tokensOut * pricing.outputPerToken,
       costUnit: "usd",
+      cacheHit: typeof cacheRead === "number" && cacheRead > 0,
     },
   };
 }

@@ -83,6 +83,7 @@ export async function callOpenAiModel(
 
   const tokensIn = assertReportedTokenCount(response.usage?.prompt_tokens, "prompt_tokens", modelId);
   const tokensOut = assertReportedTokenCount(response.usage?.completion_tokens, "completion_tokens", modelId);
+  const cached = response.usage?.prompt_tokens_details?.cached_tokens;
 
   return {
     result: response.choices,
@@ -91,6 +92,7 @@ export async function callOpenAiModel(
       tokensOut,
       costAmount: tokensIn * pricing.inputPerToken + tokensOut * pricing.outputPerToken,
       costUnit: "usd",
+      cacheHit: typeof cached === "number" && cached > 0,
     },
   };
 }

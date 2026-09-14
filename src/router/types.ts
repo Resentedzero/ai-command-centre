@@ -67,6 +67,8 @@ export type ProviderUsage = {
   costUnit: ResourceUnit;
   /** Non-primary model usage the provider reported; already included in `costAmount`. */
   secondaryUsage?: Array<{ modelId: string; tokensIn: number; tokensOut: number }>;
+  /** The provider reported reading input from its prompt cache (§5.11). Diagnostic: never changes `costAmount`. */
+  cacheHit?: boolean;
 };
 
 export type ProviderCallResult = {

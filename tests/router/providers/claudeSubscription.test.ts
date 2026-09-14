@@ -622,6 +622,21 @@ describe("usage extraction", () => {
     expect(usage.costAmount).not.toBeCloseTo(0.0411, 6);
   });
 
+  it("reports a cache hit when any model entry read from the prompt cache, and never counts those tokens", async () => {
+    installFakeChild({
+      stdoutText: successStdout({
+        "claude-opus-5": { inputTokens: 2, outputTokens: 80, cacheReadInputTokens: 5000 },
+        "claude-haiku-4-5-20251001": { inputTokens: 899, outputTokens: 9 },
+      }),
+    });
+    const hit = await callClaudeSubscriptionModel("claude-opus-5", buildCompiledContext(), {}, SUBSCRIPTION_ACCOUNTING);
+    expect(hit.usage).toMatchObject({ cacheHit: true, costAmount: 990 });
+
+    installFakeChild({ stdoutText: successStdout() });
+    const miss = await callClaudeSubscriptionModel("claude-opus-5", buildCompiledContext(), {}, SUBSCRIPTION_ACCOUNTING);
+    expect(miss.usage.cacheHit).toBe(false);
+  });
+
   it("accepts snake_case token fields too (the CLI schema is not a published contract)", () => {
     const { totalTokens } = extractModelUsage({
       modelUsage: { "m-1": { input_tokens: 10, output_tokens: 5 } },

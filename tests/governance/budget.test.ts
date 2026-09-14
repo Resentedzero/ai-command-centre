@@ -298,6 +298,21 @@ describe("reconcileBudget", () => {
     });
   });
 
+  it("records actual consumption past the limit as it happened, and refuses every reservation after it", async () => {
+    await withRollback(async (tx) => {
+      const scopeRefId = await seedCounter(tx, { limitAmount: "10.00" });
+      const reservation = await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 8);
+      if (!reservation.authorized) throw new Error("expected authorization");
+
+      // A provider may report more than the estimate: no adapter caps output at it.
+      await reconcileBudget(tx, reservation.reservationId, 12);
+
+      const row = await tx.query.budgetCounters.findFirst({ where: eq(budgetCounters.scopeRefId, scopeRefId) });
+      expect(row).toMatchObject({ reservedAmount: "0", consumedAmount: "12" });
+      expect(await reserveBudget(tx, "run", scopeRefId, "llm", "usd", 0.01)).toEqual({ authorized: false, reason: "insufficient_budget" });
+    });
+  });
+
   it("throws for the deterministic no-op reservationId", async () => {
     await withRollback(async (tx) => {
       await expect(reconcileBudget(tx, "res_noop", 1)).rejects.toThrow();

@@ -369,6 +369,12 @@ function estimateCost(accounting: TierAccounting, contextBudget: RouteRequest["c
   return contextBudget.maxInputTokens + contextBudget.expectedOutputTokens;
 }
 
+/**
+ * A refused route still made a routing decision (§10.7 "every routing decision's
+ * complete input set"): the Executor records `decision` on `invocation_failed`.
+ */
+export type RouteRefusal = { authorized: false; reason: AuthorizationFailure; decision: Record<string, unknown> };
+
 export type AuthorizeRouteOptions = {
   /**
    * The minimum sample criterion's N. Omitted: the configured value
@@ -382,10 +388,17 @@ export async function authorizeRoute(
   tx: DrizzleTransaction,
   req: RouteRequest,
   options: AuthorizeRouteOptions = {}
-): Promise<RouteResult | { authorized: false; reason: AuthorizationFailure }> {
+): Promise<RouteResult | RouteRefusal> {
   const defaultTier = selectTier(req);
   const historicalPerformance = await readTierPerformance(tx, req.runId, options.minPerformanceSamples);
   const tier = preferTier(defaultTier, historicalPerformance);
+  const inputs = {
+    taskDifficulty: req.taskDifficulty,
+    riskTier: req.riskTier,
+    contextBudget: req.contextBudget,
+    defaultTier,
+    historicalPerformance,
+  };
 
   // Step 1 — ROUTING (Phase 7D): which candidates are eligible, in what order.
   // Advisory only; it reserves nothing, so ranking a candidate never costs
@@ -410,6 +423,7 @@ export async function authorizeRoute(
           : routing.reason === "provider_unavailable"
             ? "provider_quota_rejected"
             : "no_eligible_candidate",
+      decision: { ...inputs, attemptedTier: tier, excludedCandidates: routing.excluded },
     };
   }
 
@@ -432,7 +446,21 @@ export async function authorizeRoute(
     estimatedCost
   );
   if (!reservation.authorized) {
-    return { authorized: false, reason: "insufficient_budget" };
+    return {
+      authorized: false,
+      reason: "insufficient_budget",
+      decision: {
+        ...inputs,
+        attemptedTier: tier,
+        budgetAuthorization: {
+          authorized: false,
+          provider: candidate.provider,
+          modelId,
+          resourceUnit: candidate.accounting.unit,
+          estimatedAmount: estimatedCost,
+        },
+      },
+    };
   }
 
   await emitEvent(tx, {
@@ -449,13 +477,18 @@ export async function authorizeRoute(
     },
     actor: "system",
     producer: "model-router",
+    // §10.7's complete input set: difficulty, risk, the whole Context Budget, the
+    // budget authorization, the historical-performance snapshot consulted (and the
+    // tier before it), then the result.
     payload: {
-      taskDifficulty: req.taskDifficulty,
-      riskTier: req.riskTier,
+      ...inputs,
       contextBudgetMaxInputTokens: req.contextBudget.maxInputTokens,
-      // §10.7 "the historical-performance snapshot consulted", and the tier before it.
-      defaultTier,
-      historicalPerformance,
+      budgetAuthorization: {
+        authorized: true,
+        provider: candidate.provider,
+        resourceUnit: candidate.accounting.unit,
+        estimatedAmount: estimatedCost,
+      },
       resultingTier: tier,
       resultingModelId: modelId,
     },
@@ -600,7 +633,8 @@ export async function emitModelInvocationCompleted(
     usage: {
       tokensIn: providerResult.usage.tokensIn,
       tokensOut: providerResult.usage.tokensOut,
-      cacheHit: false,
+      // The adapter's own report (§5.11); false when it reported none.
+      cacheHit: providerResult.usage.cacheHit === true,
       costAmount: providerResult.usage.costAmount,
       // The provider's OWN declared unit, never re-derived here: the adapter
       // is the only thing that knows what it actually consumed.

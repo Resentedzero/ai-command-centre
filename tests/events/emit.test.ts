@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomUUID } from "node:crypto";
-import { resetTestSchema, closeTestDb, withRollback, testDb } from "../testDb.js";
+import { resetTestSchema, closeTestDb, withRollback, testDb, deleteEventsForTest } from "../testDb.js";
 import { emitEvent, type EmitEventInput } from "../../src/events/emit.js";
 import { events } from "../../src/db/schema.js";
 import { eq } from "drizzle-orm";
@@ -163,7 +163,7 @@ describe("emitEvent", () => {
       // withRollback, since the whole point is two independently-committing
       // transactions) — clean them up so they don't linger for other tests
       // in this file.
-      await testDb.delete(events).where(eq(events.runId, runId));
+      await deleteEventsForTest(eq(events.runId, runId));
     }
   });
 });

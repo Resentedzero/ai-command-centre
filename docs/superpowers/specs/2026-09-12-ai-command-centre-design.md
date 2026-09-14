@@ -390,6 +390,13 @@ consumers); provider prompt caching (layered assembly, 5.14, keeps the stable pr
 identical across calls). Cache hit/miss is logged as part of the Invocation's Event
 data.
 
+> **Implementation note (2026-09-14): provider cache hits recorded.** Each adapter
+> reports whether the provider read input from its prompt cache (Anthropic
+> `cache_read_input_tokens`, OpenAI `cached_tokens`, the Claude CLI's
+> `modelUsage[*].cacheReadInputTokens`), and `invocation_completed` records it as
+> `cache_hit` (previously always false). Cache tokens stay out of the counted amount.
+> The compiled-context and derived-artifact caches are not built.
+
 ### 5.12 Stale-context detection
 
 Every source item carries a freshness stamp. Anything older than
@@ -692,6 +699,10 @@ transactional source of truth).
 ### 8.7 Audit trail
 
 The raw Event table itself, immutable — no separate audit log.
+
+> **Implementation note (2026-09-14): enforced by the database.** Migration 0016 adds
+> triggers that refuse UPDATE, DELETE and TRUNCATE on `events`. Previously the log was
+> immutable only because no code changed it. A correction is a new event.
 
 ### 8.8 Agent performance
 
@@ -1076,6 +1087,16 @@ Every routing decision's complete input set (`task_difficulty`, `risk_tier`,
 `budget_authorization`, `context_budget`, the historical-performance snapshot
 consulted) and resulting `{tier, model_id}` is captured as structured payload on the
 Invocation's event — reproducible and auditable, not a separate table.
+
+> **Implementation note (2026-09-14): complete, including refusals.**
+> `invocation_started` carries the difficulty, risk tier, whole Context Budget, the
+> default tier and performance snapshot, the budget authorization (provider, resource
+> unit, estimated amount) and the resulting tier and model. A refused route records
+> the same inputs, the tier attempted and why (the budget attempt or the excluded
+> candidates) as `routingDecision` on `invocation_failed`. Output is not capped at
+> `expected_output_tokens` (the Anthropic adapter sends a fixed 4096, the others none),
+> so actual usage can exceed Pass 1's estimate and a Run's limit by one call; whether
+> it should be capped is a decision (`ROADMAP_STATUS.md` §6).
 
 ## Phase 11 — Workflow Engine
 

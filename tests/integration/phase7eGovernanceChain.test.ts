@@ -373,7 +373,14 @@ describe("Phase 7E — end-to-end governance chain", () => {
       expect(callAnthropicModel).not.toHaveBeenCalled();
 
       const failed = (await eventsForRun(tx, runId)).find((r) => r.eventType === "invocation_failed");
-      expect(failed!.payload).toMatchObject({ reason: "insufficient_budget" });
+      expect(failed!.payload).toMatchObject({
+        reason: "insufficient_budget",
+        routingDecision: {
+          taskDifficulty: "standard",
+          attemptedTier: "MID",
+          budgetAuthorization: { authorized: false, provider: "claude_subscription", resourceUnit: "subscription_tokens" },
+        },
+      });
     });
   });
 

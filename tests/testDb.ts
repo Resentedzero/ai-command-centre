@@ -13,7 +13,7 @@ import "dotenv/config";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { TransactionRollbackError } from "drizzle-orm";
+import { TransactionRollbackError, sql, type SQL } from "drizzle-orm";
 import * as schema from "../src/db/schema.js";
 import type { DrizzleTransaction } from "../src/events/emit.js";
 
@@ -52,6 +52,20 @@ export async function resetTestSchema(): Promise<void> {
   await testPool.query("DROP SCHEMA IF EXISTS drizzle CASCADE");
   await testPool.query("CREATE SCHEMA public");
   await migrate(testDb, { migrationsFolder: "./drizzle" });
+}
+
+/**
+ * Deletes events a real-transaction test COMMITTED, so they do not leak into later
+ * tests. The events table refuses UPDATE, DELETE and TRUNCATE (migration 0016, spec
+ * §3e/§8.7); only test cleanup lifts that, inside one transaction, so the guard is
+ * back before anything else can write.
+ */
+export async function deleteEventsForTest(where: SQL | undefined): Promise<void> {
+  await testDb.transaction(async (tx) => {
+    await tx.execute(sql.raw('ALTER TABLE "events" DISABLE TRIGGER "events_immutable"'));
+    await tx.delete(schema.events).where(where);
+    await tx.execute(sql.raw('ALTER TABLE "events" ENABLE TRIGGER "events_immutable"'));
+  });
 }
 
 export async function closeTestDb(): Promise<void> {

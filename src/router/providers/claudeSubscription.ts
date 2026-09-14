@@ -504,6 +504,19 @@ type ModelUsageEntry = { modelId: string; tokensIn: number; tokensOut: number };
  * missing/renamed/malformed field fails closed rather than silently producing
  * a smaller number.
  */
+/**
+ * Whether any model entry reports cache-read tokens (`modelUsage[*].cacheReadInputTokens`,
+ * diagnostic only, SUBSCRIPTION_PROVIDER_DESIGN §usage). Absent or malformed reads as
+ * no hit: it never affects the counted amount, so it need not fail closed.
+ */
+function reportsCacheRead(parsed: Record<string, unknown>): boolean {
+  const modelUsage = parsed.modelUsage as Record<string, Record<string, unknown>>;
+  return Object.values(modelUsage).some((entry) => {
+    const read = entry.cacheReadInputTokens ?? entry.cache_read_input_tokens;
+    return typeof read === "number" && read > 0;
+  });
+}
+
 export function extractModelUsage(parsed: Record<string, unknown>): {
   entries: ModelUsageEntry[];
   totalTokens: number;
@@ -873,6 +886,7 @@ export async function callClaudeSubscriptionModel(
         // `total_cost_usd` is deliberately never read.
         costAmount: totalTokens,
         costUnit: "subscription_tokens",
+        cacheHit: reportsCacheRead(parsed),
         ...(secondaryUsage.length > 0 ? { secondaryUsage } : {}),
       },
       // Surfaced, never acted on here. This adapter takes no quota decision and

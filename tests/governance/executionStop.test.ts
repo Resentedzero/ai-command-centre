@@ -22,7 +22,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { resetTestSchema, closeTestDb, withRollback, testDb } from "../testDb.js";
+import { resetTestSchema, closeTestDb, withRollback, testDb, deleteEventsForTest } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
 import type { CapabilityPermission } from "../../src/governance/policy.js";
@@ -666,9 +666,9 @@ describe("synchronous visibility across connections (READ COMMITTED)", () => {
         expect(await inflight).toEqual({ before: 0, after: 1 });
       } finally {
         await testDb.delete(schema.executionStops).where(eq(schema.executionStops.scopeRefId, runRef));
-        await testDb.delete(schema.events).where(eq(schema.events.runId, runRef));
+        await deleteEventsForTest(eq(schema.events.runId, runRef));
       // Stop events carry no run correlation; their target is in the payload.
-      await testDb.delete(schema.events).where(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
+      await deleteEventsForTest(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
       }
     },
     20000
@@ -711,9 +711,9 @@ describe("control-plane API", () => {
     } finally {
       await app.close();
       await testDb.delete(schema.executionStops).where(eq(schema.executionStops.scopeRefId, runRef));
-      await testDb.delete(schema.events).where(eq(schema.events.runId, runRef));
+      await deleteEventsForTest(eq(schema.events.runId, runRef));
       // Stop events carry no run correlation; their target is in the payload.
-      await testDb.delete(schema.events).where(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
+      await deleteEventsForTest(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
     }
   });
 
@@ -746,9 +746,9 @@ describe("control-plane API", () => {
     } finally {
       await app.close();
       await testDb.delete(schema.executionStops).where(eq(schema.executionStops.scopeRefId, runRef));
-      await testDb.delete(schema.events).where(eq(schema.events.runId, runRef));
+      await deleteEventsForTest(eq(schema.events.runId, runRef));
       // Stop events carry no run correlation; their target is in the payload.
-      await testDb.delete(schema.events).where(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
+      await deleteEventsForTest(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
     }
   });
 });
@@ -824,13 +824,11 @@ describe("review regressions", () => {
         release.resolve();
         await app.close();
         await testDb.delete(schema.executionStops).where(eq(schema.executionStops.scopeRefId, runRef));
-        await testDb.delete(schema.events).where(eq(schema.events.runId, runRef));
+        await deleteEventsForTest(eq(schema.events.runId, runRef));
       // Stop events carry no run correlation; their target is in the payload.
-      await testDb.delete(schema.events).where(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
+      await deleteEventsForTest(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
         if (stopId) {
-          await testDb
-            .delete(schema.events)
-            .where(eq(schema.events.idempotencyKey, `${EXECUTION_STOP_ENGAGED}:${stopId}`));
+          await deleteEventsForTest(eq(schema.events.idempotencyKey, `${EXECUTION_STOP_ENGAGED}:${stopId}`));
         }
       }
     },

@@ -47,6 +47,13 @@ describe("callOpenAiModel usage", () => {
     expect(usage.costAmount).toBeCloseTo(0.0015, 12);
   });
 
+  it("reports cached prompt tokens as a cache hit, and none as a miss", async () => {
+    chatCreate.mockResolvedValueOnce({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 8 } } });
+    expect((await callOpenAiModel("model-x", buildCompiledContext(), {}, PRICING)).usage.cacheHit).toBe(true);
+    chatCreate.mockResolvedValueOnce({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } });
+    expect((await callOpenAiModel("model-x", buildCompiledContext(), {}, PRICING)).usage.cacheHit).toBe(false);
+  });
+
   it.each([
     ["no usage object", undefined],
     ["prompt_tokens only", { prompt_tokens: 10 }],

@@ -275,6 +275,8 @@ describe("migration 0006 backfill", () => {
             values (${randomUUID()}, ${withoutUsage}, 'run_started', 1, 9002, 'system', 'test', '{}'::jsonb, NULL)`
       );
 
+      // 0006 ran before 0016 made events immutable; replay it as it ran (rolled back with the test).
+      await tx.execute(sql.raw('ALTER TABLE "events" DISABLE TRIGGER "events_immutable"'));
       await tx.execute(sql.raw(backfill!.replace(/;\s*$/, "")));
 
       const usageRow = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, withUsage) });

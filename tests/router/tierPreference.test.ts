@@ -350,7 +350,19 @@ describe("performance never overrides hard constraints", () => {
     await withRollback(async (tx) => {
       const { group, request } = await seedBoundRun(tx, "10");
       await midIsBetter(tx, group);
-      expect(await authorizeRoute(tx, request, { minPerformanceSamples: 10 })).toEqual({ authorized: false, reason: "insufficient_budget" });
+      // The refusal still records the routing decision it made (§10.7).
+      expect(await authorizeRoute(tx, request, { minPerformanceSamples: 10 })).toMatchObject({
+        authorized: false,
+        reason: "insufficient_budget",
+        decision: {
+          taskDifficulty: "simple",
+          defaultTier: "CHEAP",
+          attemptedTier: "MID",
+          contextBudget: request.contextBudget,
+          historicalPerformance: { consulted: true, minSamples: 10 },
+          budgetAuthorization: { authorized: false, modelId: "claude-sonnet-5", resourceUnit: "subscription_tokens", estimatedAmount: 1_100 },
+        },
+      });
       expect(await started(tx, request.invocationId)).toBeUndefined();
       const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, request.runId) });
       expect(counter!.reservedAmount).toBe("0");
@@ -364,7 +376,11 @@ describe("performance never overrides hard constraints", () => {
       await withRollback(async (tx) => {
         const { group, request } = await seedBoundRun(tx);
         await midIsBetter(tx, group);
-        expect(await authorizeRoute(tx, request, { minPerformanceSamples: 10 })).toEqual({ authorized: false, reason: "no_eligible_candidate" });
+        expect(await authorizeRoute(tx, request, { minPerformanceSamples: 10 })).toMatchObject({
+          authorized: false,
+          reason: "no_eligible_candidate",
+          decision: { attemptedTier: "MID", excludedCandidates: expect.arrayContaining([{ provider: "claude_subscription", modelId: "claude-sonnet-5", reason: "disabled" }]) },
+        });
       });
     } finally {
       for (const c of mid) c.enabled = true;
