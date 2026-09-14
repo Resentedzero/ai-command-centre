@@ -134,12 +134,10 @@
  *    meaningful "freshness" concept in this schema (task state is the task's
  *    own current input; `capabilities` carries no timestamp), so they are
  *    never subject to staleness.
- *  - `expectedOutputTokens`: deliberately UNUSED in this unit. It exists for
- *    Unit 5's model-specific window-sizing concern ("Unit 5 resolves
- *    `maxInputTokens` before this is called" per the brief's Out-of-scope
- *    note) — by the time `compileContext` runs, `maxInputTokens` is already
- *    the resolved budget, so there is nothing for this unit to do with
- *    `expectedOutputTokens` itself.
+ *  - `expectedOutputTokens`: deliberately UNUSED in this unit. The Model Router
+ *    resolves `maxInputTokens` to the routed model's window less the expected
+ *    output (spec §5.17, §10.7 Pass 2), and the Executor passes that resolved
+ *    budget, so there is nothing for this unit to do with it.
  *
  * `"unauthorized"` (reachable since 2026-09-14): a tool_schema candidate the
  * Run's Agent holds no unrevoked Grant for, or any tool_schema candidate when no

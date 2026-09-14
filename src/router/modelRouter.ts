@@ -434,6 +434,12 @@ export async function authorizeRoute(
   const candidate = routing.candidates[0]!;
   const modelId = candidate.modelId;
   const estimatedCost = estimateCost(candidate.accounting, req.contextBudget);
+  // Pass 2 (§5.17, §10.7): the Compiler packs to the chosen model's window, never past it.
+  // The reservation above stays priced at the Task's budget, the pessimistic estimate.
+  const effectiveMaxInputTokens = Math.min(
+    req.contextBudget.maxInputTokens,
+    candidate.contextWindowTokens - req.contextBudget.expectedOutputTokens
+  );
 
   // Step 2 — the HARD control. Budget authorization is last and is decisive:
   // nothing above can overturn it, and a denial here is a denial outright.
@@ -483,6 +489,8 @@ export async function authorizeRoute(
     payload: {
       ...inputs,
       contextBudgetMaxInputTokens: req.contextBudget.maxInputTokens,
+      contextWindowTokens: candidate.contextWindowTokens,
+      effectiveMaxInputTokens,
       budgetAuthorization: {
         authorized: true,
         provider: candidate.provider,
@@ -500,6 +508,8 @@ export async function authorizeRoute(
     modelId,
     provider: candidate.provider,
     accounting: candidate.accounting,
+    contextWindowTokens: candidate.contextWindowTokens,
+    effectiveMaxInputTokens,
     reservationId: reservation.reservationId,
     invocationId: req.invocationId,
     runId: req.runId,

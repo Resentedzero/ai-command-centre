@@ -12,7 +12,7 @@
 | `invocation_completed.cache_hit` was hard-coded false though providers report cache reads | §5.11 "Cache hit/miss is logged as part of the Invocation's Event data"; §8.1 | **Built** (§3) |
 | Events are immutable by convention only | §3e "append-only, immutable"; §8.7 | **Built** (§6) |
 | One call can reconcile past its reservation and the Run's limit | §10.7 Pass 1 pessimistic estimate; Phase 4 hard ceiling | **Built, reviewed, withdrawn to a decision** (§4). A test now pins the current behaviour |
-| The Compiler never packs to the chosen model's window | §5.17, §10.7 Pass 2 | **Recorded**: needs verified per-model context windows (`ROADMAP_STATUS.md` §6) |
+| The Compiler never packs to the chosen model's window | §5.17, §10.7 Pass 2 | **Built** in a follow-up (§10), once the windows were verified |
 | `retrieval` Invocations reserve no budget | Phase 4 "consulted for every Invocation" | **Recorded**: no plan emits one; either fix changes a contract |
 | The seed creates Definitions and Grants (including an `AUTONOMOUS` Grant) with no events | §8.2 note, §9.4 "logged human edit", §3e | **Built** in a follow-up commit (§9) |
 | An SSE reconnect can skip an event that commits late | §15.3 | **Recorded** (`ROADMAP_STATUS.md` §5a): a sound fix changes the delivery design or the client's resume contract; the relay's false "next replay" comment is corrected |
@@ -90,3 +90,19 @@ Review (Opus): no correctness regression; every seeded column verified equal, ca
 | S1 the seeded Goal emits no `goal_created` | 1 fails |
 | S2 the seed inserts a Grant directly | 1 fails (structural test) |
 | S3 seeded facts attributed to `system` | 1 fails |
+
+## 10. Follow-up: packing to the routed model's window (§5.17, §10.7 Pass 2)
+
+Recorded above as waiting for verified per-model windows. Anthropic's models overview (fetched 2026-09-14) states them: Claude Haiku 4.5 200K tokens, Claude Sonnet 5 and Claude Opus 5 1M. Each provider candidate now records `contextWindowTokens` (validated as a positive integer), and `authorizeRoute` resolves `effectiveMaxInputTokens = min(maxInputTokens, contextWindowTokens − expectedOutputTokens)` for the candidate it chose. The Executor compiles to that, which is where the Compiler's header already said the resolution belonged; the Compiler itself is unchanged. If the Task's required context no longer fits, the existing `ContextBudgetError` path fails the Invocation and releases its reservation before any call. The reservation stays priced at the Task's budget, the pessimistic estimate.
+
+Recorded: `invocation_started` carries `contextWindowTokens` and `effectiveMaxInputTokens`; `context_compiled` adds both, keeping `maxInputTokens` as the Task's budget (the Agent Detail lineage reads it). At every seeded budget (8,000 input tokens) the effective limit equals the budget, so nothing packs differently today.
+
+Not built: §5.17's cache-block granularity. Minimum cacheable prefixes differ per model, but the prompt has no stable prefix while the untrusted-data fence tag changes per call, which is the open stable-prefix question. Residual: a `claude_subscription` call also carries the Claude CLI's system prompt, so its effective window is smaller than the model's by an unmeasured amount; it matters only for a budget near the window.
+
+| Mutant | Result |
+|---|---|
+| W1 the Router ignores the window | 1 fails |
+| W1b the window is not reduced by the expected output | 1 fails |
+| W2 the Executor compiles to the Task budget | 1 fails |
+| W3 the window is left out of the routing record | 2 fail |
+| W4 a non-integer or non-positive window passes validation | 4 fail |

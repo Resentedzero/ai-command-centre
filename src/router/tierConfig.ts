@@ -80,6 +80,16 @@ export type ProviderCandidate = {
    */
   accounting: TierAccounting;
   capabilities: CandidateCapability[];
+  /**
+   * The model's context window in tokens (spec §5.17, §10.7 Pass 2): the Router caps
+   * a Task's input budget to it, less the expected output. VERIFIED against
+   * Anthropic's models overview (platform.claude.com/docs/en/about-claude/models/overview,
+   * checked 2026-09-14): Haiku 4.5 200K, Sonnet 5 and Opus 5 1M. It is the MODEL's
+   * window; a `claude_subscription` call also carries the Claude CLI's own system
+   * prompt, so its effective window is somewhat smaller (not measured). No seeded
+   * budget comes near either.
+   */
+  contextWindowTokens: number;
   /** A disabled candidate is never eligible, for any tier, for any reason. */
   enabled: boolean;
 };
@@ -123,6 +133,7 @@ export const providerCandidates: ProviderCandidate[] = [
     tiers: ["CHEAP"],
     accounting: { unit: "subscription_tokens" },
     capabilities: ["structured_output"],
+    contextWindowTokens: 200_000,
     enabled: true,
   },
   {
@@ -131,6 +142,7 @@ export const providerCandidates: ProviderCandidate[] = [
     tiers: ["MID"],
     accounting: { unit: "subscription_tokens" },
     capabilities: ["structured_output"],
+    contextWindowTokens: 1_000_000,
     enabled: true,
   },
   {
@@ -139,6 +151,7 @@ export const providerCandidates: ProviderCandidate[] = [
     tiers: ["STRONG"],
     accounting: { unit: "subscription_tokens" },
     capabilities: ["structured_output"],
+    contextWindowTokens: 1_000_000,
     enabled: true,
   },
   // CONFIGURED ALTERNATIVES, not fallbacks. Reachable only by re-ordering this
@@ -149,6 +162,7 @@ export const providerCandidates: ProviderCandidate[] = [
     tiers: ["CHEAP"],
     accounting: { unit: "usd", pricing: { inputPerToken: 0.000001, outputPerToken: 0.000005 } },
     capabilities: ["structured_output"],
+    contextWindowTokens: 200_000,
     enabled: true,
   },
   {
@@ -157,6 +171,7 @@ export const providerCandidates: ProviderCandidate[] = [
     tiers: ["STRONG"],
     accounting: { unit: "usd", pricing: { inputPerToken: 0.000005, outputPerToken: 0.000025 } },
     capabilities: ["structured_output"],
+    contextWindowTokens: 1_000_000,
     enabled: true,
   },
 ];
@@ -210,6 +225,9 @@ export function validateProviderCandidates(candidates: ProviderCandidate[] = pro
     }
     if (new Set(candidate.tiers).size !== candidate.tiers.length) {
       throw new Error(`${where}: declares the same tier more than once.`);
+    }
+    if (!Number.isInteger(candidate.contextWindowTokens) || candidate.contextWindowTokens < 1) {
+      throw new Error(`${where}: contextWindowTokens must be a positive integer (the model's verified window).`);
     }
     if (candidate.accounting.unit === "usd") {
       const { inputPerToken, outputPerToken } = candidate.accounting.pricing;

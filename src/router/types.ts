@@ -187,6 +187,13 @@ export type RouteResult = {
    */
   provider: ProviderName;
   accounting: TierAccounting;
+  /** The routed model's context window (spec §5.17). */
+  contextWindowTokens: number;
+  /**
+   * The input budget the Context Compiler packs to (§10.7 Pass 2): the Task's
+   * `maxInputTokens`, capped at the model's window less `expectedOutputTokens`.
+   */
+  effectiveMaxInputTokens: number;
   // Further addition (this unit's own resolution, in the same spirit as the
   // invocationId ruling above): the brief's frozen RouteResult has no
   // invocationId either, but `emitModelInvocationCompleted` is separately

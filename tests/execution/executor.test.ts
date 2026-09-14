@@ -44,6 +44,7 @@ import * as approvalsModule from "../../src/governance/approvals.js";
 import { resolveApproval } from "../../src/governance/approvals.js";
 import { compileContext } from "../../src/context/compiler.js";
 import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
+import { providerCandidates } from "../../src/router/tierConfig.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -1594,10 +1595,40 @@ describe("persistInvocationResultAsArtifact integration with compileContext (Uni
       expect(event!.invocationId).toBe(invocation!.id);
       expect(event!.payload).toMatchObject({
         estimatedInputTokens: expect.any(Number),
+        // The Task's budget is far below Haiku's window: packing is unchanged.
+        maxInputTokens: 10_000,
+        effectiveMaxInputTokens: 10_000,
+        contextWindowTokens: 200_000,
         included: expect.any(Array),
         excluded: expect.any(Array),
       });
     });
+  });
+
+  it("packs to the routed model's window: a budget past it is capped, and required context that no longer fits fails before any call (§5.17, §10.7 Pass 2)", async () => {
+    const cheap = providerCandidates.find((c) => c.provider === "claude_subscription" && c.tiers.includes("CHEAP"))!;
+    const original = cheap.contextWindowTokens;
+    // Window less the spec's 100 expected output tokens leaves 1 input token: less than tier 1 needs.
+    cheap.contextWindowTokens = 101;
+    try {
+      await withRollback(async (tx) => {
+        const { runId } = await seedGenericRunFixture(tx);
+        expect((await executeRun(tx, runId, [buildLlmSpec()])).status).toBe("failed");
+
+        expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
+        const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+        const started = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `invocation_started:${invocation!.id}`) });
+        expect(started!.payload).toMatchObject({ contextBudgetMaxInputTokens: 10_000, contextWindowTokens: 101, effectiveMaxInputTokens: 1 });
+        const failed = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `invocation_failed:${invocation!.id}`) });
+        expect(failed!.payload).toMatchObject({ reason: expect.stringMatching(/exceeds maxInputTokens \(1\)/) });
+        const tokens = await tx.query.budgetCounters.findFirst({
+          where: and(eq(schema.budgetCounters.scopeRefId, runId), eq(schema.budgetCounters.resourceUnit, "subscription_tokens")),
+        });
+        expect(Number(tokens!.reservedAmount)).toBe(0);
+      });
+    } finally {
+      cheap.contextWindowTokens = original;
+    }
   });
 });
 

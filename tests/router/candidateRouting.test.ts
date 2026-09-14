@@ -49,6 +49,7 @@ function candidate(overrides: Partial<ProviderCandidate> = {}): ProviderCandidat
     tiers: ["CHEAP"],
     accounting: usd,
     capabilities: ["structured_output"],
+    contextWindowTokens: 200_000,
     enabled: true,
     ...overrides,
   };
@@ -560,6 +561,10 @@ describe("configuration validation", () => {
 
   it("rejects a duplicated tier", () => {
     expect(() => validateProviderCandidates([candidate({ tiers: ["CHEAP", "CHEAP"] })])).toThrow(/more than once/);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])("rejects a context window that is not a positive integer (%s)", (contextWindowTokens) => {
+    expect(() => validateProviderCandidates([candidate({ contextWindowTokens })])).toThrow(/contextWindowTokens/);
   });
 
   it("rejects an empty model id", () => {
