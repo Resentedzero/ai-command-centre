@@ -36,7 +36,7 @@ No live Claude invocations. Every dispatch-capable test mocks all three provider
 **Decisions.**
 - **All tool Invocations yield, not only side-effecting ones.** One path to get right, and a structural invariant (no tool `execute` in the Executor). The cost is one extra commit per tool Invocation.
 - **A thrown tool of unknown effect is charged at estimate**, the same rule as a provider failure. Only an error proving nothing was performed (`consumption: "none"`) releases. This replaces "a thrown tool releases".
-- **An interrupted tool is never re-performed, and not yet asked to verify its effect.** Verification is an adapter capability worth adding when a tool can answer reliably (DURABLE_EXECUTION §7 #16).
+- **An interrupted tool is never re-performed, and not yet asked to verify its effect.** Verification is an adapter capability worth adding when a tool can answer reliably (DURABLE_EXECUTION §7 #19).
 - **A refusal at the pre-effect re-check consumes nothing.** The effect was never attempted.
 
 **Tests.** `tests/execution/toolDispatch.test.ts`, confirmed to fail with the `executing` claim removed and with the re-check removed; the `publishReport` idempotency and atomic-write tests; a structural invariant in `tests/execution/structuralInvariants.test.ts`. Existing tests were updated where the extra pre-dispatch `reauthorize`, the extra builder rebuild, or charge-at-estimate on a thrown tool changed an exact expectation.
@@ -58,9 +58,32 @@ Each fix has a regression test, and the first two were confirmed to fail without
 - whether the startup sweep may fail a paused Workflow Run;
 - a crash-loop guard for the startup re-drive, which needs an attempt limit.
 
+### D. Adversarial concurrency review
+
+An independent review targeted the new code:
+- `completeToolDispatch` against interruption settlement;
+- the pre-effect check against stops and revocations;
+- step-failure settlement against concurrent approvals;
+- budget and lock order, and savepoint semantics.
+
+**It found no double dispatch, no double settlement and no deadlock.** Every settler locks `runs`, then the Invocation, and re-checks its status under the lock.
+
+**Fixed:**
+- **Settlement racing an approve.** The failure event recorded the Approval as `pending` when it had in fact been approved. The status is now re-read after the conditional expire. Tested across two real connections.
+- **A stop caught by the pre-effect check.** It failed the Run without naming the stop. The halt is now recorded as at the Invocation boundary: a stop-attributed outcome and `run_halted`, shared through `haltRunForStop`.
+- **Step savepoint name.** It now has a unique name, so a nested savepoint of the same name cannot shadow it. This is not reachable today.
+- **`revokeCapabilityGrant`'s documented contract** told callers to re-drive inside its transaction, which would invert the lock order. It now says to commit first.
+
+Both behavioural fixes were confirmed to fail without the fix.
+
+**Documented, not changed (DURABLE_EXECUTION §7 #16, #17, and the corrected §6 lock-order invariant):**
+- a transient failure of the pre-effect check uses up the Approval;
+- a second TTL check just before the effect.
+
 ## Commits
 
 | Commit | What |
 |---|---|
 | `016f58b` | A. Step failure settlement: a step whose builder or execution throws is settled (hold released, Approval state recorded, Workflow Run failed) instead of stuck |
 | `6b2a651` | B. Crash-safe tool side effects: durable `executing` claim, pre-effect re-authorization, no transaction during the effect, idempotency key to the adapter; `publishReport` atomic and idempotent |
+| `d43ea00` | C. Recovery audit fixes: Run status after approval, stranded-expiry retry, sweep timing, stop event backfill, unmasked recording errors |

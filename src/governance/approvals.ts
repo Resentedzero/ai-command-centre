@@ -355,9 +355,13 @@ export const GRANT_REVOCATION_ACTOR = "system:grant_revoked";
  * `awaiting_approval` with its hold intact until its Run is re-driven, at which
  * point the Executor's resume path sees the `expired` Approval, releases the
  * hold, and fails the invocation and Run. `affectedRunIds` is returned so the
- * caller can re-drive them in the same transaction; no route calls this yet
- * (Grant control-plane routes are V1.1 per the roadmap), so any future caller
- * MUST re-drive those Runs or the holds stay reserved.
+ * caller can re-drive them: COMMIT this transaction first, then drive each
+ * affected Workflow Run with `advanceWorkflowRunUntilBlocked`. Never re-drive
+ * inside this transaction — the driver opens its own transactions, and holding
+ * these grant and approval rows while it takes `workflow_runs` and `runs` would
+ * invert the lock order (DURABLE_EXECUTION §6). No route calls this yet (Grant
+ * control-plane routes are V1.1 per the roadmap). If a caller does not re-drive,
+ * the Approval TTL sweep still finds these expired Approvals and settles them.
  *
  * "Cancelled" is recorded as status `expired`: the `approval_status` enum has
  * no `cancelled` member, and `expired` is already treated everywhere as a

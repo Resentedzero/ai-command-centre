@@ -92,6 +92,7 @@ import {
   assertCapabilityGrantsNotStopped,
   assertNotStopped,
   ExecutionStoppedError,
+  type ActiveStop,
 } from "../governance/executionStop.js";
 import { compileContext } from "../context/compiler.js";
 import {
@@ -184,6 +185,35 @@ async function clearPendingReservation(tx: DrizzleTransaction, runId: string, se
 /** Guards reconcileBudget/releaseReservation against Unit 2's deterministic no-op sentinel (they throw on it). */
 function isRealReservation(reservationId: string): boolean {
   return reservationId !== NOOP_RESERVATION_ID;
+}
+
+/**
+ * Records a Run halted by an emergency stop: its outcome names the stop, and
+ * `run_halted` makes the halt visible in the event log, not only in
+ * `runs.outcome` — otherwise a Run halted before proposing any Invocation simply
+ * stops appearing in the Activity feed with no stated cause. Used wherever a
+ * stop is caught, so the same stop leaves the same record whenever it lands.
+ */
+async function haltRunForStop(tx: DrizzleTransaction, runId: string, taskInstanceId: string, stop: ActiveStop): Promise<void> {
+  await tx
+    .update(runs)
+    .set({
+      status: "failed",
+      completedAt: new Date(),
+      outcome: { status: "failed", reason: "execution_stopped", stopScope: stop.scope, stopScopeRefId: stop.scopeRefId },
+    })
+    .where(eq(runs.id, runId));
+  await emitEvent(tx, {
+    idempotencyKey: `run_halted:${runId}`,
+    eventType: "run_halted",
+    eventVersion: 1,
+    causationId: null,
+    correlation: { goalId: null, workflowRunId: null, taskInstanceId, runId, invocationId: null },
+    actor: "system",
+    producer: "executor",
+    payload: { reason: "execution_stopped", stopId: stop.id, stopScope: stop.scope, stopScopeRefId: stop.scopeRefId },
+    usage: null,
+  });
 }
 
 async function failRun(tx: DrizzleTransaction, runId: string): Promise<void> {
@@ -979,7 +1009,13 @@ export async function completeToolDispatch(
       error,
       details: settlement,
     });
-    await failRun(tx, runId);
+    // A stop caught by the pre-effect check is recorded exactly as one caught
+    // at the Invocation boundary: named in the outcome, with `run_halted`.
+    if (isToolError && error instanceof ExecutionStoppedError && !error.lookupFailed) {
+      await haltRunForStop(tx, runId, taskInstanceId, error.stop);
+    } else {
+      await failRun(tx, runId);
+    }
     return "failed";
   }
 }
@@ -1131,7 +1167,11 @@ export async function settleRunAfterStepFailure(
     if (approval.status === "pending" && (await expirePendingApproval(tx, approval.id, "system:execution_error"))) {
       approvalStatusByInvocation.set(invocation.id, "expired");
     } else {
-      approvalStatusByInvocation.set(invocation.id, approval.status);
+      // Re-read, not the status read above: a decision racing this settlement
+      // makes the conditional expire match nothing once it commits, and the
+      // earlier read would record "pending" for an Approval actually approved.
+      const current = await tx.query.approvals.findFirst({ where: eq(approvals.id, approval.id) });
+      approvalStatusByInvocation.set(invocation.id, current?.status ?? approval.status);
     }
   }
 
@@ -1372,46 +1412,7 @@ export async function executeRun(
     // with nothing dispatched, which is still fail-closed.
     if (error.lookupFailed) throw error;
     try {
-      await tx
-        .update(runs)
-        .set({
-          status: "failed",
-          completedAt: new Date(),
-          outcome: {
-            status: "failed",
-            reason: "execution_stopped",
-            stopScope: error.stop.scope,
-            stopScopeRefId: error.stop.scopeRefId,
-          },
-        })
-        .where(eq(runs.id, runId));
-
-      // The Run's terminal transition is a meaningful state change and must be
-      // visible in the event log, not only in `runs.outcome` — otherwise a Run
-      // halted before proposing any invocation simply stops appearing in the
-      // Activity feed with no stated cause.
-      await emitEvent(tx, {
-        idempotencyKey: `run_halted:${runId}`,
-        eventType: "run_halted",
-        eventVersion: 1,
-        causationId: null,
-        correlation: {
-          goalId: null,
-          workflowRunId: null,
-          taskInstanceId: boundRun.taskInstanceId,
-          runId,
-          invocationId: null,
-        },
-        actor: "system",
-        producer: "executor",
-        payload: {
-          reason: "execution_stopped",
-          stopId: error.stop.id,
-          stopScope: error.stop.scope,
-          stopScopeRefId: error.stop.scopeRefId,
-        },
-        usage: null,
-      });
+      await haltRunForStop(tx, runId, boundRun.taskInstanceId, error.stop);
     } catch {
       // Defensive: if recording the outcome itself fails, surface the stop —
       // the real cause — rather than the write error. The transaction then

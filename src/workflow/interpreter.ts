@@ -143,7 +143,7 @@
  *   in this module that writes `variables` a second time within the same
  *   call.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { goals, runs, taskInstances, workflowDefinitions, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { createWorkflowTaskInstance } from "../execution/taskInstance.js";
@@ -507,22 +507,29 @@ async function executeStepSettlingFailures(
   isLastStep: boolean,
   build: () => Promise<PlannedInvocationSpec[]>
 ): Promise<AdvanceResult> {
+  // A uniquely named savepoint rather than drizzle's nested `tx.transaction`,
+  // whose savepoints are named by depth (`sp1`, …): any nested savepoint taken
+  // inside the step would share that name, and ROLLBACK TO would then undo only
+  // back to the inner one. Statements run on the outer `tx`, which the builder
+  // and its specs close over; a savepoint covers the whole connection.
   let outcome: RunOutcome;
+  await tx.execute(sql.raw(`savepoint ${STEP_ATTEMPT_SAVEPOINT}`));
   try {
-    // The outer `tx`, deliberately: the builder and the specs it returns close
-    // over it. A savepoint is scoped to the connection, so every statement on
-    // `tx` inside this callback is inside the savepoint all the same.
-    outcome = await tx.transaction(async () => executeRun(tx, step.runId, await build()));
+    outcome = await executeRun(tx, step.runId, await build());
   } catch (error) {
     if (!isSettleableStepFailure(error)) throw error;
+    await tx.execute(sql.raw(`rollback to savepoint ${STEP_ATTEMPT_SAVEPOINT}`));
     const settlement = await settleRunAfterStepFailure(tx, step.runId, error);
     if (settlement.kind === "in_flight") throw error;
     // eslint-disable-next-line no-console
     console.error(`advanceWorkflowRun: step for run "${step.runId}" failed and was settled:`, error);
     outcome = { status: settlement.status, runId: step.runId };
   }
+  await tx.execute(sql.raw(`release savepoint ${STEP_ATTEMPT_SAVEPOINT}`));
   return resolveStepOutcome(tx, step, isLastStep, outcome);
 }
+
+const STEP_ATTEMPT_SAVEPOINT = "step_attempt";
 
 /** Algorithm step 5: create a NEW step's Task Instance + Run, then run it fresh. */
 async function createAndRunStep(

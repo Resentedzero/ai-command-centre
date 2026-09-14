@@ -20,7 +20,7 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: 
 vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
 vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeSubscriptionModel: vi.fn() }));
 
-import { completeToolDispatch, executeRun, releaseDispatchSlot } from "../../src/execution/executor.js";
+import { completeToolDispatch, executeRun, releaseDispatchSlot, settleRunAfterStepFailure } from "../../src/execution/executor.js";
 import type { PendingToolDispatch, RunOutcome, ToolExecutionContext, ToolInvocationSpec } from "../../src/execution/types.js";
 import { transactionRunner } from "../../src/db/transactionRunner.js";
 import { dispatchAndRecord } from "../../src/workflow/advanceWorkflowRunUntilBlocked.js";
@@ -236,6 +236,11 @@ describe("the pre-effect re-check", () => {
       expect(execute).not.toHaveBeenCalled();
       expect(await failedPayload(tx, dispatch.invocationId)).toMatchObject({ reservationSettlement: "released", providerConsumption: "none" });
       expect(await usd(tx, ids.runId)).toEqual({ reserved: 0, consumed: 0 });
+      // Recorded exactly as a stop caught at the Invocation boundary is.
+      const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, ids.runId) });
+      expect(run!.outcome).toMatchObject({ reason: "execution_stopped", stopScope: "workflow_run", stopScopeRefId: ids.workflowRunId });
+      const halted = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `run_halted:${ids.runId}`) });
+      expect(halted?.payload).toMatchObject({ reason: "execution_stopped", stopScope: "workflow_run" });
     });
   });
 
@@ -283,6 +288,37 @@ const deferred = () => {
 };
 
 describe("concurrency across real transactions", () => {
+  it("step-failure settlement racing an approve records the Approval's real decision, not the stale pending it read", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ids = await testDb.transaction((tx) => seedToolRun(tx, "ALWAYS_APPROVE"));
+    const spec = toolSpec(ids, vi.fn(async () => ({})));
+    expect((await testDb.transaction((tx) => executeRun(tx, ids.runId, [spec]))).status).toBe("awaiting_approval");
+    const invocation = await testDb.query.invocations.findFirst({ where: eq(schema.invocations.runId, ids.runId) });
+    const approval = await testDb.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+
+    const approved = deferred();
+    const mayCommit = deferred();
+    const approving = testDb.transaction(async (tx) => {
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+      approved.resolve();
+      await mayCommit.promise;
+    });
+    await approved.promise;
+
+    // Reads `pending`, then its conditional expire blocks on the decided row.
+    const settling = testDb.transaction((tx) => settleRunAfterStepFailure(tx, ids.runId, new Error("builder broke")));
+    await new Promise((r) => setTimeout(r, 200));
+    mayCommit.resolve();
+    await approving;
+    await settling;
+
+    const failed = await testDb.query.events.findFirst({
+      where: and(eq(schema.events.invocationId, invocation!.id), eq(schema.events.eventType, "invocation_failed")),
+    });
+    expect(failed!.payload).toMatchObject({ approvalStatus: "approved" });
+    consoleError.mockRestore();
+  });
+
   it("a second request on another connection sees the claimed effect as in_flight; the effect happens exactly once", async () => {
     const ids = await testDb.transaction((tx) => seedToolRun(tx));
     const runInTx = transactionRunner(testDb);
