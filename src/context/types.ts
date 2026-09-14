@@ -51,6 +51,12 @@ export type CompiledContext = {
 export type CompileContextInput = {
   intent: "classify" | "synthesize" | "extract" | "decide" | "summarize";
   taskInstanceId: string;
+  /**
+   * The Run this compilation serves (added 2026-09-14). Its bound Agent
+   * Definition supplies the instructions layer (spec §5.14 layer 1: system/role
+   * instructions). Optional: without it the instructions layer is empty.
+   */
+  runId?: string;
   candidateArtifactIds: string[];
   candidateToolCapabilityIds: string[];
   budget: ContextBudget;

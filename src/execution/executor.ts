@@ -657,9 +657,28 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
     compiledContext = await compileContext(tx, {
       intent: spec.intent,
       taskInstanceId,
+      runId,
       candidateArtifactIds: spec.candidateArtifactIds,
       candidateToolCapabilityIds: spec.candidateToolCapabilityIds,
       budget: spec.contextBudget,
+    });
+    // Spec §5.13/§5.16: the compiled context's lineage and size, recorded on
+    // this Invocation — what went in, at what tier, and why anything was left
+    // out. Content is never recorded, only ids and counts.
+    await emitLifecycleEvent(tx, {
+      eventType: "context_compiled",
+      subjectId: invocationId,
+      correlation: await correlationForRun(tx, runId, invocationId),
+      producer: "context-compiler",
+      payload: {
+        intent: spec.intent,
+        estimatedInputTokens: compiledContext.estimatedInputTokens,
+        maxInputTokens: spec.contextBudget.maxInputTokens,
+        included: compiledContext.provenance.included,
+        excluded: compiledContext.provenance.excluded,
+        instructionsPresent: compiledContext.layers.instructions.length > 0,
+        untrustedDataFenced: compiledContext.layers.constraints.length > 0,
+      },
     });
   } catch (error) {
     await releaseReservation(tx, route.reservationId);

@@ -1425,6 +1425,29 @@ describe("persistInvocationResultAsArtifact integration with compileContext (Uni
       expect(compiled.layers.artifacts).toContain(JSON.stringify({ hello: "world" }));
     });
   });
+
+  it("an llm Invocation records its compiled context's provenance and size as a context_compiled event (spec 5.13/5.16)", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx);
+      vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
+        result: { ok: true },
+        usage: { tokensIn: 5, tokensOut: 5, costAmount: 10, costUnit: "subscription_tokens" },
+      });
+      await executeRun(tx, runId, [buildLlmSpec()]);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const event = await tx.query.events.findFirst({
+        where: eq(schema.events.idempotencyKey, `context_compiled:${invocation!.id}`),
+      });
+      expect(event).toBeDefined();
+      expect(event!.invocationId).toBe(invocation!.id);
+      expect(event!.payload).toMatchObject({
+        estimatedInputTokens: expect.any(Number),
+        included: expect.any(Array),
+        excluded: expect.any(Array),
+      });
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
