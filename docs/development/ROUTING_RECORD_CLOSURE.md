@@ -83,7 +83,7 @@ Review (Opus): no correctness regression; every seeded column verified equal, ca
 
 - `tests/definitions/seedEvents.test.ts`: a `definition_version_created` for each of the nine Definitions, Capabilities and Tool Bindings; `capability_granted` for both Grants with their autonomy states; `goal_created`; each Grant logged before the Workflow Definition; the seeded rows unchanged.
 - `tests/execution/structuralInvariants.test.ts`: in `src/`, only `definitions/registryWrites.ts` inserts into the Definition, Capability, Tool Binding and Grant tables.
-- Full suite after the change: 65 files, 783 passed, 2 skipped; `tsc` exit 0. No existing test needed a change: nothing asserted an empty log after seeding.
+- Full suite on the committed tree: 65 files, 784 passed, 2 skipped; `tsc` exit 0. No existing test needed a change: nothing asserted an empty log after seeding.
 
 | Mutant | Result |
 |---|---|

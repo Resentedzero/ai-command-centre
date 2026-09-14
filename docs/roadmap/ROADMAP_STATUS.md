@@ -124,4 +124,4 @@ UI workstream (APIs built, no UI):
 - Artifact view against `GET /artifacts/:id`: Agent Detail `outputs` ids and the Workflow Run detail's per-Invocation `artifactIds` (typed in `web/lib/api.ts`) link straight to it.
 
 Operator:
-- Apply migrations 0014 (unique Definition versions and Capability names; fails if duplicates were hand-inserted) and 0015 (`agent_performance`) with `npm run db:migrate`. **Applied to the local database 2026-09-14.**
+- Apply migrations 0014 (unique Definition versions and Capability names; fails if duplicates were hand-inserted), 0015 (`agent_performance`) and 0016 (events immutable) with `npm run db:migrate`. **All three applied to the local database 2026-09-14.**

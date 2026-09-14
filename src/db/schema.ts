@@ -263,6 +263,9 @@ export const invocations = pgTable("invocations", {
 // Execution ledger
 // ---------------------------------------------------------------------------
 
+// Immutable since migration 0016 (a trigger refuses UPDATE, DELETE and TRUNCATE).
+// A backfill migration that must UPDATE events, as 0006 did, has to
+// `DISABLE TRIGGER events_immutable` first, inside its own transaction.
 export const events = pgTable(
   "events",
   {

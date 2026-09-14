@@ -667,8 +667,8 @@ describe("synchronous visibility across connections (READ COMMITTED)", () => {
       } finally {
         await testDb.delete(schema.executionStops).where(eq(schema.executionStops.scopeRefId, runRef));
         await deleteEventsForTest(eq(schema.events.runId, runRef));
-      // Stop events carry no run correlation; their target is in the payload.
-      await deleteEventsForTest(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
+        // Stop events carry no run correlation; their target is in the payload.
+        await deleteEventsForTest(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
       }
     },
     20000
@@ -825,8 +825,8 @@ describe("review regressions", () => {
         await app.close();
         await testDb.delete(schema.executionStops).where(eq(schema.executionStops.scopeRefId, runRef));
         await deleteEventsForTest(eq(schema.events.runId, runRef));
-      // Stop events carry no run correlation; their target is in the payload.
-      await deleteEventsForTest(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
+        // Stop events carry no run correlation; their target is in the payload.
+        await deleteEventsForTest(sql`${schema.events.payload}->>'scopeRefId' = ${runRef}`);
         if (stopId) {
           await deleteEventsForTest(eq(schema.events.idempotencyKey, `${EXECUTION_STOP_ENGAGED}:${stopId}`));
         }
