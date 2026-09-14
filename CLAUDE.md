@@ -44,6 +44,6 @@ out to. The Workflow Interpreter never calls an LLM.
 
 None exist yet (`web/CLAUDE.md` only points at the Next.js version notes in
 `web/AGENTS.md`). Module contracts live in each source file's header comment.
-Architecture invariants that can be checked statically — no provider call
-inside a transaction, the single chokepoint, status changes recorded as
-events — are enforced by `tests/execution/structuralInvariants.test.ts`.
+Architecture invariants that can be checked statically — no provider call or
+tool side effect inside a transaction, the single chokepoint, status changes
+recorded as events — are enforced by `tests/execution/structuralInvariants.test.ts`.

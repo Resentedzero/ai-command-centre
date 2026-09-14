@@ -10,7 +10,7 @@
 - `src/execution/executorInstanceLock.ts`
 - `src/db/transactionRunner.ts`
 
-**Tests:** `tests/execution/durableExecution.test.ts`.
+**Tests:** `tests/execution/durableExecution.test.ts`, `tests/execution/toolDispatch.test.ts`, `tests/workflow/stepFailureSettlement.test.ts`.
 
 ## 1. The problem this solves
 
@@ -45,9 +45,31 @@ tx C  executeRun ─ continues from the next Invocation
 - Builders are created **per transaction** (`makeBuilder(tx)`). Builders and the specs they return close over their transaction, so a spec must never outlive it. The builder contract already requires determinism across calls, which is what makes rebuilding safe.
 - The HTTP contract is unchanged. Routes still run synchronously and return the same bodies. Only the transaction boundaries moved.
 
-### Scope: what still runs inside a transaction
+### 2.1 Tool side effects (post-Phase 9)
 
-Tool (`spec.execute`), deterministic, and retrieval Invocations still execute inside the caller's transaction. Today they are all fast and local: `retrieveResearch` is a pure function, and `publishReport` is a local file write. Moving a tool out of the transaction needs the spec §12 idempotency-key pattern for real external side effects, and it is deferred until such a tool exists (§7).
+A Tool Invocation follows the same yield-and-record shape as an LLM Invocation. Before this, a tool ran inside the transaction that also recorded it. A crash after `publishReport` wrote its file but before commit rolled the Invocation back to `awaiting_approval` with its approved Approval, and the next advance published a second time.
+
+```
+tx A  executeRun ─ Grant, Policy, budget reservation (and on resume: Approval,
+                   reauthorize, fresh reservation)
+                   invocation.status = 'executing'; pendingReservations[seqNo]
+                   COMMIT                                  → yields dispatch_required {kind:"tool"}
+tx P  assertToolDispatchStillAuthorized ─ stops (every scope), Grant + Tool Binding
+                   trust through Policy, Approval reauthorize     (refusal → consumption "none")
+(no tx) spec.execute({ invocationId, idempotencyKey }) ─ the side effect
+tx B  completeToolDispatch ─ reconcile at estimate, artifact, completed
+                   (or: release / charge at estimate, fail invocation + Run)
+```
+
+**Invariants.**
+- A tool's `execute` is never called inside a transaction, and never by the Executor. Only the driver's `performToolDispatch` calls it (`tests/execution/structuralInvariants.test.ts`). Deterministic and retrieval Invocations are internal and still run in the Executor's transaction.
+- `execute` must not close over a transaction. A builder reads what the effect needs when the spec is built; `publishReport` receives the approved content, never a transaction to look it up with.
+- An Invocation's effect is attempted **at most once**. The `executing` commit is the claim. A concurrent path finds it in flight, and an interrupted one is settled (§4), never repeated.
+- The Invocation's persisted `idempotency_key` is passed to the adapter (spec §12 implementation note). An adapter that can recognise its own earlier effect does: `publishReport` writes atomically, reports a destination already holding the approved bytes as published, and refuses one holding anything else.
+
+**Settlement** follows §4.1. A tool reports no cost, so success reconciles at the estimate. An error carrying `consumption: "none"` releases the reservation: the pre-effect re-check's refusals, and `publishReport`'s refusals before writing. Any other error is charged at estimate, because the effect may have happened. This replaces the earlier rule, "a thrown tool releases".
+
+**Tests:** `tests/execution/toolDispatch.test.ts`. They cover the claim committed before the effect, a dead dispatcher, the startup sweep, a late outcome, a stop and a trust downgrade after the claim, error settlement, and concurrency across real connections. Each was confirmed to fail with the claim or the re-check removed.
 
 ## 3. Invocation state machine
 
@@ -55,11 +77,12 @@ Tool (`spec.execute`), deterministic, and retrieval Invocations still execute in
 |---|---|---|---|
 | — | `proposed` | `proposeInvocation` | A |
 | `proposed` | `awaiting_approval` | tool, Policy `REQUIRE_APPROVAL` | A |
-| `proposed` | `executing` | llm, after reservation + context compilation | A |
-| `proposed` | `completed` / `failed` | tool (ALLOW), deterministic, retrieval, or any refusal | A |
-| `executing` | `completed` / `failed` | `completeModelDispatch` | B |
+| `proposed` | `executing` | llm, after reservation + context compilation; tool (ALLOW), after reservation | A |
+| `proposed` | `completed` / `failed` | deterministic, retrieval, or any refusal | A |
+| `executing` | `completed` / `failed` | `completeModelDispatch` / `completeToolDispatch` | B |
 | `executing` | `failed` (`interrupted_outcome_unknown`) | `failInterruptedInvocation` | recovery |
-| `awaiting_approval` | `completed` / `failed` | `resumeToolSpec` / stop handling | later request |
+| `awaiting_approval` | `executing` | `resumeToolSpec`, after reauthorize + fresh reservation | later request |
+| `awaiting_approval` | `failed` | `resumeToolSpec` refusals / stop handling | later request |
 | `proposed` / `awaiting_approval` / `executing` | `failed` (`execution_error`, or interrupted) | `settleRunAfterStepFailure` (§4.2) | the advance whose step threw |
 
 `executing` is the spec §3a lifecycle state (`proposed → authorized → executing → completed/failed`). `authorized` is not persisted, because it never survives its own transaction.
@@ -168,7 +191,7 @@ Once a request commits in several transactions, concurrent requests can interlea
 
 ## 7. Residuals and deferred work
 
-1. **Tool side effects inside the transaction.** A crash after `publishReport` writes its file but before commit leaves the file with no record. The fix is the spec §12 idempotency key: the adapter checks "has an Invocation with this key already succeeded". Deferred until a tool with real external effects exists.
+1. **Tool side effects inside the transaction (resolved).** Tools now dispatch outside the transaction, after a durable `executing` claim (§2.1).
 2. **An in-flight child cannot be stopped.** Stops and pauses act at Invocation boundaries, and the adapter timeout is the only bound on a running child (SUBSCRIPTION_PROVIDER_DESIGN Part 11).
 3. **Stranded mid-request work.** A request commits in several transactions, so its process can die, or its advance can throw, between them. Examples: an Approval committed but not yet advanced, or a dispatch recorded but the Run not continued.
    - **After a restart**, `redriveInProgressWorkflowRuns` continues every `in_progress` Workflow Run in the background through the ordinary driver. All checks run again, and a paused run is untouched.
@@ -177,8 +200,10 @@ Once a request commits in several transactions, concurrent requests can interlea
 4. **Ambiguous COMMIT.** The in-flight entry is added inside the transaction that commits `executing`. If COMMIT succeeds on the server but the client sees an error (a connection reset), the driver never dispatches and the entry stays: the Run answers `in_flight` until a restart. The restart's sweep then charges the estimate for a call that was never sent. Rare, and conservative. A real fix needs an ownership token in the row, or a driver that reads the row back after a commit error.
 5. **Lost recording.** If the transaction recording a *successful* dispatch fails, for example as a deadlock victim, the result is discarded. The Invocation is later settled as interrupted, at estimate. Conservative, but a known result becomes "unknown". Retrying only the recording transaction, never the dispatch, would preserve it.
 6. **Live SSE delivery happens per commit (resolved).** `createWorkflowRelay`'s runner relays each transaction's events right after it commits. The events before a dispatch, including `context_compiled`, therefore reach subscribers while the provider call is still running. Emergency-stop events are relayed after their commit too. Two concurrent requests on the same Workflow Run can each relay the other's events; the SSE route deduplicates by event id.
-7. **Tools still hold locks while they execute.** A tool runs inside its transaction, holding the Run's usd counters, including the DAY usd counter once configured. A slow future tool would serialize usd reservations behind it. That is harmless while every tool is local.
+7. **Tools held locks while they executed (resolved).** A tool's `execute` holds no transaction (§2.1).
 8. **The DAY ceiling is now unblocked.** Provider calls no longer hold budget locks, so Phase 8's deferred item #4 no longer depends on Phase 9. The ceiling values and timezone remain operator decisions.
 9. **The instance lock guards only `start.ts`.** Any other process that advances Runs against the same database, such as a future CLI script, must take the lock too, or it will settle the server's live dispatches as interrupted. If the lock connection is lost, the server exits.
 10. **A throw while resuming a step left its hold reserved (resolved).** See §4.2: the step now fails, its hold is released and its Approval state is recorded honestly. Only a transient database error still propagates, and the next advance retries it.
-11. **A stop committed during context compilation does not stop that dispatch.** The stop check runs at the top of each Invocation, before routing and context compilation. A stop that commits after that check, but before `dispatchModelCall` starts, lets that one call go out; the next Invocation is refused. The window is the compile time plus one commit. Closing it needs a second stop check at dispatch, which would settle as consuming nothing.
+11. **A stop committed during context compilation does not stop that LLM dispatch.** The stop check runs at the top of each Invocation, before routing and context compilation. A stop that commits after that check, but before `dispatchModelCall` starts, lets that one call go out; the next Invocation is refused. The window is the compile time plus one commit. Tool dispatches are re-checked immediately before their effect (§2.1). The same check could be added before a model dispatch, where a refusal would settle as consuming nothing.
+12. **The pre-effect re-check leaves a small window.** Between `assertToolDispatchStillAuthorized` committing and `execute` starting, a stop or revocation can still land; it takes effect at the next Invocation. The window is one commit and a function call.
+13. **An interrupted tool is not asked whether its effect happened.** An adapter such as `publishReport` could verify its own effect after a crash, and record success instead of `outcome: "unknown"`. Recovery does not yet ask it: the step fails, charged at estimate, and a retry is a new Run.

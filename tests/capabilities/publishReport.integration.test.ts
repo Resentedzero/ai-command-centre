@@ -23,7 +23,7 @@
  * filesystem side effect with no transactional undo.
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
@@ -646,12 +646,20 @@ describe("Full governance chain integration", () => {
 
         expect(outcome).toEqual({ status: "completed" });
         // Independent, in this order: reauthorize succeeds, THEN a fresh
-        // reserveBudget is made — not reused from the original hold.
-        expect(callOrder).toEqual(["reauthorize:true", "reserveBudget:true"]);
+        // reserveBudget is made — not reused from the original hold. The last
+        // reauthorize is the pre-dispatch re-check, immediately before the
+        // publish runs with no transaction open (DURABLE_EXECUTION §2.1).
+        expect(callOrder).toEqual(["reauthorize:true", "reserveBudget:true", "reauthorize:true"]);
 
         expect(publishSpy).toHaveBeenCalledTimes(1);
-        // Called with the hash pinned in the Approval — the content it was approved for.
-        expect(publishSpy).toHaveBeenCalledWith(tx, initial.reportArtifactId, destinationRelativePath, initialReport!.hash);
+        // Called with the content and the hash pinned in the Approval, and the
+        // Invocation's own idempotency key — never a transaction.
+        expect(publishSpy).toHaveBeenCalledWith({
+          content: initialReport!.inlineContent,
+          expectedHash: initialReport!.hash,
+          destinationRelativePath,
+          idempotencyKey: initial.invocation!.idempotencyKey,
+        });
 
         // The real side effect actually happened.
         const publishedPath = publishedPathFor(destinationRelativePath);
@@ -750,10 +758,11 @@ describe("Pause/resume scenario A (between Task A completion and Task B start)",
       mockLlmOnce("pause scenario A report");
       const afterTaskA = await advanceWorkflowRun(tx, workflowRunId, builder);
       expect(afterTaskA).toEqual({ status: "in_progress" });
-      // Only Task A's builder ran so far — twice, since Phase 9: once creating
-      // the step, and once resuming it after its LLM Invocation's dispatch
-      // yield (the builder contract requires it to be safe to call repeatedly).
-      const taskAOnly = [seed.taskDefinitionId, seed.taskDefinitionId];
+      // Only Task A's builder ran so far — three times: once creating the step,
+      // then once resuming it after each dispatch yield (its tool Invocation,
+      // then its LLM Invocation). The builder contract requires it to be safe
+      // to call repeatedly.
+      const taskAOnly = [seed.taskDefinitionId, seed.taskDefinitionId, seed.taskDefinitionId];
       expect(calls).toEqual(taskAOnly);
 
       await pauseWorkflowRun(tx, workflowRunId);
@@ -840,47 +849,48 @@ describe("Structural: publishReport's destination is always local, relative, und
     expect(source).not.toMatch(/fetch\(|axios|http\.request|net\.connect|WebSocket/);
   });
 
-  it("rejects a destinationRelativePath containing a '..' segment (path traversal)", async () => {
-    await withRollback(async (tx) => {
-      const [artifact] = await tx
-        .insert(schema.artifacts)
-        .values({ type: "report", version: 1, hash: "x", size: 1, inlineContent: "{}" })
-        .returning();
-      await expect(publishReport(tx, artifact!.id, "../../escape.json", artifact!.hash)).rejects.toThrow(/\.\.|traversal/i);
-    });
+  const request = (content: string, destinationRelativePath: string, expectedHash = sha256Hash("sha256").update(content).digest("hex")) => ({
+    content,
+    expectedHash,
+    destinationRelativePath,
+    idempotencyKey: "run:test:seq:1",
+  });
+
+  it("rejects a destinationRelativePath containing a '..' segment (path traversal), marked as consuming nothing", async () => {
+    await expect(publishReport(request("{}", "../../escape.json"))).rejects.toThrow(/\.\.|traversal/i);
+    await expect(publishReport(request("{}", "../../escape.json"))).rejects.toMatchObject({ consumption: "none" });
   });
 
   it("rejects an absolute destinationRelativePath", async () => {
-    await withRollback(async (tx) => {
-      const [artifact] = await tx
-        .insert(schema.artifacts)
-        .values({ type: "report", version: 1, hash: "x", size: 1, inlineContent: "{}" })
-        .returning();
-      await expect(publishReport(tx, artifact!.id, "C:\\Windows\\escape.json", artifact!.hash)).rejects.toThrow(/absolute|traversal/i);
-      await expect(publishReport(tx, artifact!.id, "/etc/escape.json", artifact!.hash)).rejects.toThrow(/absolute|traversal/i);
-    });
+    await expect(publishReport(request("{}", "C:\\Windows\\escape.json"))).rejects.toThrow(/absolute|traversal/i);
+    await expect(publishReport(request("{}", "/etc/escape.json"))).rejects.toThrow(/absolute|traversal/i);
   });
 
-  it("actually writes under ARTIFACT_ROOT/published/ for a well-formed relative path", async () => {
-    await withRollback(async (tx) => {
-      const [artifact] = await tx
-        .insert(schema.artifacts)
-        .values({ type: "report", version: 1, hash: "x", size: Buffer.byteLength("hello"), inlineContent: "hello" })
-        .returning();
-      // The expected hash is recomputed from content by publishReport, so it must be the real one.
-      const { publishedPath } = await publishReport(
-        tx,
-        artifact!.id,
-        "structural/hello.txt",
-        sha256Hash("sha256").update("hello").digest("hex")
-      );
-      const onDisk = path.resolve(process.env.ARTIFACT_ROOT!, publishedPath);
-      PUBLISHED_FILES.push(onDisk);
-      // Recorded relative to ARTIFACT_ROOT with POSIX separators (§13.3) — no host path in stored data.
-      expect(publishedPath).toBe("published/structural/hello.txt");
-      expect(onDisk.startsWith(path.resolve(process.env.ARTIFACT_ROOT!, "published") + path.sep)).toBe(true);
-      expect(readFileSync(onDisk, "utf8")).toBe("hello");
-    });
+  it("actually writes under ARTIFACT_ROOT/published/ for a well-formed relative path, atomically", async () => {
+    const { publishedPath, alreadyPublished } = await publishReport(request("hello", "structural/hello.txt"));
+    const onDisk = path.resolve(process.env.ARTIFACT_ROOT!, publishedPath);
+    PUBLISHED_FILES.push(onDisk);
+    // Recorded relative to ARTIFACT_ROOT with POSIX separators (§13.3) — no host path in stored data.
+    expect(publishedPath).toBe("published/structural/hello.txt");
+    expect(alreadyPublished).toBe(false);
+    expect(onDisk.startsWith(path.resolve(process.env.ARTIFACT_ROOT!, "published") + path.sep)).toBe(true);
+    expect(readFileSync(onDisk, "utf8")).toBe("hello");
+    // No temporary file is left behind.
+    expect(readdirSync(path.dirname(onDisk)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("is idempotent: the same approved bytes already in place are reported as published, never written twice; different bytes are refused", async () => {
+    const first = await publishReport(request("same bytes", "idempotent/report.txt"));
+    const onDisk = path.resolve(process.env.ARTIFACT_ROOT!, first.publishedPath);
+    PUBLISHED_FILES.push(onDisk);
+    const writtenAt = statSync(onDisk).mtimeMs;
+
+    const again = await publishReport(request("same bytes", "idempotent/report.txt"));
+    expect(again).toEqual({ publishedPath: first.publishedPath, alreadyPublished: true });
+    expect(statSync(onDisk).mtimeMs).toBe(writtenAt);
+
+    await expect(publishReport(request("other bytes", "idempotent/report.txt"))).rejects.toMatchObject({ consumption: "none" });
+    expect(readFileSync(onDisk, "utf8")).toBe("same bytes");
   });
 });
 
@@ -890,17 +900,13 @@ describe("Structural: publishReport's destination is always local, relative, und
 
 describe("publishReport publishes only the approved content", () => {
   it("refuses content whose hash does not match the one pinned at approval, and writes nothing", async () => {
-    await withRollback(async (tx) => {
-      const [artifact] = await tx
-        .insert(schema.artifacts)
-        .values({ type: "report", version: 1, hash: "stale", size: 5, inlineContent: "later" })
-        .returning();
-      const destinationRelativePath = "hash-pin/refused.txt";
-      const approvedHash = sha256Hash("sha256").update("originally approved content").digest("hex");
+    const destinationRelativePath = "hash-pin/refused.txt";
+    const approvedHash = sha256Hash("sha256").update("originally approved content").digest("hex");
 
-      await expect(publishReport(tx, artifact!.id, destinationRelativePath, approvedHash)).rejects.toThrow(/hash mismatch/);
-      expect(existsSync(publishedPathFor(destinationRelativePath))).toBe(false);
-    });
+    await expect(
+      publishReport({ content: "later", expectedHash: approvedHash, destinationRelativePath, idempotencyKey: "run:test:seq:1" })
+    ).rejects.toThrow(/hash mismatch/);
+    expect(existsSync(publishedPathFor(destinationRelativePath))).toBe(false);
   });
 });
 

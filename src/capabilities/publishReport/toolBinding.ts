@@ -18,32 +18,36 @@
  * "finishing" this one.
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Deviation from the brief's literal 2-argument interface listing
- * (`publishReport(artifactId, destinationRelativePath)`), documented here
- * rather than silently applied: this function's actual exported signature
- * takes `tx: DrizzleTransaction` as a LEADING parameter. This is not a
- * stylistic choice — it is forced by Ruling 5's own requirement that this
- * function "looks up the artifact's content by ID at execution time (a real
- * DB query inside toolBinding.ts)". Every test in this codebase runs inside
- * `withRollback` (`tests/testDb.ts`): a Goal/Artifact/etc. row written during
- * a test exists ONLY inside that test's open transaction and is never
- * committed. A lookup through any connection other than that same `tx`
- * (e.g. a fresh pool connection opened here) would see nothing —
- * transaction isolation, not a hypothetical concern. So `tx` must be
- * threaded through, exactly the same class of necessary widening Ruling 1
- * already pre-authorizes for `buildInvocationSpecs` (whose frozen
- * `InvocationSpecBuilder` type also carries no `tx`). The caller obtains this
- * function via a zero-argument `execute: () => Promise<...>` closure (the
- * `ToolInvocationSpec.execute` contract, `src/execution/types.ts`) built by
- * `./buildInvocationSpecs.ts`, which closes over whatever `tx` it already has
- * — so nothing about the frozen Executor/InvocationSpec interfaces changes.
+ * Runs with NO database transaction (DURABLE_EXECUTION §2.1): the Executor
+ * commits the Invocation as `executing` before this is called, so a crash
+ * mid-publish leaves a durable claim that the effect may have happened and it
+ * is never repeated. It therefore takes the approved content itself — read by
+ * `./buildInvocationSpecs.ts` when the spec is built — never a transaction to
+ * look it up with.
+ *
+ * Idempotency (spec §12): the write is atomic (a temporary file renamed into
+ * place, so a crash never leaves a partial report), and a destination that
+ * already holds exactly the approved bytes is reported as already published
+ * rather than written again. A destination holding anything else is refused.
+ * The Invocation's idempotency key names the temporary file, so two attempts
+ * never share one.
+ *
+ * Refusals that happen before anything is written carry `consumption: "none"`,
+ * so the reservation is released; any other failure is treated as possibly
+ * performed.
  */
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { eq } from "drizzle-orm";
-import { artifacts } from "../../db/schema.js";
-import type { DrizzleTransaction } from "../../events/emit.js";
+
+/** An error proving nothing was written (see `providerConsumptionFrom`). */
+function refusal(message: string): Error & { consumption: "none" } {
+  return Object.assign(new Error(message), { consumption: "none" as const });
+}
+
+function sha256(content: string | Buffer): string {
+  return createHash("sha256").update(content).digest("hex");
+}
 
 /**
  * Ruling 6 (filesystem hygiene) — fails closed against path traversal.
@@ -63,17 +67,17 @@ import type { DrizzleTransaction } from "../../events/emit.js";
  */
 function assertSafeDestination(publishedRoot: string, destinationRelativePath: string): string {
   if (!destinationRelativePath || destinationRelativePath.includes("\0")) {
-    throw new Error(`publishReport: destinationRelativePath "${destinationRelativePath}" is empty or malformed.`);
+    throw refusal(`publishReport: destinationRelativePath "${destinationRelativePath}" is empty or malformed.`);
   }
   if (path.isAbsolute(destinationRelativePath)) {
-    throw new Error(
+    throw refusal(
       `publishReport: destinationRelativePath "${destinationRelativePath}" must be relative, not absolute ` +
         "(fail closed — this binding must never write outside ARTIFACT_ROOT/published/)."
     );
   }
   const segments = destinationRelativePath.split(/[\\/]/);
   if (segments.some((segment) => segment === "..")) {
-    throw new Error(
+    throw refusal(
       `publishReport: destinationRelativePath "${destinationRelativePath}" contains a ".." segment ` +
         "(fail closed — path traversal is never permitted)."
     );
@@ -81,7 +85,7 @@ function assertSafeDestination(publishedRoot: string, destinationRelativePath: s
 
   const resolved = path.resolve(publishedRoot, destinationRelativePath);
   if (resolved !== publishedRoot && !resolved.startsWith(publishedRoot + path.sep)) {
-    throw new Error(
+    throw refusal(
       `publishReport: destinationRelativePath "${destinationRelativePath}" resolves outside ` +
         `ARTIFACT_ROOT/published/ ("${resolved}" is not under "${publishedRoot}").`
     );
@@ -89,62 +93,61 @@ function assertSafeDestination(publishedRoot: string, destinationRelativePath: s
   return resolved;
 }
 
-/**
- * Writes the Artifact identified by `artifactId`'s content to
- * `${ARTIFACT_ROOT}/published/${destinationRelativePath}` — never anywhere
- * else (see `assertSafeDestination`, and the structural test in
- * `tests/capabilities/publishReport.integration.test.ts` that pins this
- * "always under ARTIFACT_ROOT/published/, local, relative" invariant per the
- * brief's required "structural test/comment").
- *
- * Looks the Artifact up BY ID at execution time (Ruling 5) — the caller
- * (`./buildInvocationSpecs.ts`) passes only a reference, never the report's
- * full content, so `proposedActionSnapshot`/the Approval's frozen snapshot
- * never duplicates the content itself.
- */
-export async function publishReport(
-  tx: DrizzleTransaction,
-  artifactId: string,
-  destinationRelativePath: string,
+export type PublishReportRequest = {
+  /** The report's bytes, as read from its Artifact when the spec was built. */
+  content: string;
   /**
-   * The sha256 of the content the Approval was granted for (2026-09-14), pinned
-   * in `proposedActionSnapshot.artifactHash`. REQUIRED: nothing is published
-   * without it. The Approval names the artifact by id; the pin is what proves
-   * the bytes written are the bytes that were approved, rather than whatever the
-   * id resolves to at execution time.
+   * The sha256 of the content the Approval was granted for, pinned in
+   * `proposedActionSnapshot.artifactHash`. REQUIRED: nothing is published
+   * without it. Recomputed here from `content`, so the bytes written are proven
+   * to be the bytes that were approved.
    */
-  expectedHash: string
-): Promise<{ publishedPath: string }> {
+  expectedHash: string;
+  destinationRelativePath: string;
+  /** The Invocation's idempotency key (`ToolExecutionContext`). */
+  idempotencyKey: string;
+};
+
+/**
+ * Writes `content` to `${ARTIFACT_ROOT}/published/${destinationRelativePath}` —
+ * never anywhere else (see `assertSafeDestination`, and the structural test in
+ * `tests/capabilities/publishReport.integration.test.ts`).
+ *
+ * `publishedPath` is recorded relative to ARTIFACT_ROOT, POSIX-separated (spec
+ * §13.3): it is persisted in an invocation_result Artifact that later
+ * compilations can inline, and an absolute path would carry the host's
+ * directory layout (and user name) into stored data and prompts.
+ */
+export async function publishReport(request: PublishReportRequest): Promise<{ publishedPath: string; alreadyPublished: boolean }> {
   const artifactRoot = process.env.ARTIFACT_ROOT;
   if (!artifactRoot) {
-    throw new Error("publishReport: ARTIFACT_ROOT is not set.");
+    throw refusal("publishReport: ARTIFACT_ROOT is not set.");
   }
   const publishedRoot = path.resolve(artifactRoot, "published");
-  const destination = assertSafeDestination(publishedRoot, destinationRelativePath);
+  const destination = assertSafeDestination(publishedRoot, request.destinationRelativePath);
+  const publishedPath = path.relative(path.resolve(artifactRoot), destination).split(path.sep).join("/");
 
-  const artifact = await tx.query.artifacts.findFirst({ where: eq(artifacts.id, artifactId) });
-  if (!artifact) {
-    throw new Error(`publishReport: no artifacts row found for id "${artifactId}"`);
-  }
-  if (artifact.inlineContent === null) {
-    throw new Error(`publishReport: artifact "${artifactId}" has no inlineContent to publish.`);
-  }
-  // Recomputed from the bytes about to be written — never taken from the stored
-  // `hash` column, which would not catch content altered without its hash.
-  const actualHash = createHash("sha256").update(artifact.inlineContent).digest("hex");
-  if (actualHash !== expectedHash) {
-    throw new Error(
-      `publishReport: artifact "${artifactId}" no longer matches the content that was approved ` +
+  if (sha256(request.content) !== request.expectedHash) {
+    throw refusal(
+      "publishReport: the content no longer matches the content that was approved " +
         "(content hash mismatch); refusing to publish."
     );
   }
 
-  await mkdir(path.dirname(destination), { recursive: true });
-  await writeFile(destination, artifact.inlineContent, "utf8");
+  const existing = await readFile(destination).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (existing !== null) {
+    if (sha256(existing) === request.expectedHash) {
+      return { publishedPath, alreadyPublished: true };
+    }
+    throw refusal(`publishReport: "${publishedPath}" already holds different content; refusing to overwrite it.`);
+  }
 
-  // Recorded relative to ARTIFACT_ROOT, POSIX-separated (spec §13.3): this value
-  // is persisted in an invocation_result Artifact that later compilations can
-  // inline, and an absolute path would carry the host's directory layout (and
-  // user name) into stored data and prompts.
-  return { publishedPath: path.relative(path.resolve(artifactRoot), destination).split(path.sep).join("/") };
+  await mkdir(path.dirname(destination), { recursive: true });
+  const temporary = `${destination}.${sha256(request.idempotencyKey).slice(0, 16)}.tmp`;
+  await writeFile(temporary, request.content, "utf8");
+  await rename(temporary, destination);
+  return { publishedPath, alreadyPublished: false };
 }

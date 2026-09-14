@@ -31,11 +31,13 @@ vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
 
 import {
   startWorkflowRun,
-  advanceWorkflowRun,
   pauseWorkflowRun,
   resumeWorkflowRun,
   type InvocationSpecBuilder,
 } from "../../src/workflow/interpreter.js";
+// Tool Invocations yield `dispatch_required` (DURABLE_EXECUTION §2.1); this drives
+// each call to its next real boundary exactly as the production driver does.
+import { advanceWorkflowRunToBoundary as advanceWorkflowRun } from "../helpers/driveToBoundary.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -278,10 +280,11 @@ describe("advanceWorkflowRun step gating", () => {
 
       // The assertion that actually pins the corrected step-4 semantics: the
       // builder was asked to (re)build step 1's specs on calls 1-3 (creation,
-      // still-pending no-op, and the approved resume) and ONLY switched to
-      // step 2 on call 4. A regression to a literal "first null index"
-      // reading would have asked for step 2 on call 2 already.
-      expect(calls).toEqual([stepOneDef.id, stepOneDef.id, stepOneDef.id, stepTwoDef.id]);
+      // still-pending no-op, the approved resume, and once more after that
+      // resume's tool dispatch was recorded) and ONLY switched to step 2 on
+      // call 4. A regression to a literal "first null index" reading would have
+      // asked for step 2 on call 2 already.
+      expect(calls).toEqual([stepOneDef.id, stepOneDef.id, stepOneDef.id, stepOneDef.id, stepTwoDef.id]);
     });
   });
 });

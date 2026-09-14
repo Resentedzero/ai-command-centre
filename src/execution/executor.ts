@@ -29,11 +29,12 @@
  *
  * Transaction boundaries (Phase 9 — durable execution; the authoritative
  * write-up is docs/architecture/DURABLE_EXECUTION.md): `executeRun` never makes
- * a provider call. At an LLM Invocation it commits the Invocation as
- * `executing` and yields `dispatch_required`; the caller dispatches with no
- * transaction open and records the outcome via `completeModelDispatch`. Tool,
- * deterministic and retrieval Invocations still execute inside the caller's
- * transaction — today they are all fast and local.
+ * a provider call and never runs a tool's side effect. At an LLM or Tool
+ * Invocation it commits the Invocation as `executing` and yields
+ * `dispatch_required`; the caller dispatches with no transaction open and
+ * records the outcome via `completeModelDispatch` / `completeToolDispatch`
+ * (DURABLE_EXECUTION §2, §2.1). Deterministic and retrieval Invocations are
+ * internal and still execute inside the caller's transaction.
  * `runs.status` is short-circuited at the top for the two terminal outcomes
  * ("failed"/"completed") so a call after the Run is already finished is a
  * cheap no-op read rather than re-walking every spec.
@@ -73,7 +74,7 @@
  */
 import { isDeepStrictEqual } from "node:util";
 import { and, asc, eq, inArray, lt } from "drizzle-orm";
-import { isTransientDatabaseError } from "../db/databaseErrors.js";
+import { isTransientDatabaseError, sqlStateOf } from "../db/databaseErrors.js";
 import { approvals, artifacts, invocations, runs, taskInstances, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
@@ -116,10 +117,12 @@ import type {
   InvocationSpecContext,
   LlmInvocationSpec,
   PendingModelDispatch,
+  PendingToolDispatch,
   PlannedInvocationSpec,
   PriorInvocationArtifact,
   RetrievalInvocationSpec,
   RunOutcome,
+  ToolDispatchOutcome,
   ToolInvocationSpec,
 } from "./types.js";
 
@@ -203,75 +206,42 @@ async function failRun(tx: DrizzleTransaction, runId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * Executes an already-authorized-and-reserved tool spec, then finalizes:
- * reconcile budget, persist result as artifact, mark completed — or, on a
- * thrown error, release the reservation and fail the invocation + Run
- * (Ruling 4 step 7 / the tail of step 9).
- *
- * Actual-cost-vs-estimated-cost simplification (undocumented by the brief,
- * a Unit 6 decision): `ToolInvocationSpec.execute()` returns only
- * `Record<string, unknown>` — no channel exists for it to report an actual
- * cost distinct from the estimate. `reconcileBudget` is therefore always
- * called with the SAME `estimatedCost` that was reserved. This is
- * conservative (never under- or over-reports consumption relative to what
- * was held) and is the only option the current `execute()` signature allows;
- * a future unit wanting true actual-cost reconciliation would need to widen
- * that return type.
- *
- * Fix-round-1 (Important #2): `reconcileBudget`/`releaseReservation` are NOT
- * idempotent (per `budget.ts`'s own header) — calling both on the same
- * reservationId double-decrements `reserved_amount` with nothing to detect
- * it. This is reachable: `persistInvocationResultAsArtifact`'s
- * `JSON.stringify` throws a plain `TypeError` (not a DB error, so it does
- * NOT abort the transaction) on a tool result containing a cycle or a
- * `BigInt`, which would happen AFTER `reconcileBudget` already succeeded —
- * so the catch below must not blindly release just because it's in the catch
- * block. Guarded with the `reconciled` flag: once `reconcileBudget` has run
- * (or was skipped because the reservation was a NOOP, which never gets
- * released either way), the catch never attempts a second release.
+ * Commits an authorized, reserved tool Invocation as `executing` and yields it
+ * for dispatch (DURABLE_EXECUTION §2.1) — the same shape as an LLM Invocation.
+ * The tool's side effect happens only after this commits, with no transaction
+ * open, so a crash leaves a durable claim that the effect may have happened.
+ * Recovery then settles it (charged at estimate, never repeated) instead of a
+ * rolled-back transaction letting the next advance perform it a second time.
  */
-async function executeToolAndFinalize(
+async function yieldToolDispatch(
   tx: DrizzleTransaction,
   runRow: RunRow,
+  seqNo: number,
   spec: ToolInvocationSpec,
-  invocationId: string,
-  reservationId: string,
-  estimatedCost: number
+  invocation: { id: string; idempotencyKey: string },
+  reservationId: string
 ): Promise<RunOutcome> {
-  const runId = runRow.id;
-  let reconciled = false;
-  try {
-    const result = await spec.execute();
-
-    if (isRealReservation(reservationId)) {
-      // Basis `estimate`: `execute()` reports no cost, so the reserved estimate
-      // stands in for a measurement that was never made.
-      await reconcileBudget(tx, reservationId, estimatedCost, "estimate");
-    }
-    reconciled = true; // from here on, releasing reservationId would double-decrement reserved_amount.
-
-    const { artifactId } = await persistInvocationResultAsArtifact(tx, invocationId, result);
-    await completeInvocation(tx, {
-      invocationId,
-      runId,
-      taskInstanceId: runRow.taskInstanceId,
-      payload: { artifactId },
-    });
-    return { status: "completed", runId };
-  } catch (error) {
-    if (!reconciled && isRealReservation(reservationId)) {
-      await releaseReservation(tx, reservationId);
-    }
-    await failInvocation(tx, {
-      invocationId,
-      runId,
-      taskInstanceId: runRow.taskInstanceId,
-      reason: error instanceof Error ? error.message : String(error),
-      error,
-    });
-    await failRun(tx, runId);
-    return { status: "failed", runId };
-  }
+  await markInvocationExecuting(tx, invocation.id);
+  await savePendingReservation(tx, runRow.id, seqNo, reservationId);
+  inFlightDispatches.add(invocation.id);
+  return {
+    status: "dispatch_required",
+    runId: runRow.id,
+    dispatch: {
+      kind: "tool",
+      invocationId: invocation.id,
+      runId: runRow.id,
+      seqNo,
+      idempotencyKey: invocation.idempotencyKey,
+      reservationId,
+      estimatedCost: spec.estimatedCost,
+      capabilityId: spec.capabilityId,
+      permission: spec.permission,
+      toolBindingId: spec.toolBindingId,
+      proposedActionSnapshot: spec.proposedActionSnapshot,
+      execute: spec.execute,
+    },
+  };
 }
 
 /** Fresh processing of a "tool" spec that has no existing `invocations` row yet — Ruling 4 steps 1-8. */
@@ -279,7 +249,7 @@ async function processToolSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: nu
   const runId = runRow.id;
 
   // Step 1: propose + emit invocation_started (executor's own emitEvent call).
-  const { invocationId } = await proposeInvocation(tx, {
+  const { invocationId, idempotencyKey } = await proposeInvocation(tx, {
     runId,
     seqNo,
     kind: "tool",
@@ -368,9 +338,9 @@ async function processToolSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: nu
     return { status: "failed", runId };
   }
 
-  // Step 7: ALLOW -> execute immediately, no re-check.
+  // Step 7: ALLOW -> commit `executing` and dispatch outside this transaction.
   if (decision === "ALLOW") {
-    return executeToolAndFinalize(tx, runRow, spec, invocationId, reservation.reservationId, spec.estimatedCost);
+    return yieldToolDispatch(tx, runRow, seqNo, spec, { id: invocationId, idempotencyKey }, reservation.reservationId);
   }
 
   // Step 8: REQUIRE_APPROVAL -> create Approval, halt at awaiting_approval.
@@ -597,7 +567,7 @@ async function resumeToolSpec(
     return { status: "failed", runId };
   }
 
-  return executeToolAndFinalize(tx, runRow, spec, invocationId, freshReservation.reservationId, spec.estimatedCost);
+  return yieldToolDispatch(tx, runRow, seqNo, spec, storedInvocation, freshReservation.reservationId);
 }
 
 // ---------------------------------------------------------------------------
@@ -714,7 +684,7 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
   return {
     status: "dispatch_required",
     runId,
-    dispatch: { invocationId, runId, route, compiledContext, expectedOutputShape: spec.expectedOutputShape },
+    dispatch: { kind: "llm", invocationId, runId, route, compiledContext, expectedOutputShape: spec.expectedOutputShape },
   };
 }
 
@@ -860,7 +830,7 @@ export async function completeModelDispatch(
 async function settleFailedDispatchReservation(
   tx: DrizzleTransaction,
   reservationId: string,
-  outcome: ModelDispatchOutcome,
+  outcome: { ok: true } | { ok: false; error: unknown },
   reconciled: boolean
 ): Promise<Record<string, unknown>> {
   if (reconciled) {
@@ -872,6 +842,138 @@ async function settleFailedDispatchReservation(
   }
   const charge = await chargeReservationAtEstimate(tx, reservationId);
   return { reservationSettlement: "charged_at_estimate", providerConsumption: "unknown", ...charge };
+}
+
+/**
+ * Re-checks, immediately before a tool's side effect, everything that could
+ * have changed since its `executing` commit (spec §9.5 "immediately before
+ * execution"; §9.7 stops): emergency stops at every scope, the Grant and Tool
+ * Binding through Policy, and — for an approval-gated Invocation — the
+ * Approval's re-authorization. Throws if the effect must not happen.
+ *
+ * The driver runs this in its own short transaction, then calls `execute` with
+ * no transaction open. A throw means nothing was performed, so the driver
+ * records it as consuming nothing (the reservation is released). The window
+ * that remains is one commit plus a round trip, and a stop engaged inside it
+ * takes effect at the next Invocation (DURABLE_EXECUTION §6).
+ */
+export async function assertToolDispatchStillAuthorized(tx: DrizzleTransaction, dispatch: PendingToolDispatch): Promise<void> {
+  const run = await tx.query.runs.findFirst({ where: eq(runs.id, dispatch.runId) });
+  if (!run) throw new Error(`tool dispatch refused: run "${dispatch.runId}" no longer exists.`);
+  const taskInstance = await tx.query.taskInstances.findFirst({ where: eq(taskInstances.id, run.taskInstanceId) });
+  const workflowRun = taskInstance?.workflowRunId
+    ? await tx.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, taskInstance.workflowRunId) })
+    : undefined;
+
+  await assertNotStopped(tx, {
+    agentDefinitionId: run.agentDefinitionId,
+    goalId: workflowRun?.goalId ?? null,
+    workflowRunId: taskInstance?.workflowRunId ?? null,
+    runId: run.id,
+  });
+  await assertCapabilityGrantsNotStopped(tx, {
+    runId: run.id,
+    capabilityId: dispatch.capabilityId,
+    permission: dispatch.permission,
+  });
+
+  const grant = await resolveCapabilityGrant(tx, {
+    runId: run.id,
+    capabilityId: dispatch.capabilityId,
+    permission: dispatch.permission,
+  });
+  const trust = await resolveToolBindingTrustLevel(tx, dispatch.toolBindingId);
+  const { decision } = await authorizeInvocation(tx, {
+    grant,
+    permission: dispatch.permission,
+    proposedActionSnapshot: dispatch.proposedActionSnapshot,
+    trustLevel: trust.trustLevel,
+    bindingTrustLevel: trust.bindingTrustLevel,
+  });
+  if (decision === "DENY") {
+    throw new Error("tool dispatch refused: Policy now denies this action (policy_denied_before_dispatch).");
+  }
+
+  const approval = await tx.query.approvals.findFirst({ where: eq(approvals.invocationId, dispatch.invocationId) });
+  if (approval) {
+    if (approval.status !== "approved" || !(await reauthorize(tx, dispatch.invocationId))) {
+      throw new Error("tool dispatch refused: the Approval no longer authorizes this action (reauthorization_failed_before_dispatch).");
+    }
+  } else if (decision !== "ALLOW") {
+    throw new Error("tool dispatch refused: this action now requires an Approval it does not have (approval_required_before_dispatch).");
+  }
+}
+
+/**
+ * Records the outcome of a tool dispatch `executeRun` yielded for, in a fresh
+ * transaction — the tool counterpart of `completeModelDispatch`, with the same
+ * lock order, the same `already_settled` rule, and the same settlement table
+ * (DURABLE_EXECUTION §4.1):
+ *   - success: the reservation is reconciled at its estimate (basis
+ *     `estimate` — a tool reports no cost), the result persisted as an
+ *     Artifact, the Invocation completed;
+ *   - an error carrying `consumption: "none"` (the adapter or the pre-effect
+ *     check proved nothing was performed): released;
+ *   - any other error: charged at estimate — the effect may have happened.
+ *
+ * A database error raised while RECORDING has aborted this transaction; it is
+ * rethrown unchanged rather than masked by cleanup writes that cannot succeed.
+ * The Invocation then stays `executing` and is settled as interrupted.
+ */
+export async function completeToolDispatch(
+  tx: DrizzleTransaction,
+  dispatch: PendingToolDispatch,
+  outcome: ToolDispatchOutcome
+): Promise<"completed" | "failed" | "already_settled"> {
+  const { invocationId, runId, seqNo, reservationId } = dispatch;
+
+  const runRow = await lockRun(tx, runId);
+  const invocation = await lockInvocation(tx, invocationId);
+  if (!runRow || !invocation) {
+    throw new Error(`completeToolDispatch: no run "${runId}" / invocation "${invocationId}" found.`);
+  }
+  if (invocation.status !== "executing") {
+    // eslint-disable-next-line no-console
+    console.error(
+      `completeToolDispatch: invocation "${invocationId}" is "${invocation.status}", not "executing" — it was ` +
+        "already settled (e.g. as interrupted). Discarding the late tool outcome rather than settling twice."
+    );
+    return "already_settled";
+  }
+  if ((await peekPendingReservation(tx, runId, seqNo)) !== reservationId) {
+    throw new Error(`completeToolDispatch: invocation "${invocationId}"'s recorded reservation does not match the dispatch's.`);
+  }
+
+  const taskInstanceId = runRow.taskInstanceId;
+  let reconciled = false;
+  try {
+    if (!outcome.ok) throw outcome.error;
+    if (isRealReservation(reservationId)) {
+      await reconcileBudget(tx, reservationId, dispatch.estimatedCost, "estimate");
+    }
+    reconciled = true; // releasing or charging from here on would settle the reservation twice.
+    await clearPendingReservation(tx, runId, seqNo);
+    const { artifactId } = await persistInvocationResultAsArtifact(tx, invocationId, outcome.result);
+    await completeInvocation(tx, { invocationId, runId, taskInstanceId, payload: { artifactId } });
+    return "completed";
+  } catch (error) {
+    const isToolError = !outcome.ok && error === outcome.error;
+    if (!isToolError && sqlStateOf(error)) throw error;
+    const settlement = isRealReservation(reservationId)
+      ? await settleFailedDispatchReservation(tx, reservationId, outcome, reconciled)
+      : { reservationSettlement: "none_recorded" };
+    await clearPendingReservation(tx, runId, seqNo);
+    await failInvocation(tx, {
+      invocationId,
+      runId,
+      taskInstanceId,
+      reason: error instanceof Error ? error.message : String(error),
+      error,
+      details: settlement,
+    });
+    await failRun(tx, runId);
+    return "failed";
+  }
 }
 
 /** The `invocation_failed` reason recorded for an Invocation whose dispatcher died mid-call. */

@@ -1,7 +1,8 @@
 /**
  * `advanceWorkflowRunUntilBlocked` — the Workflow Run DRIVER: loops
  * `advanceWorkflowRun` so one request drives a run as far as automatically
- * possible, and (Phase 9) is the one place provider calls are dispatched.
+ * possible, and (Phase 9) is the one place provider calls are dispatched and
+ * tool side effects are performed — both with no transaction open.
  *
  * ---------------------------------------------------------------------------
  * Transaction boundaries (Phase 9 — durable execution)
@@ -49,8 +50,13 @@ import { and, eq } from "drizzle-orm";
 import { workflowDefinitions, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import type { TransactionRunner } from "../db/transactionRunner.js";
-import { completeModelDispatch, releaseDispatchSlot } from "../execution/executor.js";
-import type { PendingModelDispatch } from "../execution/types.js";
+import {
+  assertToolDispatchStillAuthorized,
+  completeModelDispatch,
+  completeToolDispatch,
+  releaseDispatchSlot,
+} from "../execution/executor.js";
+import type { PendingDispatch, PendingToolDispatch, ToolDispatchOutcome } from "../execution/types.js";
 import { dispatchModelCall } from "../router/modelRouter.js";
 import { advanceWorkflowRun, type InvocationSpecBuilder } from "./interpreter.js";
 import { isLinearGraphDefinition } from "./graphTypes.js";
@@ -89,20 +95,47 @@ async function getWorkflowRunStepCount(tx: DrizzleTransaction, workflowRunId: st
 }
 
 /**
- * Makes ONE provider call with no transaction open, then records its outcome
- * in a fresh one. Exactly one dispatch: no retry, no fallback.
+ * Makes ONE external call — a provider call or a tool's side effect — with no
+ * transaction open, then records its outcome in a fresh one. Exactly one
+ * dispatch: no retry, no fallback.
  *
  * The dispatch slot is released whatever happens. If the outcome could not be
  * recorded (the error propagates), the Invocation stays `executing` with no
  * live owner, so the next caller to reach it settles it as interrupted instead
  * of treating it as in flight forever.
  */
-export async function dispatchAndRecord(runInTx: TransactionRunner, dispatch: PendingModelDispatch): Promise<void> {
+export async function dispatchAndRecord(runInTx: TransactionRunner, dispatch: PendingDispatch): Promise<void> {
   try {
-    const outcome = await dispatchModelCall(dispatch.route, dispatch.compiledContext, dispatch.expectedOutputShape);
-    await runInTx((tx) => completeModelDispatch(tx, dispatch, outcome));
+    if (dispatch.kind === "llm") {
+      const outcome = await dispatchModelCall(dispatch.route, dispatch.compiledContext, dispatch.expectedOutputShape);
+      await runInTx((tx) => completeModelDispatch(tx, dispatch, outcome));
+    } else {
+      const outcome = await performToolDispatch(runInTx, dispatch);
+      await runInTx((tx) => completeToolDispatch(tx, dispatch, outcome));
+    }
   } finally {
     releaseDispatchSlot(dispatch.invocationId);
+  }
+}
+
+/**
+ * Re-checks authorization in its own short transaction, then runs the tool
+ * with none open (DURABLE_EXECUTION §2.1). A refusal means the effect was never
+ * attempted, so it is marked as consuming nothing and its reservation is
+ * released when recorded. Never throws.
+ */
+async function performToolDispatch(runInTx: TransactionRunner, dispatch: PendingToolDispatch): Promise<ToolDispatchOutcome> {
+  try {
+    await runInTx((tx) => assertToolDispatchStillAuthorized(tx, dispatch));
+  } catch (error) {
+    const refusal = error instanceof Error ? error : new Error(String(error));
+    return { ok: false, error: Object.assign(refusal, { consumption: "none" as const }) };
+  }
+  try {
+    const result = await dispatch.execute({ invocationId: dispatch.invocationId, idempotencyKey: dispatch.idempotencyKey });
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, error };
   }
 }
 

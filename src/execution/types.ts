@@ -24,6 +24,15 @@ import type { RouteResult } from "../router/types.js";
 
 export type InvocationKind = "llm" | "tool" | "retrieval" | "deterministic";
 
+/**
+ * What a tool's `execute` receives (spec §12, "Idempotency, including external
+ * side effects"). `idempotencyKey` is the Invocation's persisted, unique
+ * `invocations.idempotency_key` (`run:<runId>:seq:<seqNo>`): an adapter passes it
+ * to an external API that supports idempotency keys, or uses it to recognise
+ * its own earlier attempt. The same Invocation never gets a second key.
+ */
+export type ToolExecutionContext = { invocationId: string; idempotencyKey: string };
+
 export type ToolInvocationSpec = {
   kind: "tool";
   costClass: CostClass;
@@ -33,8 +42,19 @@ export type ToolInvocationSpec = {
   toolBindingId: string;
   /** Caller-supplied cost estimate — Unit 2's `reserveBudget` treats estimation as the caller's responsibility. */
   estimatedCost: number;
-  /** The actual tool call, supplied directly by the caller. No Tool Adapter registry exists (or is needed) at MVP's 2-capability scale. */
-  execute: () => Promise<Record<string, unknown>>;
+  /**
+   * The actual tool call, supplied directly by the caller. No Tool Adapter
+   * registry exists (or is needed) at MVP's 2-capability scale.
+   *
+   * Called with NO database transaction open, after the Invocation is committed
+   * as `executing` (DURABLE_EXECUTION §2.1), so it must not close over a
+   * transaction: read what it needs when the spec is built. At most once per
+   * Invocation — an interrupted call is never repeated. An error that PROVES
+   * nothing was performed should carry `consumption: "none"` (the reservation is
+   * then released); any other error is treated as possibly performed and charged
+   * at the estimate.
+   */
+  execute: (ctx: ToolExecutionContext) => Promise<Record<string, unknown>>;
 };
 
 export type LlmInvocationSpec = {
@@ -146,6 +166,7 @@ export type PlannedInvocationSpec = InvocationSpec | DeferredInvocationSpec;
  * see `failInterruptedInvocation` (`./executor.ts`).
  */
 export type PendingModelDispatch = {
+  kind: "llm";
   invocationId: string;
   runId: string;
   route: RouteResult;
@@ -154,15 +175,42 @@ export type PendingModelDispatch = {
 };
 
 /**
+ * A Tool Invocation committed as `executing` whose `execute` must now run
+ * OUTSIDE any transaction (DURABLE_EXECUTION §2.1). Carries what the driver's
+ * pre-effect authorization check and the recording transaction need. Memory
+ * only: an interrupted tool call is never repeated, so nothing here is persisted.
+ */
+export type PendingToolDispatch = {
+  kind: "tool";
+  invocationId: string;
+  runId: string;
+  seqNo: number;
+  idempotencyKey: string;
+  reservationId: string;
+  estimatedCost: number;
+  capabilityId: string;
+  permission: CapabilityPermission;
+  toolBindingId: string;
+  proposedActionSnapshot: Record<string, unknown>;
+  execute: ToolInvocationSpec["execute"];
+};
+
+export type PendingDispatch = PendingModelDispatch | PendingToolDispatch;
+
+/** The result of running a tool dispatch. Never a thrown error: failures are values, as for model dispatches. */
+export type ToolDispatchOutcome = { ok: true; result: Record<string, unknown> } | { ok: false; error: unknown };
+
+/**
  * - `completed` / `failed` / `awaiting_approval`: as before.
- * - `dispatch_required`: the Run yielded at an LLM Invocation. The caller must
- *   commit, dispatch `dispatch` with no transaction open, record the outcome
- *   with `completeModelDispatch` in a fresh transaction, and call `executeRun`
- *   again to continue.
+ * - `dispatch_required`: the Run yielded at an LLM or Tool Invocation committed
+ *   as `executing`. The caller must commit, dispatch `dispatch` with no
+ *   transaction open, record the outcome (`completeModelDispatch` /
+ *   `completeToolDispatch`) in a fresh transaction, and call `executeRun` again
+ *   to continue.
  * - `in_flight`: another caller in this process is dispatching this Run's
  *   current Invocation right now. Nothing was changed; try again later.
  */
 export type RunOutcome =
   | { status: "completed" | "failed" | "awaiting_approval"; runId: string }
-  | { status: "dispatch_required"; runId: string; dispatch: PendingModelDispatch }
+  | { status: "dispatch_required"; runId: string; dispatch: PendingDispatch }
   | { status: "in_flight"; runId: string };

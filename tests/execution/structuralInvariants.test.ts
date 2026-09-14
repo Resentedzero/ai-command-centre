@@ -99,6 +99,32 @@ describe("no provider call inside a transaction", () => {
   });
 });
 
+describe("no tool side effect inside a transaction", () => {
+  it("the Executor never runs a tool's execute; only the driver's performToolDispatch does, outside any transaction callback", () => {
+    const executeCallers: string[] = [];
+    for (const file of sourceFiles()) {
+      visit(parse(file), (n) => {
+        if (!ts.isCallExpression(n) || calleeName(n) !== "execute" || !ts.isPropertyAccessExpression(n.expression)) return;
+        // `tx.execute(sql)` is a database call, not a spec's execute.
+        const receiver = n.expression.expression.getText();
+        if (/^(tx|db|this|probe|sp)$/.test(receiver)) return;
+        executeCallers.push(`${rel(file)}#${enclosingNamedFunction(n)?.name ?? "<top level>"}:${receiver}`);
+        for (let p: ts.Node | undefined = n.parent; p; p = p.parent) {
+          if (ts.isCallExpression(p)) {
+            expect(calleeName(p), `execute nested inside ${calleeName(p)}(...)`).not.toMatch(/^(runInTx|transaction)$/);
+          }
+        }
+      });
+    }
+    // Deterministic and retrieval specs are internal and still run in the
+    // Executor's transaction; every tool spec's execute is dispatched.
+    expect(executeCallers.sort()).toEqual([
+      "execution/executor.ts#processGenericSpec:spec",
+      "workflow/advanceWorkflowRunUntilBlocked.ts#performToolDispatch:dispatch",
+    ]);
+  });
+});
+
 describe("single chokepoint", () => {
   it("only the Model Router imports a provider adapter module", () => {
     const importers = new Set<string>();

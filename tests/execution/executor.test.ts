@@ -870,12 +870,13 @@ describe("immediately-before-execution re-check on resume", () => {
         expect(outcome).toEqual({ status: "completed", runId });
       });
 
-      // Exactly one reauthorize call and exactly one fresh reserveBudget call
-      // during resumption — two distinct, independently-invoked functions,
-      // not a single fused check.
-      expect(reauthorizeSpy).toHaveBeenCalledTimes(1);
+      // Resumption makes one reauthorize call and one fresh reserveBudget call —
+      // two distinct, independently-invoked functions, not a single fused check.
+      // The second reauthorize is the pre-dispatch re-check, in its own
+      // transaction immediately before the side effect (DURABLE_EXECUTION §2.1).
+      expect(reauthorizeSpy).toHaveBeenCalledTimes(2);
       expect(reserveBudgetSpy).toHaveBeenCalledTimes(1);
-      expect(callOrder).toEqual(["reauthorize", "reserveBudget:7"]);
+      expect(callOrder).toEqual(["reauthorize", "reserveBudget:7", "reauthorize"]);
     } finally {
       reauthorizeSpy.mockRestore();
       reserveBudgetSpy.mockRestore();
@@ -959,7 +960,16 @@ describe("tool invocation DENY / insufficient budget", () => {
     });
   });
 
-  it("a thrown execute() releases the reservation and fails the invocation + Run", async () => {
+  // A tool's side effect happens outside the transaction (DURABLE_EXECUTION §2.1),
+  // so a thrown execute() may already have done its work: the same settlement
+  // rule as a provider failure (§4.1). Only an error proving nothing was
+  // performed releases.
+  const usdCounter = (tx: DrizzleTransaction, runId: string) =>
+    tx.query.budgetCounters.findFirst({
+      where: and(eq(schema.budgetCounters.scopeRefId, runId), eq(schema.budgetCounters.resourceUnit, "usd")),
+    });
+
+  it("a thrown execute() of unknown effect charges the reservation at its estimate and fails the invocation + Run", async () => {
     await withRollback(async (tx) => {
       const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
         autonomyState: "AUTONOMOUS",
@@ -977,12 +987,30 @@ describe("tool invocation DENY / insufficient budget", () => {
       const outcome = await executeRun(tx, runId, [spec]);
       expect(outcome).toEqual({ status: "failed", runId });
 
-      const counter = await tx.query.budgetCounters.findFirst({
-        where: and(
-          eq(schema.budgetCounters.scopeRefId, runId),
-          eq(schema.budgetCounters.resourceUnit, "usd")
-        ),
+      const counter = await usdCounter(tx, runId);
+      expect(Number(counter!.reservedAmount)).toBe(0);
+      expect(Number(counter!.consumedAmount)).toBe(5);
+    });
+  });
+
+  it("a thrown execute() that proves nothing was performed (consumption: none) releases the reservation", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
+        autonomyState: "AUTONOMOUS",
+        limitAmount: "10.00",
       });
+      const spec = buildToolSpec({
+        capabilityId,
+        toolBindingId,
+        permission,
+        estimatedCost: 5,
+        execute: vi.fn(async () => {
+          throw Object.assign(new Error("refused before writing"), { consumption: "none" as const });
+        }),
+      });
+      expect(await executeRun(tx, runId, [spec])).toEqual({ status: "failed", runId });
+
+      const counter = await usdCounter(tx, runId);
       expect(Number(counter!.reservedAmount)).toBe(0);
       expect(Number(counter!.consumedAmount)).toBe(0);
     });

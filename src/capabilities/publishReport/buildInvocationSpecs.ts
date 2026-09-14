@@ -91,7 +91,7 @@ async function findResearchReportArtifact(
   tx: DrizzleTransaction,
   workflowRunId: string,
   researchReportTaskDefinitionId: string
-): Promise<{ id: string; hash: string }> {
+): Promise<{ id: string; hash: string; inlineContent: string }> {
   const taskAInstance = await tx.query.taskInstances.findFirst({
     where: and(eq(taskInstances.workflowRunId, workflowRunId), eq(taskInstances.taskDefinitionId, researchReportTaskDefinitionId)),
   });
@@ -107,7 +107,7 @@ async function findResearchReportArtifact(
   }
 
   const rows = await tx
-    .select({ id: artifacts.id, hash: artifacts.hash })
+    .select({ id: artifacts.id, hash: artifacts.hash, inlineContent: artifacts.inlineContent })
     .from(artifacts)
     .innerJoin(invocations, eq(artifacts.producingInvocationId, invocations.id))
     .where(and(eq(invocations.runId, taskARun.id), eq(artifacts.type, "report")));
@@ -117,7 +117,11 @@ async function findResearchReportArtifact(
       `buildPublishReportInvocationSpecs: expected exactly one "report"-type Artifact for Task A's run "${taskARun.id}", found ${rows.length}.`
     );
   }
-  return rows[0]!;
+  const row = rows[0]!;
+  if (row.inlineContent === null) {
+    throw new Error(`buildPublishReportInvocationSpecs: report Artifact "${row.id}" has no inlineContent to publish.`);
+  }
+  return { id: row.id, hash: row.hash, inlineContent: row.inlineContent };
 }
 
 export async function buildPublishReportInvocationSpecs(
@@ -142,7 +146,7 @@ export async function buildPublishReportInvocationSpecs(
     );
   }
 
-  const { id: artifactId, hash: artifactHash } = await findResearchReportArtifact(
+  const { id: artifactId, hash: artifactHash, inlineContent } = await findResearchReportArtifact(
     tx,
     ownTaskInstance.workflowRunId,
     config.researchReportTaskDefinitionId
@@ -164,10 +168,16 @@ export async function buildPublishReportInvocationSpecs(
     proposedActionSnapshot,
     toolBindingId: config.toolBindingId,
     estimatedCost: config.estimatedCost ?? 0.05,
-    execute: async () => {
-      const { publishedPath } = await publishReport(tx, artifactId, config.destinationRelativePath, artifactHash);
-      return { publishedPath };
-    },
+    // Runs after the `executing` commit with no transaction open, so it carries
+    // the content read above rather than a transaction to read it with.
+    // `publishReport` re-proves the bytes against the approved hash.
+    execute: async ({ idempotencyKey }) =>
+      publishReport({
+        content: inlineContent,
+        expectedHash: artifactHash,
+        destinationRelativePath: config.destinationRelativePath,
+        idempotencyKey,
+      }),
   };
 
   return [toolSpec]; // Ruling 4: tool-only, no llm step.

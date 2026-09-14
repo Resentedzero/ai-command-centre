@@ -1131,6 +1131,27 @@ external APIs supporting idempotency keys; for ones that don't, the Tool Adapter
 checks "has an Invocation with this key already succeeded" before re-attempting —
 making crash-and-resume safe for real-world effects, not just internal state.
 
+> **Implementation note (2026-09-14): how the key is used.** Authoritative detail:
+> `docs/architecture/DURABLE_EXECUTION.md` §2.1.
+> - **Created** by `proposeInvocation` as `run:<runId>:seq:<seqNo>`, and **persisted**
+>   in `invocations.idempotency_key` (unique), in the transaction that proposes the
+>   Invocation.
+> - **Claimed** before any effect. A Tool Invocation, like an LLM Invocation, is
+>   committed as `executing` before its adapter runs, and the adapter runs with no
+>   transaction open. An `executing` row is the durable record that the effect may
+>   have happened. The Invocation is never executed a second time: a crash settles
+>   it as interrupted (charged at estimate), and a concurrent path sees it in flight.
+> - **Propagated** to the adapter as `ToolExecutionContext.idempotencyKey`, for an
+>   external API that accepts one.
+> - **Checked** by the adapter where the target allows it. `publishReport` writes
+>   atomically and reports a destination already holding the approved bytes as
+>   published, rather than writing again. An adapter that cannot tell whether its
+>   effect happened is not asked to: an interrupted call is treated as possibly
+>   performed and never repeated.
+> - **Re-authorized** immediately before the effect, in its own short transaction:
+>   stops, Grant and Tool Binding trust through Policy, and the Approval. A refusal
+>   there is recorded as consuming nothing.
+
 ### Deliberately absent
 
 Separate event store, vector table (pgvector column added only if justified later),

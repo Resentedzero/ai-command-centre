@@ -129,6 +129,7 @@ function expectDispatch(outcome: RunOutcome): PendingModelDispatch {
   if (outcome.status !== "dispatch_required") {
     throw new Error(`expected dispatch_required, got "${outcome.status}"`);
   }
+  if (outcome.dispatch.kind !== "llm") throw new Error("expected an llm dispatch");
   return outcome.dispatch;
 }
 

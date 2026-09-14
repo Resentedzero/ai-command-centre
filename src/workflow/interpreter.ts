@@ -148,7 +148,7 @@ import { goals, runs, taskInstances, workflowDefinitions, workflowRuns } from ".
 import type { DrizzleTransaction } from "../events/emit.js";
 import { createWorkflowTaskInstance } from "../execution/taskInstance.js";
 import { executeRun, isSettleableStepFailure, settleRunAfterStepFailure } from "../execution/executor.js";
-import type { PendingModelDispatch, PlannedInvocationSpec, RunOutcome } from "../execution/types.js";
+import type { PendingDispatch, PlannedInvocationSpec, RunOutcome } from "../execution/types.js";
 import {
   emitLifecycleEvent,
   NO_CORRELATION,
@@ -183,15 +183,15 @@ export type InvocationSpecBuilder = (params: {
 }) => Promise<PlannedInvocationSpec[]>;
 
 /**
- * `dispatch_required` (Phase 9): the current step's Run yielded at an LLM
- * Invocation committed as `executing`. The caller must commit this transaction,
- * dispatch with no transaction open, record the outcome with
- * `completeModelDispatch`, then advance again. See
- * `./advanceWorkflowRunUntilBlocked.ts`, the driver that does exactly that.
+ * `dispatch_required` (Phase 9): the current step's Run yielded at an LLM or
+ * Tool Invocation committed as `executing`. The caller must commit this
+ * transaction, dispatch with no transaction open, record the outcome, then
+ * advance again. See `./advanceWorkflowRunUntilBlocked.ts`, the driver that
+ * does exactly that.
  */
 export type AdvanceResult =
   | { status: "in_progress" | "completed" | "failed" | "paused" }
-  | { status: "dispatch_required"; dispatch: PendingModelDispatch };
+  | { status: "dispatch_required"; dispatch: PendingDispatch };
 type WorkflowRunRow = typeof workflowRuns.$inferSelect;
 
 // ---------------------------------------------------------------------------
