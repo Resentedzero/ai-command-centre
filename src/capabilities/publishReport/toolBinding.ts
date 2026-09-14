@@ -142,5 +142,9 @@ export async function publishReport(
   await mkdir(path.dirname(destination), { recursive: true });
   await writeFile(destination, artifact.inlineContent, "utf8");
 
-  return { publishedPath: destination };
+  // Recorded relative to ARTIFACT_ROOT, POSIX-separated (spec §13.3): this value
+  // is persisted in an invocation_result Artifact that later compilations can
+  // inline, and an absolute path would carry the host's directory layout (and
+  // user name) into stored data and prompts.
+  return { publishedPath: path.relative(path.resolve(artifactRoot), destination).split(path.sep).join("/") };
 }

@@ -38,6 +38,22 @@ function assertUsdAccounting(accounting: TierAccounting, modelId: string): TierP
   return accounting.pricing;
 }
 
+/**
+ * Fails closed unless the provider reported this token count as a finite
+ * number — never `?? 0`. Zeroed usage would reconcile a real, billed call as
+ * free. Mirrors `./anthropic.ts`'s guard (not imported from there: that module
+ * imports the Anthropic SDK).
+ */
+function assertReportedTokenCount(value: unknown, field: string, modelId: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(
+      `callOpenAiModel: the OpenAI API response for model "${modelId}" did not report a finite` +
+        ` numeric usage.${field} (received ${typeof value === "number" ? value : typeof value}).`
+    );
+  }
+  return value;
+}
+
 export async function callOpenAiModel(
   modelId: string,
   compiledContext: CompiledContext,
@@ -64,8 +80,8 @@ export async function callOpenAiModel(
     ],
   });
 
-  const tokensIn = response.usage?.prompt_tokens ?? 0;
-  const tokensOut = response.usage?.completion_tokens ?? 0;
+  const tokensIn = assertReportedTokenCount(response.usage?.prompt_tokens, "prompt_tokens", modelId);
+  const tokensOut = assertReportedTokenCount(response.usage?.completion_tokens, "completion_tokens", modelId);
 
   return {
     result: response.choices,

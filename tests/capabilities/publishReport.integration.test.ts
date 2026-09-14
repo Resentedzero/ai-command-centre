@@ -874,10 +874,12 @@ describe("Structural: publishReport's destination is always local, relative, und
         "structural/hello.txt",
         sha256Hash("sha256").update("hello").digest("hex")
       );
-      PUBLISHED_FILES.push(publishedPath);
-      const expectedRoot = path.resolve(process.env.ARTIFACT_ROOT!, "published");
-      expect(publishedPath.startsWith(expectedRoot + path.sep)).toBe(true);
-      expect(readFileSync(publishedPath, "utf8")).toBe("hello");
+      const onDisk = path.resolve(process.env.ARTIFACT_ROOT!, publishedPath);
+      PUBLISHED_FILES.push(onDisk);
+      // Recorded relative to ARTIFACT_ROOT with POSIX separators (§13.3) — no host path in stored data.
+      expect(publishedPath).toBe("published/structural/hello.txt");
+      expect(onDisk.startsWith(path.resolve(process.env.ARTIFACT_ROOT!, "published") + path.sep)).toBe(true);
+      expect(readFileSync(onDisk, "utf8")).toBe("hello");
     });
   });
 });

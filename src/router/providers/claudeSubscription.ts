@@ -709,9 +709,18 @@ export function parseClaudeStream(
   };
 }
 
-/** Maps CLI-reported error text to a distinguishable failure class. */
+/**
+ * Maps CLI-reported error text to a distinguishable failure class.
+ *
+ * `result` is searched only when the CLI marked it an error (`is_error: true`).
+ * Otherwise it is the MODEL's output, and a report that merely mentions a
+ * "quota" or "rate_limit" must not turn a failed run into `quota_exhausted` —
+ * a code classified as consuming nothing, which would release a reservation for
+ * a call that really ran.
+ */
 function classifyFailure(parsed: Record<string, unknown>, stderr: string): ClaudeSubscriptionError {
-  const haystack = `${String(parsed.result ?? "")} ${String(parsed.subtype ?? "")} ${stderr}`.toLowerCase();
+  const errorText = parsed.is_error === true ? String(parsed.result ?? "") : "";
+  const haystack = `${errorText} ${String(parsed.subtype ?? "")} ${stderr}`.toLowerCase();
 
   if (haystack.includes("login expired") || haystack.includes("please run /login") || haystack.includes("authentication_error")) {
     return new ClaudeSubscriptionError(
@@ -792,9 +801,10 @@ export async function callClaudeSubscriptionModel(
     );
 
     // Timeout is checked FIRST and throws: a terminated child records no
-    // result, so there is no usage to reconcile. The Executor's catch releases
-    // the reservation — reconciling zero here would under-report consumption
-    // that really did occur.
+    // result, so there is no reported usage. The Executor charges the
+    // reservation at its estimate (consumption unknown — the call may well have
+    // consumed entitlement; DURABLE_EXECUTION §4.1). Reconciling zero here would
+    // under-report consumption that really did occur.
     if (timedOut) {
       // The child was killed, but any rate_limit_event it emitted before the
       // kill was already received, and is still worth recording.
@@ -802,7 +812,7 @@ export async function callClaudeSubscriptionModel(
       throw new ClaudeSubscriptionError(
         "timeout",
         `callClaudeSubscriptionModel: the CLI exceeded its ${options.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms timeout` +
-          " and was terminated. No usage was reported, so nothing is reconciled."
+          " and was terminated. No usage was reported; the reservation is charged at its estimate."
       );
     }
 

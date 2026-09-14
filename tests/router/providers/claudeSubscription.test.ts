@@ -687,6 +687,24 @@ describe("timeout and failure semantics", () => {
     expect((error as ClaudeSubscriptionError).code).toBe(code);
   });
 
+  it("does not read the MODEL's output as an error message: a non-zero exit whose report mentions quotas is not quota_exhausted", async () => {
+    // quota_exhausted is classified as consuming nothing (the reservation is
+    // released); a call that ran and produced output must not be misread as one.
+    installFakeChild({
+      stdoutText: resultStdout({ is_error: false, subtype: "success", result: "The rate_limit and quota policy were compared." }),
+      exitCode: 1,
+    });
+
+    const error = await callClaudeSubscriptionModel(
+      "claude-opus-5",
+      buildCompiledContext(),
+      {},
+      SUBSCRIPTION_ACCOUNTING
+    ).catch((e: unknown) => e);
+
+    expect((error as ClaudeSubscriptionError).code).toBe("nonzero_exit");
+  });
+
   it("treats success-with-no-structured_output as a FAILURE, not a partial result", async () => {
     installFakeChild({
       stdoutText: resultStdout({ is_error: false, subtype: "success", result: "some prose", modelUsage: {} }),
