@@ -629,6 +629,35 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
     expect(publish!.run?.invocations).toEqual([expect.objectContaining({ kind: "tool", status: "awaiting_approval" })]);
   });
 
+  it("redacts a provider error's host path end to end: neither the failure event nor the detail view carries it", async () => {
+    vi.mocked(callClaudeSubscriptionModel).mockRejectedValueOnce(new Error("ENOENT: no such file, open '/Users/alice/secret/.env'"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    let created: CreatedGoal;
+    try {
+      const res = await app.inject({ method: "POST", url: "/goals", payload: { title: "Redaction Goal" } });
+      expect(res.statusCode).toBe(201);
+      created = res.json() as CreatedGoal;
+    } finally {
+      consoleError.mockRestore();
+    }
+    expect(created.status).toBe("failed");
+
+    const failedEvents = (
+      await testDb.query.events.findMany({ where: eq(schema.events.eventType, "invocation_failed") })
+    ).filter((e) => e.workflowRunId === created.workflowRunId);
+    expect(failedEvents).toHaveLength(1);
+    const payloadText = JSON.stringify(failedEvents[0]!.payload);
+    expect(payloadText).toContain("<path>");
+    expect(payloadText).not.toMatch(/alice|secret/);
+
+    const detail = await app.inject({ method: "GET", url: `/workflow-runs/${created.workflowRunId}` });
+    expect(detail.statusCode).toBe(200);
+    const body = detail.json() as WorkflowRunDetailBody;
+    const failedInvocation = body.steps[0]!.run?.invocations.find((i) => i.status === "failed");
+    expect(failedInvocation?.failureReason).toContain("<path>");
+    expect(detail.body).not.toMatch(/alice|secret/);
+  });
+
   it("is 400 for a malformed id and 404 for an unknown run", async () => {
     expect((await app.inject({ method: "GET", url: "/workflow-runs/abc" })).statusCode).toBe(400);
     expect(

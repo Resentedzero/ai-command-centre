@@ -3,9 +3,9 @@
 **Date:** 2026-09-14.
 **Status:** local commits on `main` after `7648cc2`, none pushed. The table below lists them; later work appends rows.
 
-**Verification at `3b870d1`:**
+**Verification at the end of the final repository pass (the commit adding the redaction end-to-end test):**
 - backend `tsc --noEmit` clean;
-- backend vitest: 41 files, 637 passed, 2 skipped (both are the gated live-CLI smoke tests);
+- backend vitest: 41 files, 638 passed, 2 skipped (both are the gated live-CLI smoke tests);
 - web `tsc` clean, web vitest 6 files, 33 passed;
 - `git diff --check` clean.
 
@@ -68,7 +68,8 @@ Each follows the safer or more conservative reading. Say so if any should change
 - **Final repository pass: four independent audits.**
   - Scope: execution and accounting; API/UI contract and security; context, capabilities and artifacts; docs, dead code and test gaps.
   - Fixed: see `70b1346` and `0128db9`. Every new test was confirmed to fail against the previous code.
-  - Added: structural invariant tests (no provider call in a transaction, single chokepoint, status changes recorded as events), and stale headers and docs corrected.
+  - Added: structural invariant tests (no provider call in a transaction, single chokepoint, status changes recorded as events), and stale headers and docs corrected. An end-to-end test that a provider error's host path is redacted in both `invocation_failed` and `GET /workflow-runs/:id`. The structural and redaction tests were each confirmed to fail against a deliberate mutation.
+  - Untested: the SSE backlog bounds (`maxBufferedLiveEvents`, `maxPendingWriteBytes`), which only trigger for a stalled client.
   - Documented as residuals: DURABLE_EXECUTION §7 #10 (a throw on resume leaves an approved hold) and #11 (a stop during context compilation).
   - Not acted on, low value or needing a decision: context "reference" mode inlines content (unreachable with the seeded budget); routing provider and excluded candidates are not on events; the tool-schema layer carries binding config (never sent today); unused exports; list paging.
 
