@@ -55,6 +55,7 @@ import {
   completeToolDispatch,
   modelDispatchRefusal,
   releaseDispatchSlot,
+  releasingDispatchClaimsOnFailure,
   toolDispatchRefusal,
 } from "../execution/executor.js";
 import type { PendingDispatch, PendingToolDispatch, ToolDispatchOutcome } from "../execution/types.js";
@@ -167,7 +168,10 @@ export async function advanceWorkflowRunUntilBlocked(
   let result: DriverResult = { status: "in_progress" };
   let countedCalls = 0;
   while (countedCalls < maxCountedCalls) {
-    const advanced = await runInTx((tx) => advanceWorkflowRun(tx, workflowRunId, makeBuilder(tx)));
+    // A throw (even after a COMMIT the client could not confirm) gives up any dispatch it claimed.
+    const advanced = await releasingDispatchClaimsOnFailure(() =>
+      runInTx((tx) => advanceWorkflowRun(tx, workflowRunId, makeBuilder(tx)))
+    );
 
     if (advanced.status === "dispatch_required") {
       await dispatchAndRecord(runInTx, advanced.dispatch);

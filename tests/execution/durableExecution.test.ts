@@ -30,10 +30,12 @@ import {
   INTERRUPTED_INVOCATION_REASON,
   isDispatchInFlight,
   releaseDispatchSlot,
+  releasingDispatchClaimsOnFailure,
 } from "../../src/execution/executor.js";
 import type { PendingModelDispatch, RunOutcome } from "../../src/execution/types.js";
-import { transactionRunner } from "../../src/db/transactionRunner.js";
-import { dispatchAndRecord } from "../../src/workflow/advanceWorkflowRunUntilBlocked.js";
+import { transactionRunner, type TransactionRunner } from "../../src/db/transactionRunner.js";
+import { advanceWorkflowRunUntilBlocked, dispatchAndRecord } from "../../src/workflow/advanceWorkflowRunUntilBlocked.js";
+import { provisionRunBudgets } from "../../src/governance/runBudgetPolicy.js";
 import {
   recoverInterruptedInvocations,
   redriveInProgressWorkflowRuns,
@@ -372,6 +374,75 @@ describe("interrupted Invocations", () => {
       expect(late).toBe("already_settled");
       expect(await tokenCounter(tx, runId)).toEqual({ reserved: 0, consumed: ESTIMATE });
       expect(await failInterruptedInvocation(tx, dispatch.invocationId)).toBe(false);
+    });
+  });
+});
+
+describe("an ambiguous COMMIT (DURABLE_EXECUTION §7 #4)", () => {
+  it("a dispatch whose transaction reports an error after committing is given up: the next advance settles it as interrupted, not in_flight until a restart", async () => {
+    const workflowRunId = await testDb.transaction(async (tx) => {
+      const [project] = await tx.insert(schema.projects).values({ name: "p-" + randomUUID() }).returning();
+      const [taskDefinition] = await tx.insert(schema.taskDefinitions).values({ name: "t-" + randomUUID(), kind: "workflow", version: 1 }).returning();
+      const [definition] = await tx
+        .insert(schema.workflowDefinitions)
+        .values({
+          name: "wf-" + randomUUID(),
+          version: 1,
+          graphDefinition: { kind: "linear", steps: [{ taskDefinitionId: taskDefinition!.id, taskDefinitionVersion: 1 }] },
+        })
+        .returning();
+      const [goal] = await tx.insert(schema.goals).values({ projectId: project!.id, title: "g", status: "active" }).returning();
+      return (await startWorkflowRun(tx, definition!.id, goal!.id)).workflowRunId;
+    });
+    const makeBuilder = (tx: DrizzleTransaction) => async (params: { taskInstanceId: string }) => {
+      const run = await tx.query.runs.findFirst({ where: eq(schema.runs.taskInstanceId, params.taskInstanceId) });
+      await provisionRunBudgets(tx, run!.id);
+      return [llmSpec()];
+    };
+    // The COMMIT that makes the Invocation `executing` succeeds, but the client sees a connection error.
+    let resetAfterCommit = true;
+    const runner: TransactionRunner = async (fn) => {
+      const result = await testDb.transaction(fn);
+      if (resetAfterCommit && (result as { status?: string } | undefined)?.status === "dispatch_required") {
+        resetAfterCommit = false;
+        throw new Error("Connection terminated unexpectedly");
+      }
+      return result;
+    };
+
+    await expect(advanceWorkflowRunUntilBlocked(runner, workflowRunId, makeBuilder)).rejects.toThrow(/Connection terminated/);
+    const [claimed] = await testDb
+      .select({ id: schema.invocations.id, status: schema.invocations.status, runId: schema.invocations.runId })
+      .from(schema.invocations)
+      .innerJoin(schema.runs, eq(schema.runs.id, schema.invocations.runId))
+      .innerJoin(schema.taskInstances, eq(schema.taskInstances.id, schema.runs.taskInstanceId))
+      .where(eq(schema.taskInstances.workflowRunId, workflowRunId));
+    expect(claimed!.status).toBe("executing");
+    expect(isDispatchInFlight(claimed!.id)).toBe(false);
+
+    expect(await advanceWorkflowRunUntilBlocked(runner, workflowRunId, makeBuilder)).toEqual({ status: "failed" });
+    expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
+    const invocation = await testDb.query.invocations.findFirst({ where: eq(schema.invocations.id, claimed!.id) });
+    expect(invocation!.status).toBe("failed");
+    const run = await testDb.query.runs.findFirst({ where: eq(schema.runs.id, claimed!.runId) });
+    expect(run!.outcome).toMatchObject({ reason: "invocation_interrupted" });
+  });
+
+  it("gives up only the claims made inside the failed call, never another request's", async () => {
+    await withRollback(async (tx) => {
+      const other = expectDispatch(await executeRun(tx, (await seedWorkflowRun(tx)).runId, [llmSpec()]));
+      const mine = await seedWorkflowRun(tx);
+      let mineId: string | undefined;
+      await expect(
+        releasingDispatchClaimsOnFailure(async () => {
+          mineId = expectDispatch(await executeRun(tx, mine.runId, [llmSpec()])).invocationId;
+          throw new Error("reset");
+        })
+      ).rejects.toThrow("reset");
+
+      expect(isDispatchInFlight(mineId!)).toBe(false);
+      expect(isDispatchInFlight(other.invocationId)).toBe(true);
+      releaseDispatchSlot(other.invocationId);
     });
   });
 });

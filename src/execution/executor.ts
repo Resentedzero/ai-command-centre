@@ -72,6 +72,7 @@
  * deep-equals that field against the Approval's frozen snapshot, so storing
  * anything extra there would break material-change detection.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { isDeepStrictEqual } from "node:util";
 import { and, asc, eq, inArray, lt } from "drizzle-orm";
 import { isTransientDatabaseError, sqlStateOf } from "../db/databaseErrors.js";
@@ -257,7 +258,7 @@ async function yieldToolDispatch(
   // kept reading `awaiting_approval` while its approved tool executed and after
   // it completed — committed now that the effect runs in a later transaction.
   await tx.update(runs).set({ status: "active" }).where(eq(runs.id, runRow.id));
-  inFlightDispatches.add(invocation.id);
+  claimDispatchSlot(invocation.id);
   return {
     status: "dispatch_required",
     runId: runRow.id,
@@ -728,7 +729,7 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
   // it is never re-dispatched.
   await markInvocationExecuting(tx, invocationId);
   await savePendingReservation(tx, runId, seqNo, route.reservationId);
-  inFlightDispatches.add(invocationId);
+  claimDispatchSlot(invocationId);
   return {
     status: "dispatch_required",
     runId,
@@ -758,6 +759,33 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
  * a random id no committed row carries.
  */
 const inFlightDispatches = new Set<string>();
+
+/** The slots claimed inside the current `releasingDispatchClaimsOnFailure` call. */
+const dispatchClaimScope = new AsyncLocalStorage<Set<string>>();
+
+function claimDispatchSlot(invocationId: string): void {
+  inFlightDispatches.add(invocationId);
+  dispatchClaimScope.getStore()?.add(invocationId);
+}
+
+/**
+ * Runs a transaction that may claim dispatch slots, releasing the slots it
+ * claimed if it throws (DURABLE_EXECUTION §7 #4). A throw means this caller
+ * will not dispatch them, including when COMMIT succeeded on the server but the
+ * client saw an error. Without the release, that committed `executing` row
+ * would read `in_flight` until a restart. With it, the row has no owner, so
+ * the next advance settles it as interrupted, exactly as the startup sweep
+ * would. Never dispatches or retries anything.
+ */
+export async function releasingDispatchClaimsOnFailure<T>(fn: () => Promise<T>): Promise<T> {
+  const claimed = new Set<string>();
+  try {
+    return await dispatchClaimScope.run(claimed, fn);
+  } catch (error) {
+    for (const invocationId of claimed) inFlightDispatches.delete(invocationId);
+    throw error;
+  }
+}
 
 /** Called by the dispatch driver when it stops owning a dispatch, whatever the outcome. */
 export function releaseDispatchSlot(invocationId: string): void {
