@@ -41,7 +41,12 @@ import type { ToolExecutionContext, ToolInvocationSpec } from "../execution/type
 import type { CostClass } from "../governance/costClass.js";
 import type { CapabilityPermission } from "../governance/policy.js";
 import { PUBLISH_REPORT_FILESYSTEM, publishReportFilesystem } from "./publishReport/adapter.js";
-import { RESEARCH_RETRIEVE_SYNTHETIC, researchRetrieveSynthetic } from "./researchRetrieve/adapter.js";
+import {
+  RESEARCH_RETRIEVE_LOCAL_CORPUS,
+  RESEARCH_RETRIEVE_SYNTHETIC,
+  researchRetrieveLocalCorpus,
+  researchRetrieveSynthetic,
+} from "./researchRetrieve/adapter.js";
 
 type ToolBindingRow = typeof toolBindings.$inferSelect;
 
@@ -87,6 +92,7 @@ export function registerInternalToolFunction(name: string, fn: InternalToolFunct
 }
 
 registerInternalToolFunction(RESEARCH_RETRIEVE_SYNTHETIC, researchRetrieveSynthetic);
+registerInternalToolFunction(RESEARCH_RETRIEVE_LOCAL_CORPUS, researchRetrieveLocalCorpus);
 registerInternalToolFunction(PUBLISH_REPORT_FILESYSTEM, publishReportFilesystem);
 
 function adapterFor(binding: ToolBindingRow): InternalToolFunction {
