@@ -7,7 +7,7 @@ description: Use when designing, restyling or implementing any AI Command Centre
 
 ## Overview
 
-**The dungeon is the computer.** A living pixel-art dungeon makes AI work visible. A sci-fi mission-control HUD layer carries telemetry and control.
+**The dungeon is the computer.** A living pixel-art keep makes AI work visible, and light in its rooms carries real state. The chrome is pure pixel too: wood and parchment boards, pixel bevel frames (D19). The earlier sci-fi HUD direction is superseded.
 
 **The runtime decides what exists. The references decide how it feels.** Reference images, and later Figma frames, set atmosphere, palette, density, composition and motion. They never add agents, states, metrics, tabs or capabilities.
 
@@ -33,6 +33,13 @@ Nothing else is rendered: no demo data, no sample agents, no placeholder numbers
 | Take / don't take, per image | `references.md` |
 | The 10-step workflow, Figma ↔ code mapping, validation | `figma-workflow.md` |
 | Decided and proposed choices | `design-decisions.md` |
+| Why each rule exists: critic rounds, accepted and rejected fixes, measured audits | `design-reviews.md` |
+| Adapted art and the scripts that make it, plus the motion prototype | `assets/gamification/adapted/README.md` |
+
+**Source of truth for visuals:** Figma file `3Q5IMyXoPHDBFDv8vjS467`.
+- **`04 — Screens` pages:** each final pixel screen sits at (0, 0), with its states, laptop variants and a design note. Frames prefixed `[superseded: sci-fi HUD]` are history.
+- **`03 — Components`:** `PixelTopBar`, plus the interaction-state sets `PixelButton`, `PixelTab`, `PixelPlaque` and `PixelInput`.
+- **`05`:** the experiment trail only.
 
 Read `web/AGENTS.md` before writing any Next.js code.
 
@@ -45,6 +52,12 @@ Read `web/AGENTS.md` before writing any Next.js code.
 - **Sprites:** Npc's (Knight, Rogue, Wizzard) and Body_A only. Mobs and Weapons carry no meaning here.
 - **Layouts:** screens differ by purpose (`screens.md`). No shared page template.
 - **Figma:** it defines visuals only. If a frame shows unsupported data, build the mapped form and log the gap.
+- **Light = state:** cyan active, amber awaiting approval, silver runtime core. Unloaded or failed means no room is lit. Green and red are for decisions and outcomes, never world light.
+- **Every screen has its states:** loading ("· · ·", never bars), empty, error with a neutral recovery control, and offline. Routes and status codes go on a dim detail line, not in the message.
+- **Contrast:** ink is the only text colour on parchment; translucent text must still reach 4.5:1. Measured values are in `visual-language.md`.
+- **Interaction:** focus is a 2 px cream ring in a reserved slot; selection is a cream edge, never a state colour; disabled controls carry no state colour.
+- **Laptop (1280 × 800 up):** the act-now control (Stop, Approve/Reject, hash check) stays above the fold, and a world view pans to what needs attention. Below 1280 × 800 is not designed.
+- **Motion:** working loops at 100 ms per frame, one-shot flashes never loop, and reduced motion freezes sprites. See `motion-prototype.html`.
 
 ## Rationalizations (all seen in baseline testing)
 
