@@ -23,9 +23,12 @@ import { recoverInterruptedInvocations, redriveInProgressWorkflowRuns } from "..
 import { expireStaleApprovals } from "../workflow/expireStaleApprovals.js";
 import { backfillStopEvents } from "../governance/executionStop.js";
 import { buildInvocationSpecsFromDefinitions } from "../workflow/buildInvocationSpecsFromDefinitions.js";
+import { refreshAgentPerformance } from "../projections/agentPerformance.js";
 
 /** How often past-TTL Approvals are expired. A minute is ample against a TTL measured in hours. */
 const APPROVAL_SWEEP_INTERVAL_MS = 60_000;
+/** How often async projections are rebuilt. Display freshness only; nothing acts on them yet. */
+const PROJECTION_REFRESH_INTERVAL_MS = 60_000;
 
 async function main() {
   // Phase 9: exactly one executing process per database, then settle anything a
@@ -112,6 +115,24 @@ async function main() {
   // in-flight set make the second driver of a Workflow Run a no-op.
   void sweepApprovals();
   setInterval(() => void sweepApprovals(), APPROVAL_SWEEP_INTERVAL_MS).unref();
+
+  // Asynchronous projections (spec §8.3, §8.10): an in-process loop, never on the
+  // execution path. agent_performance is rebuilt from Events each pass.
+  let projecting = false;
+  const refreshProjections = async () => {
+    if (projecting) return;
+    projecting = true;
+    try {
+      await runInTx((tx) => refreshAgentPerformance(tx));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("agent_performance refresh failed; the previous rows remain:", err);
+    } finally {
+      projecting = false;
+    }
+  };
+  void refreshProjections();
+  setInterval(() => void refreshProjections(), PROJECTION_REFRESH_INTERVAL_MS).unref();
 
   // Continue Workflow Runs a previous process left mid-advance, in the
   // background so the API is available meanwhile. See the function's header.

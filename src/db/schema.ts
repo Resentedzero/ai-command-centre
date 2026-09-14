@@ -2,7 +2,8 @@
  * Drizzle table definitions — MVP subset of Phase 12's data model.
  *
  * Scope: exactly the tables named in Unit 1's brief. Excluded per Phase 18.1
- * (deferred): `memory_items`, `agent_performance`, `agent_xp_projection`.
+ * (deferred): `memory_items`, `agent_xp_projection`. `agent_performance` was added in V2
+ * (2026-09-14, `../projections/agentPerformance.ts`).
  * Also excluded: `policies` (Phase 12 lists it, but it is out of this unit's
  * scope per the brief's table list — no policy engine exists yet).
  *
@@ -24,6 +25,7 @@ import {
   numeric,
   pgEnum,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -327,6 +329,43 @@ export const events = pgTable(
     // invariant rather than something that merely happens to be true because
     // a sequence currently backs the column.
     uniqueIndex("events_global_seq_idx").on(table.globalSeq),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Observability projections (async; Phase 12, spec §8.3, §8.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * `agent_performance` (V2): per Agent Definition version, Task Definition and
+ * model tier. Rebuilt wholesale from Events by `../projections/agentPerformance.ts`;
+ * never written by execution. Governance-facing but NOT consumed by Policy or the
+ * Model Router before a minimum sample criterion is defined (spec Phase 19 V2).
+ *
+ * Phase 12 columns, with one amendment: `avg_cost` is a jsonb object keyed by
+ * resource unit (exact decimal strings), because a single number would total
+ * across units — the same correction migration 0006 made to `budget_counters`.
+ * `model_tier` is "none" for Runs that made no model call.
+ */
+export const agentPerformance = pgTable(
+  "agent_performance",
+  {
+    agentDefinitionId: uuid("agent_definition_id")
+      .notNull()
+      .references(() => agentDefinitions.id),
+    agentDefinitionVersion: integer("agent_definition_version").notNull(),
+    taskDefinitionId: uuid("task_definition_id")
+      .notNull()
+      .references(() => taskDefinitions.id),
+    modelTier: text("model_tier").notNull(),
+    successRate: numeric("success_rate").notNull(),
+    avgCost: jsonb("avg_cost").$type<Record<string, string>>().notNull(),
+    avgRetries: numeric("avg_retries").notNull(),
+    sampleCount: integer("sample_count").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "agent_performance_pk", columns: [table.agentDefinitionId, table.agentDefinitionVersion, table.taskDefinitionId, table.modelTier] }),
   ]
 );
 

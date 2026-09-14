@@ -526,7 +526,7 @@ type AgentDetailBody = {
   recentEvents: Array<{ eventType: string }>;
   outputs: Array<{ type: string }>;
   contextLineage: { estimatedInputTokens: number | null } | null;
-  performance: null;
+  performance: unknown[];
 };
 
 describe("GET /agents/:id (spec 15.1 screen 2)", () => {
@@ -538,7 +538,8 @@ describe("GET /agents/:id (spec 15.1 screen 2)", () => {
     expect(res.statusCode).toBe(200);
     const detail = res.json() as AgentDetailBody;
     expect(detail.agent.id).toBe(publisherId);
-    expect(detail.performance).toBeNull();
+    // agent_performance is refreshed asynchronously; nothing has refreshed it here.
+    expect(detail.performance).toEqual([]);
     expect(detail.activeStop).toBeNull();
     expect(detail.grants).toContainEqual(
       expect.objectContaining({ permissions: ["PUBLISH"], autonomyState: "ALWAYS_APPROVE", revoked: false })

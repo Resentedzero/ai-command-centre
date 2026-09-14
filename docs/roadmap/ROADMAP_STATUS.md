@@ -21,7 +21,7 @@ From here on, work is named by roadmap stage and a descriptive milestone name. E
 | **V1** (spec Phase 18 MVP) | **Complete.** Both workflows, the full governance chain, pause/resume, minimal UI. Hardened well beyond MVP scope: durable execution, crash recovery, idempotent tool side effects, emergency stops, approval TTL, context compilation. | `POST_PHASE9_CLOSURE.md`, `EXECUTION_RECOVERY_CLOSURE.md`, `CONTEXT_COMPILER_CLOSURE.md` |
 | **V1 success criterion** (spec §18.3) | **Met.** A new Capability, Tool Binding, Agent, Task Definition and Workflow run end to end as data plus a registered adapter and plan, with no core change (acceptance test through the HTTP API; structural test). | `CAPABILITY_PLATFORM_CLOSURE.md` |
 | **V1.1** | **Partial.** Built: Agent Detail view, Workflow/Task view (an ordered step list, not a graph), the Registry API (reads, versioned creates of Capabilities, Tool Bindings, Agent/Task/Workflow Definitions and Grants; grant revocation). Not built: Registry UI (UI workstream), a Policies editor (needs the `policies` decision, §6), NSSM service wrapping (installing a service is deployment). | spec §15.1 note; `CAPABILITY_PLATFORM.md` §5 |
-| **V2** | Not started. No `agent_performance` / `agent_xp_projection`, no async projection loop, no cost dashboard. | `schema.ts` header |
+| **V2** | **Partial.** Built: the async projection loop and `agent_performance` (per Agent version, Task Definition, tier; cost per unit), shown by `GET /agents/:id`; a structural test keeps Policy and the Router from reading it. Not built: `agent_xp_projection` (XP rules and a quality signal are gamification design, UI workstream), cost dashboard, duration and rejection-rate measures, the minimum sample criterion (decision, §6). | `architecture/AGENT_PERFORMANCE.md` |
 | **V3** | Not started. Linear graphs only; no memory (`memory_items` does not exist); two capabilities. | — |
 | **V4** | Not started. No escalation loop; `CONDITIONAL` autonomy behaves as `ALWAYS_APPROVE`; no evaluation. | `policy.ts` |
 | **V5 / V6+** | Not started, by design. | — |
@@ -36,6 +36,7 @@ From here on, work is named by roadmap stage and a descriptive milestone name. E
 | Context Compiler hardening | V1 hardening | **Closed** (see §4) | `development/CONTEXT_COMPILER_CLOSURE.md` |
 | Capability Platform (spec §18.3 conformance) | V1 success criterion → V1.1 Registry API | **Closed** | `development/CAPABILITY_PLATFORM_CLOSURE.md` |
 | Registry writes | V1.1 Registry (API half) | **Closed** | `development/REGISTRY_WRITES_CLOSURE.md` |
+| Agent performance projection | V2 | **Closed as built; its sample criterion is open.** Phase 19 makes defining that criterion part of V2; choosing its form and values is a governance decision (§6), so the projection ships display-only behind a structural firewall. V2 itself stays partial. | `development/AGENT_PERFORMANCE_CLOSURE.md` |
 
 ## 4. Why the Context Compiler phase is closed with §5.16 open
 
@@ -77,3 +78,7 @@ Surfaced by the 2026-09-14 roadmap reconciliation:
 - **`capability_grants.scope` is stored but never evaluated.** No scope semantics are defined (spec §9.2).
 - **Policy has no rate or time-window inputs** (spec §9.3).
 - **No `policies` table** (spec Phase 12; roadmap Appendix A #1): Policy is code. A Registry Policies editor needs this decided.
+
+Surfaced by the agent performance projection:
+- **The minimum sample-size/confidence criterion** (spec Phase 19 V2, Phase 20 Risk #10) before Policy's `CONDITIONAL` logic or Router tier adaptation may read `agent_performance`: its form (a sample count, or a confidence bound on success rate) and its values. Nothing reads the projection until then, so it blocks only V4.
+- **XP rules** (spec §16.1): the XP amounts and the quality signal they need. Gamification design, shared with the UI workstream.

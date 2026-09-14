@@ -18,6 +18,9 @@ If a lower tier disagrees with a higher one, the higher tier wins. The spec's da
   - the Tool Adapter registry and binding selection (no fallback, immutable bindings);
   - definition-driven step planning and the spec §18.3 acceptance criterion;
   - the Registry read API and grant revocation. (Phases 3c, 6, 18.3)
+- [`architecture/AGENT_PERFORMANCE.md`](architecture/AGENT_PERFORMANCE.md) covers:
+  - the V2 `agent_performance` projection: sample, tier, retry and per-unit cost rules;
+  - the full-rebuild in-process loop, and the firewall keeping Policy and the Router off it. (Phases 8.8, 12, 19)
 - [`architecture/SUBSCRIPTION_PROVIDER_DESIGN.md`](architecture/SUBSCRIPTION_PROVIDER_DESIGN.md) covers:
   - the Claude Max (`claude -p`) provider adapter;
   - quota state and telemetry, and the disabled quota guardrail;
@@ -34,6 +37,7 @@ Module-level contracts live in the header comment of each source file. The root 
 
 - [`development/CAPABILITY_PLATFORM_CLOSURE.md`](development/CAPABILITY_PLATFORM_CLOSURE.md): the Capability Platform — Tool Adapter registry, local-corpus binding, definition-driven planning (spec §18.3 met), Registry API, adversarial review dispositions.
 - [`development/REGISTRY_WRITES_CLOSURE.md`](development/REGISTRY_WRITES_CLOSURE.md): Registry writes — versioned, audited creation of Definitions, Tool Bindings and Capability Grants through the API; review dispositions.
+- [`development/AGENT_PERFORMANCE_CLOSURE.md`](development/AGENT_PERFORMANCE_CLOSURE.md): the V2 agent performance projection — rules, rebuild loop, firewall, review dispositions.
 ## 4. Planning and research (advisory, authorizes nothing)
 - [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
 - [`roadmap/ROADMAP_STATUS.md`](roadmap/ROADMAP_STATUS.md): **where the implementation actually is**, by roadmap stage (V1–V6); what the phase labels mean; current milestone; open governance decisions. Status only, not an authorization.

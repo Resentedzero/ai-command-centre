@@ -155,6 +155,31 @@ describe("core names no capability (spec 18.3)", () => {
   });
 });
 
+describe("agent_performance is display-only until its sample criterion exists (spec Phase 19 V2, 16.2)", () => {
+  // Policy, the Model Router, the Executor and every other module must not read the
+  // projection before a minimum sample-size/confidence criterion is defined. Only
+  // its schema, its projector, the startup loop that runs it and the read API may.
+  // A tripwire, not a guarantee: a table name assembled at run time, iteration over
+  // the schema object, or an HTTP call to the read API would pass. Migrations are
+  // checked in tests/projections/agentPerformance.test.ts.
+  const ALLOWED = ["api/routes/agents.ts", "api/start.ts", "db/schema.ts", "projections/agentPerformance.ts"];
+
+  it("only the schema, projector, startup loop and read API reference agent_performance", () => {
+    const referencing = new Set<string>();
+    for (const file of sourceFiles()) {
+      visit(parse(file), (n) => {
+        const named =
+          (ts.isIdentifier(n) && n.text === "agentPerformance") ||
+          (ts.isIdentifier(n) && n.text === "refreshAgentPerformance") ||
+          ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && /agent_performance|agentPerformance/.test(n.text)) ||
+          (ts.isTemplateExpression(n) && /agent_performance/.test(n.getText()));
+        if (named) referencing.add(rel(file));
+      });
+    }
+    expect([...referencing].sort()).toEqual(ALLOWED);
+  });
+});
+
 describe("single chokepoint", () => {
   it("only the Model Router imports a provider adapter module", () => {
     const importers = new Set<string>();

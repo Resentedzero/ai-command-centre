@@ -1147,6 +1147,21 @@ Grouped by role.
 - `agent_xp_projection(agent_definition_id, xp_total, updated_at)` — a pure derived
   aggregate; no Invocation writes to it directly.
 
+> **Implementation note (2026-09-14): `agent_performance` built (V2).** Additive
+> amendment: `avg_cost` is a jsonb object keyed by resource unit (exact decimal
+> strings), because one number would total across units (the §10.6 correction
+> migration 0006 made to `budget_counters`). `model_tier` is `none` for a Run with no
+> model call. Rebuilt wholesale from Events by an in-process loop (§8.10) rather than
+> via a watermark, because `global_seq` values can commit out of order. Average
+> duration and approval-rejection rate (§8.8) have no Phase 12 columns and are not
+> built. Samples exclude operator stops and governance, budget, Approval-expiry and
+> crash outcomes; a human rejection counts as a failure. **Not yet conformant with
+> Phase 19 V2:** the minimum sample-size/confidence criterion it requires "as part of
+> V2's implementation work" is not defined, because its form and values are a
+> governance decision (`docs/roadmap/ROADMAP_STATUS.md` §6). Until then the
+> projection is display-only and a structural test keeps Policy and the Router from
+> reading it. `docs/architecture/AGENT_PERFORMANCE.md`.
+
 ### Idempotency, including external side effects
 
 Internal dedup via `event_id`/`sequence_no` (Phase 3e). For external side effects
@@ -1494,8 +1509,10 @@ provenance chains visible (Phase 5.13/7).
 >     recent finished ones. Usage totals cover those Runs.
 >   - **Outputs:** listed by type, size and time, but not linked, because the
 >     Artifact browser (screen 8) is not built.
->   - **Performance:** shown as unavailable, because the `agent_performance`
->     projection is V2 and not built.
+>   - **Performance:** the API returns the version's `agent_performance` rows
+>     (V2, `docs/architecture/AGENT_PERFORMANCE.md`), refreshed every minute and
+>     shown whatever the sample count. The page still says unavailable until the UI
+>     workstream renders them.
 > - **Screen 6 (Registry), API only.** `GET /registry` reads every Definition (never
 >   a Tool Binding's config). Versioned creates of Capabilities, Tool Bindings,
 >   Agent/Task/Workflow Definitions and Capability Grants never update a row: an

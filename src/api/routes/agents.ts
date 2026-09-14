@@ -45,6 +45,7 @@
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import {
+  agentPerformance,
   agentDefinitions,
   artifacts,
   budgetCounters,
@@ -108,8 +109,10 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
    *   - `recentEvents`, `outputs` (artifacts its Runs produced), and
    *     `contextLineage` (the latest `context_compiled` payload — ids, tiers,
    *     exclusion reasons, token estimate; never content; spec §5.13).
-   *   - `performance`: null — the `agent_performance` projection is V2 and not
-   *     built; reported as absent rather than approximated.
+   *   - `performance`: this version's `agent_performance` rows (per Task Definition
+   *     and model tier; avg cost per unit, exact strings). Refreshed asynchronously
+   *     (`../../projections/agentPerformance.ts`), so it lags recent Runs, and it is
+   *     shown whatever the sample count: no criterion for meaningful yet.
    */
   app.get<{ Params: { id: string } }>("/agents/:id", async (request, reply) => {
     const agentId = request.params.id;
@@ -285,6 +288,12 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
         }
       : null;
 
+    const performanceRows = await deps.db
+      .select()
+      .from(agentPerformance)
+      .where(and(eq(agentPerformance.agentDefinitionId, agent.id), eq(agentPerformance.agentDefinitionVersion, agent.version)))
+      .orderBy(agentPerformance.taskDefinitionId, agentPerformance.modelTier);
+
     return reply.send({
       agent: { id: agent.id, name: agent.name, version: agent.version, role: agent.role, objective: agent.objective },
       activeStop: activeStop ?? null,
@@ -302,7 +311,15 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       recentEvents,
       outputs,
       contextLineage,
-      performance: null,
+      performance: performanceRows.map((p) => ({
+        taskDefinitionId: p.taskDefinitionId,
+        modelTier: p.modelTier,
+        sampleCount: p.sampleCount,
+        successRate: p.successRate,
+        avgRetries: p.avgRetries,
+        avgCost: p.avgCost,
+        updatedAt: p.updatedAt,
+      })),
     });
   });
 

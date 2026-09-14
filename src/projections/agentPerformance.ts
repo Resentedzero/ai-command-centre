@@ -1,0 +1,149 @@
+/**
+ * `agent_performance` projector (spec §8.3 asynchronous projections, §8.8, §10.5;
+ * roadmap V2).
+ *
+ * RECOMPUTED, NOT INCREMENTAL. Each refresh rebuilds the whole table from Events in
+ * one transaction. `events.global_seq` comes from a Postgres sequence, so a
+ * transaction can commit a lower value after a higher one is already visible; a
+ * watermark over it would skip that event forever. A full rebuild has no watermark
+ * to get wrong, is idempotent by construction (replaying changes nothing), and a
+ * crash mid-refresh rolls back to the previous rows. At operator scale the query is
+ * cheap. Revisit with a commit-ordered cursor when it is not.
+ *
+ * DEFINITIONS (spec §8.8 names the measures; these are the rules):
+ * - Sample: a Run with a bound Agent Definition version whose terminal event is
+ *   `run_completed` or `run_failed`, EXCEPT outcomes that are not the agent's:
+ *   a Run with any `run_halted` (an operator's emergency stop), and a failed Run
+ *   whose last `invocation_failed` reason is in NOT_AGENT_OUTCOMES (governance,
+ *   budget, the operator not answering, a changed binding, a crash). Every other
+ *   failure counts, including a human rejecting the work and any reason not listed:
+ *   an unrecognized reason lowers the rate, which can never widen autonomy.
+ * - Group: (Agent Definition id, version, Task Definition id, model tier).
+ * - Model tier: `resultingTier` of the Run's last model `invocation_started`
+ *   (the Model Router's own record); "none" for a Run that made no model call.
+ * - success_rate: completed samples / samples.
+ * - avg_retries: (samples - distinct Task Instances) / distinct Task Instances — the
+ *   extra Runs per Task Instance. Always 0 until retries exist.
+ * - avg_cost: per resource unit, the sum of the samples' `budget_consumed` amounts
+ *   / samples. Units are never combined (§10.5 "total cost including retries").
+ *   Reported and estimate-basis charges are both included (a tool's are always
+ *   estimates), and a Run's whole cost is attributed to its last tier.
+ * - Values are stored with trailing zeros trimmed; a repeating quotient is cut at
+ *   Postgres's numeric division scale.
+ *
+ * NOT FULLY EVENT-SOURCED: the Agent binding comes from `runs` and the Task
+ * Definition from `task_instances`, both written in the same transaction as the
+ * Run's events. No event records the binding itself.
+ *
+ * NOT YET: average duration and approval-rejection rate (§8.8 lists them; Phase 12's
+ * table has no columns), and the minimum sample-size/confidence criterion Policy and
+ * the Model Router must wait for (ROADMAP_STATUS §6). Nothing outside the read API
+ * may read this table; `tests/execution/structuralInvariants.test.ts` enforces it.
+ */
+import { sql } from "drizzle-orm";
+import { agentPerformance } from "../db/schema.js";
+import type { DrizzleTransaction } from "../events/emit.js";
+
+/** Same lock class as the Registry's own transaction-scoped locks; keys are prefixed per use. */
+const LOCK_CLASS_ID = 20260914;
+
+/**
+ * `invocation_failed` reasons that end a Run for reasons other than the agent's work
+ * (`../execution/executor.ts`, the Model Router's `AuthorizationFailure`).
+ * `approval_rejected` is deliberately absent: a human judged the work.
+ */
+const NOT_AGENT_OUTCOMES = [
+  "execution_stopped",
+  "policy_denied",
+  "reauthorization_failed",
+  "reauthorization_policy_denied",
+  "insufficient_budget",
+  "insufficient_budget_on_resume",
+  "quota_guardrail",
+  "provider_quota_rejected",
+  "no_eligible_candidate",
+  "approval_expired",
+  "resume_spec_mismatch",
+  "interrupted_outcome_unknown",
+];
+const NOT_AGENT_OUTCOMES_SQL = sql.raw(NOT_AGENT_OUTCOMES.map((reason) => `'${reason}'`).join(", "));
+
+export async function refreshAgentPerformance(tx: DrizzleTransaction): Promise<void> {
+  // One refresh at a time; readers keep seeing the previous rows until commit.
+  await tx.execute(sql`select pg_advisory_xact_lock(${LOCK_CLASS_ID}::int, hashtext('projection:agent_performance'))`);
+  await tx.delete(agentPerformance);
+  await tx.execute(sql`
+    WITH terminal AS (
+      SELECT DISTINCT ON (run_id) run_id, event_type
+      FROM events
+      WHERE run_id IS NOT NULL AND event_type IN ('run_completed', 'run_failed')
+      ORDER BY run_id, sequence_no DESC
+    ),
+    samples AS (
+      SELECT
+        r.id AS run_id,
+        r.agent_definition_id,
+        r.agent_definition_version,
+        ti.task_definition_id,
+        ti.id AS task_instance_id,
+        t.event_type = 'run_completed' AS succeeded,
+        COALESCE(
+          (SELECT s.payload->>'resultingTier' FROM events s
+           WHERE s.run_id = r.id AND s.event_type = 'invocation_started' AND s.payload ? 'resultingTier'
+           ORDER BY s.sequence_no DESC LIMIT 1),
+          'none'
+        ) AS model_tier
+      FROM terminal t
+      JOIN runs r ON r.id = t.run_id
+      JOIN task_instances ti ON ti.id = r.task_instance_id
+      WHERE NOT EXISTS (SELECT 1 FROM events h WHERE h.run_id = r.id AND h.event_type = 'run_halted')
+        AND NOT (
+          t.event_type = 'run_failed'
+          AND COALESCE(
+            (SELECT f.payload->>'reason' FROM events f
+             WHERE f.run_id = r.id AND f.event_type = 'invocation_failed'
+             ORDER BY f.sequence_no DESC LIMIT 1),
+            ''
+          ) IN (${NOT_AGENT_OUTCOMES_SQL})
+        )
+        AND r.agent_definition_id IS NOT NULL
+        AND r.agent_definition_version IS NOT NULL
+    ),
+    groups AS (
+      SELECT
+        agent_definition_id, agent_definition_version, task_definition_id, model_tier,
+        COUNT(*) AS sample_count,
+        trim_scale(AVG(CASE WHEN succeeded THEN 1 ELSE 0 END)::numeric) AS success_rate,
+        trim_scale((COUNT(*) - COUNT(DISTINCT task_instance_id))::numeric / COUNT(DISTINCT task_instance_id)) AS avg_retries
+      FROM samples
+      GROUP BY agent_definition_id, agent_definition_version, task_definition_id, model_tier
+    ),
+    unit_costs AS (
+      SELECT
+        s.agent_definition_id, s.agent_definition_version, s.task_definition_id, s.model_tier,
+        c.payload->>'resourceUnit' AS unit,
+        SUM((c.payload->>'amount')::numeric) AS total
+      FROM samples s
+      JOIN events c ON c.run_id = s.run_id AND c.event_type = 'budget_consumed' AND c.payload ? 'resourceUnit'
+      GROUP BY s.agent_definition_id, s.agent_definition_version, s.task_definition_id, s.model_tier, c.payload->>'resourceUnit'
+    )
+    INSERT INTO agent_performance
+      (agent_definition_id, agent_definition_version, task_definition_id, model_tier,
+       success_rate, avg_cost, avg_retries, sample_count, updated_at)
+    SELECT
+      g.agent_definition_id, g.agent_definition_version, g.task_definition_id, g.model_tier,
+      g.success_rate,
+      COALESCE(
+        (SELECT jsonb_object_agg(u.unit, trim_scale(u.total / g.sample_count)::text) FROM unit_costs u
+         WHERE u.agent_definition_id = g.agent_definition_id
+           AND u.agent_definition_version = g.agent_definition_version
+           AND u.task_definition_id = g.task_definition_id
+           AND u.model_tier = g.model_tier),
+        '{}'::jsonb
+      ),
+      g.avg_retries,
+      g.sample_count,
+      now()
+    FROM groups g
+  `);
+}
