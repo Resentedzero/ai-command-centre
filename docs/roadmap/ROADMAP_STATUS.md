@@ -19,8 +19,8 @@ From here on, work is named by roadmap stage and a descriptive milestone name. E
 | Stage | Status | Evidence |
 |---|---|---|
 | **V1** (spec Phase 18 MVP) | **Complete.** Both workflows, the full governance chain, pause/resume, minimal UI. Hardened well beyond MVP scope: durable execution, crash recovery, idempotent tool side effects, emergency stops, approval TTL, context compilation. | `POST_PHASE9_CLOSURE.md`, `EXECUTION_RECOVERY_CLOSURE.md`, `CONTEXT_COMPILER_CLOSURE.md` |
-| **V1 success criterion** (spec §18.3) | **Not met.** Adding a third Capability, Task Definition or Agent Definition still needs edits to the step dispatcher, seed lookup, API routes and startup. | Current milestone: *Capability Platform* (below) |
-| **V1.1** | **Partial.** Agent Detail view and Workflow/Task view (an ordered step list, not a graph) are built. Not built: Registry API and UI, NSSM service wrapping. | spec §15.1 note |
+| **V1 success criterion** (spec §18.3) | **Met.** A new Capability, Tool Binding, Agent, Task Definition and Workflow run end to end as data plus a registered adapter and plan, with no core change (acceptance test through the HTTP API; structural test). | `CAPABILITY_PLATFORM_CLOSURE.md` |
+| **V1.1** | **Partial.** Built: Agent Detail view, Workflow/Task view (an ordered step list, not a graph), Registry read API and grant revocation route. Not built: Registry write routes (new Definition versions, Grants, bindings), Registry UI, NSSM service wrapping. | spec §15.1 note; `CAPABILITY_PLATFORM.md` §5 |
 | **V2** | Not started. No `agent_performance` / `agent_xp_projection`, no async projection loop, no cost dashboard. | `schema.ts` header |
 | **V3** | Not started. Linear graphs only; no memory (`memory_items` does not exist); two capabilities. | — |
 | **V4** | Not started. No escalation loop; `CONDITIONAL` autonomy behaves as `ALWAYS_APPROVE`; no evaluation. | `policy.ts` |
@@ -34,21 +34,22 @@ From here on, work is named by roadmap stage and a descriptive milestone name. E
 | Durable execution and follow-on hardening ("Phase 9") | V1 hardening | Closed | `development/POST_PHASE9_CLOSURE.md` |
 | Execution recovery and idempotency | V1 hardening | Closed | `development/EXECUTION_RECOVERY_CLOSURE.md` |
 | Context Compiler hardening | V1 hardening | **Closed** (see §4) | `development/CONTEXT_COMPILER_CLOSURE.md` |
-| **Capability Platform** (spec §18.3 conformance) | V1 success criterion → V1.1 Registry API | **In progress** | — |
+| Capability Platform (spec §18.3 conformance) | V1 success criterion → V1.1 Registry API | **Closed** | `development/CAPABILITY_PLATFORM_CLOSURE.md` |
 
 ## 4. Why the Context Compiler phase is closed with §5.16 open
 
 Spec §18.1 lists what V1's Compiler must really do: priority tiers, a hard token ceiling, reference-not-content, dedup and layered assembly. All are built and tested. §5.16 (measuring which included context the output actually used) is *measurement* of compilation, not compilation, and its consumers — `agent_performance`, tier-preference tuning, evaluation — are V2/V4. It is tracked as follow-up in `architecture/CONTEXT_COMPILER.md` §3, not as a blocker.
 
-## 5. Current milestone: Capability Platform
+## 5. Capability Platform (closed)
 
 Goal: make spec §18.3 true — a new Capability, Tool Binding, Task Definition, Agent Definition and Workflow composition are added as data plus a registered adapter, with no edits to the Executor, Interpreter, governance, API or startup.
 
 1. Tool Adapter registry resolved from the persisted Tool Binding row (spec §3c, Phase 4 "Tool Adapters"). **Done** (`14c8f27`).
 2. A second, local-corpus `research.retrieve` binding, proving the capability boundary survives replacing its binding (spec §18.2). **Done** (`d53df9a`).
-3. Step planning driven by definitions (Task Definition `kind`, per-step Agent in the Workflow graph), with the §18.3 acceptance test. **Done, in review.**
-4. Binding configuration never reaches events. **Done, in review.**
-5. Registry read API and grant revocation route (V1.1). **Done, in review.**
+3. Step planning driven by definitions (Task Definition `kind`, per-step Agent in the Workflow graph), with the §18.3 acceptance test. **Done** (`4c251b3`).
+4. Binding configuration never reaches events. **Done** (`4c251b3`).
+5. Registry read API and grant revocation route (V1.1). **Done** (`4c251b3`).
+6. Adversarial review findings fixed or documented. **Done** (`4c251b3`).
 
 Authoritative write-up: `docs/architecture/CAPABILITY_PLATFORM.md`.
 

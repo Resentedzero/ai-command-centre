@@ -14,6 +14,10 @@ If a lower tier disagrees with a higher one, the higher tier wins. The spec's da
   - what may enter a model's context, and the invariants that bound it;
   - grant-scoped tool schemas, trusted/untrusted separation, budgets and provenance;
   - open questions (cacheable prefix, reference mode). (Phase 5)
+- [`architecture/CAPABILITY_PLATFORM.md`](architecture/CAPABILITY_PLATFORM.md) covers:
+  - the Tool Adapter registry and binding selection (no fallback, immutable bindings);
+  - definition-driven step planning and the spec §18.3 acceptance criterion;
+  - the Registry read API and grant revocation. (Phases 3c, 6, 18.3)
 - [`architecture/SUBSCRIPTION_PROVIDER_DESIGN.md`](architecture/SUBSCRIPTION_PROVIDER_DESIGN.md) covers:
   - the Claude Max (`claude -p`) provider adapter;
   - quota state and telemetry, and the disabled quota guardrail;
@@ -28,6 +32,7 @@ Module-level contracts live in the header comment of each source file. The root 
 - [`development/EXECUTION_RECOVERY_CLOSURE.md`](development/EXECUTION_RECOVERY_CLOSURE.md): the milestone after Phase 9 — step failure settlement, crash-safe tool side effects, and the recovery/concurrency review.
 - [`development/CONTEXT_COMPILER_CLOSURE.md`](development/CONTEXT_COMPILER_CLOSURE.md): Context Compiler hardening — grant-scoped minimal tool schemas, hash dedup, provenance, the budgeted invocation instruction layer.
 
+- [`development/CAPABILITY_PLATFORM_CLOSURE.md`](development/CAPABILITY_PLATFORM_CLOSURE.md): the Capability Platform — Tool Adapter registry, local-corpus binding, definition-driven planning (spec §18.3 met), Registry API, adversarial review dispositions.
 ## 4. Planning and research (advisory, authorizes nothing)
 - [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
 - [`roadmap/ROADMAP_STATUS.md`](roadmap/ROADMAP_STATUS.md): **where the implementation actually is**, by roadmap stage (V1–V6); what the phase labels mean; current milestone; open governance decisions. Status only, not an authorization.

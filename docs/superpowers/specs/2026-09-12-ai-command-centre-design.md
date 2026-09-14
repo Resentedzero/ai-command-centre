@@ -1672,6 +1672,18 @@ Staged by **evidence, not calendar time** — each stage advances when a concret
 or enough real data exists, not on a schedule. This mirrors the YAGNI discipline
 running through the whole document.
 
+> **Implementation note (2026-09-14): criterion met.** Authoritative write-up:
+> `docs/architecture/CAPABILITY_PLATFORM.md`.
+> - A Tool Binding row selects the code that runs (Tool Adapter registry, §3c). The
+>   newest binding wins, never a silent fallback, and binding rows are immutable.
+> - Workflow graph steps bind their Agent Definition and parameters, and a Task
+>   Definition's `kind` selects a registered plan. The core names no capability.
+> - An acceptance test adds a Capability, Tool Binding, Agent, Grant, Task Definition
+>   and Workflow as data plus one registered adapter and plan, and runs them through
+>   the HTTP API with no core change.
+> - `research.retrieve` gained a second, local-corpus binding, replacing the stub by
+>   data alone (§18.2).
+
 - **V1 (Phase 18's MVP)**: two workflows, full governance chain proven once, manual
   process start, minimal UI (Overview/Activity/Approvals).
 - **V1.1**: NSSM service wrapping (unattended operation); UI expands to Agent Detail,
