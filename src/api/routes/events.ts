@@ -132,6 +132,10 @@ export const sseLimits = {
   replayPageSize: 500,
   maxRememberedIds: 10_000,
   maxOpenStreams: 32,
+  /** Live events held while a replay is still running; past this the stream is closed and the client resumes by cursor. */
+  maxBufferedLiveEvents: 10_000,
+  /** Bytes queued on a socket that is not reading; past this the stream is closed and the client resumes by cursor. */
+  maxPendingWriteBytes: 8 * 1024 * 1024,
 };
 
 let openStreams = 0;
@@ -186,12 +190,17 @@ export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void 
 
     // Step 1: subscribe to live events FIRST, buffering — before any
     // Postgres read, so nothing emitted from here on can be missed.
+    //
+    // Neither path may grow without bound for a client that is slow or has
+    // stopped reading: past a limit the stream is closed instead. Nothing is
+    // lost — the client reconnects from the highest cursor it received.
     const unsubscribe = subscribeToLiveEvents((e) => {
       if (buffering) {
         buffer.push(e);
+        if (buffer.length > sseLimits.maxBufferedLiveEvents) endStream();
       } else {
         // Step 4: already caught up — write directly.
-        writeEvent(e);
+        if (!writeEvent(e) && reply.raw.writableLength > sseLimits.maxPendingWriteBytes) endStream();
       }
     });
 
@@ -200,6 +209,14 @@ export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       closed = true;
       openStreams--;
       unsubscribe();
+    };
+    const endStream = () => {
+      cleanup();
+      try {
+        reply.raw.end();
+      } catch {
+        // best-effort only — the connection may already be gone
+      }
     };
     request.raw.on("close", cleanup);
     reply.raw.on("close", cleanup);
@@ -244,12 +261,7 @@ export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       // further buffering needed.
     } catch (err) {
       request.log.error(err);
-      cleanup();
-      try {
-        reply.raw.end();
-      } catch {
-        // best-effort only — the connection may already be gone
-      }
+      endStream();
     }
   });
 }

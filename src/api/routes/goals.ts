@@ -27,7 +27,7 @@ import type { ApiDeps } from "../server.js";
 import { startWorkflowRun } from "../../workflow/interpreter.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
 import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
-import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
+import { requireSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { emitLifecycleEvent, NO_CORRELATION } from "../../events/lifecycle.js";
 
@@ -102,10 +102,7 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
       // in its own short transactions (Phase 9 — see the driver's header),
       // each relayed to live subscribers as it commits.
       const { seed, goalId, workflowRunId } = await deps.db.transaction(async (tx) => {
-        const seed = await findSeededPublishWorkflow(tx);
-        if (!seed) {
-          throw new Error('No seeded Workflow Definition found — run "npm run seed" before creating Goals.');
-        }
+        const seed = await requireSeededPublishWorkflow(tx);
 
         const [goalRow] = await tx
           .insert(goals)

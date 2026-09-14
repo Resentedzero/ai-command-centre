@@ -124,15 +124,32 @@ type RawEventEnvelope = {
 // Fetch helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * `Content-Type: application/json` only when there IS a body: Fastify answers a
+ * JSON-typed request with an empty body 400 (FST_ERR_CTP_EMPTY_JSON_BODY), which
+ * made body-less POSTs (approve/reject) always fail. It also keeps GETs simple
+ * requests, with no CORS preflight.
+ *
+ * A failure carries the API's own `{ error }` message when it sends one — e.g.
+ * why a 409 was refused — rather than only the status line.
+ */
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: init?.body !== undefined ? { "Content-Type": "application/json" } : undefined,
   });
-  if (!res.ok) {
-    throw new Error(`API request failed: ${init?.method ?? "GET"} ${path} -> ${res.status} ${res.statusText}`);
-  }
   const text = await res.text();
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+      const message = parsed.error ?? parsed.message;
+      if (typeof message === "string" && message.length > 0) detail = `${res.statusText}: ${message}`;
+    } catch {
+      // Not JSON: the status line is all there is.
+    }
+    throw new Error(`API request failed: ${init?.method ?? "GET"} ${path} -> ${res.status} ${detail}`);
+  }
   return (text.length > 0 ? JSON.parse(text) : undefined) as T;
 }
 
@@ -146,14 +163,20 @@ export async function listPendingApprovals(): Promise<ApprovalData[]> {
   return data.approvals;
 }
 
+/**
+ * The decision's outcome. `advanceError` is set when the decision was recorded
+ * but advancing the workflow run past it failed — the decision stands.
+ */
+export type ApprovalResolution = { approvalStatus: string; workflowStatus: string | null; advanceError?: string };
+
 /** No client-side policy logic — just a pass-through POST, per the brief's constraints. */
-export async function approveApproval(id: string): Promise<void> {
-  await apiFetch<unknown>(`/approvals/${encodeURIComponent(id)}/approve`, { method: "POST" });
+export async function approveApproval(id: string): Promise<ApprovalResolution> {
+  return apiFetch<ApprovalResolution>(`/approvals/${encodeURIComponent(id)}/approve`, { method: "POST" });
 }
 
 /** No client-side policy logic — just a pass-through POST, per the brief's constraints. */
-export async function rejectApproval(id: string): Promise<void> {
-  await apiFetch<unknown>(`/approvals/${encodeURIComponent(id)}/reject`, { method: "POST" });
+export async function rejectApproval(id: string): Promise<ApprovalResolution> {
+  return apiFetch<ApprovalResolution>(`/approvals/${encodeURIComponent(id)}/reject`, { method: "POST" });
 }
 
 // ---------------------------------------------------------------------------

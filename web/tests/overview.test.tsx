@@ -117,6 +117,26 @@ describe("Overview page", () => {
       expect.stringContaining("invocation.completed"),
     ]);
   });
+
+  it("renders an event re-delivered after a reconnect once, numbered by its global cursor", async () => {
+    listActiveAgents.mockResolvedValueOnce([]);
+    let capturedOnEvent: ((e: EventDisplayItem) => void) | undefined;
+    subscribeToActivity.mockImplementation((_since: number | null, onEvent: (e: EventDisplayItem) => void) => {
+      capturedOnEvent = onEvent;
+      return () => {};
+    });
+
+    render(<OverviewPage />);
+    await waitFor(() => expect(capturedOnEvent).toBeDefined());
+
+    const event = { eventId: "e-1", eventType: "run_started", occurredAt: "t", sequenceNo: 1, eventCursor: 41, summary: "run_started" };
+    capturedOnEvent!(event);
+    capturedOnEvent!({ ...event });
+
+    const items = await screen.findAllByTestId("activity-item");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toHaveTextContent("[41] run_started");
+  });
 });
 
 describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocked EventSource", () => {

@@ -51,7 +51,7 @@ import {
 } from "../../workflow/interpreter.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
 import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
-import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
+import { requireSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
 
@@ -64,10 +64,7 @@ function replyForWorkflowRunError(error: unknown, reply: FastifyReply): FastifyR
 async function driveWithRelay(deps: ApiDeps, workflowRunId: string, beforeAdvance?: () => Promise<void>) {
   const relay = createWorkflowRelay(deps.db);
   await relay.track(workflowRunId);
-  const seed = await deps.db.transaction((tx) => findSeededPublishWorkflow(tx));
-  if (!seed) {
-    throw new Error('No seeded Workflow Definition found — run "npm run seed" first.');
-  }
+  const seed = await deps.db.transaction((tx) => requireSeededPublishWorkflow(tx));
   if (beforeAdvance) await beforeAdvance();
   await relay.flush();
   const result = await advanceWorkflowRunUntilBlocked(relay.runInTx, workflowRunId, (tx) =>

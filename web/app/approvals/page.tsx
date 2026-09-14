@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { approveApproval, listPendingApprovals, rejectApproval, type ApprovalData } from "../../lib/api";
+import {
+  approveApproval,
+  listPendingApprovals,
+  rejectApproval,
+  type ApprovalData,
+  type ApprovalResolution,
+} from "../../lib/api";
 
 /**
  * Approvals Queue page. Fetch-on-mount, not SSE-wired (Ruling 6 —
@@ -17,11 +23,16 @@ import { approveApproval, listPendingApprovals, rejectApproval, type ApprovalDat
  */
 export default function ApprovalsPage() {
   const [approvals, setApprovals] = useState<ApprovalData[]>([]);
+  // "No pending approvals" before the first read would tell the operator the
+  // queue is empty when it has not been read yet.
+  const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   // A refused decision (e.g. 409: already resolved, or expired past its TTL)
   // must be visible, not swallowed — and the list refetched, since it is stale.
   const [actionError, setActionError] = useState<string | null>(null);
+  // The decision was recorded but the workflow could not be advanced past it.
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     try {
@@ -30,6 +41,8 @@ export default function ApprovalsPage() {
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoaded(true);
     }
   }, []);
 
@@ -37,11 +50,13 @@ export default function ApprovalsPage() {
     refetch();
   }, [refetch]);
 
-  async function resolve(id: string, action: (id: string) => Promise<void>): Promise<void> {
+  async function resolve(id: string, action: (id: string) => Promise<ApprovalResolution>): Promise<void> {
     setPendingActionId(id);
     setActionError(null);
+    setActionNotice(null);
     try {
-      await action(id);
+      const result = await action(id);
+      if (result?.advanceError) setActionNotice(result.advanceError);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -62,7 +77,13 @@ export default function ApprovalsPage() {
           Could not resolve approval: {actionError}
         </p>
       )}
-      {!loadError && approvals.length === 0 && <p>No pending approvals.</p>}
+      {actionNotice && (
+        <p role="alert" style={{ color: "#8a5a00" }}>
+          {actionNotice}
+        </p>
+      )}
+      {!loaded && <p>Loading…</p>}
+      {loaded && !loadError && approvals.length === 0 && <p>No pending approvals.</p>}
 
       {approvals.map((approval) => (
         <div
@@ -131,6 +152,7 @@ export default function ApprovalsPage() {
               type="button"
               onClick={() => handleApprove(approval.id)}
               disabled={pendingActionId === approval.id}
+              aria-label={`Approve ${approval.context?.capabilityName ?? "approval"} ${approval.id}`}
             >
               Approve
             </button>
@@ -139,6 +161,7 @@ export default function ApprovalsPage() {
               onClick={() => handleReject(approval.id)}
               disabled={pendingActionId === approval.id}
               style={{ marginLeft: 8 }}
+              aria-label={`Reject ${approval.context?.capabilityName ?? "approval"} ${approval.id}`}
             >
               Reject
             </button>

@@ -81,6 +81,7 @@ import { registerEventsRoutes } from "./routes/events.js";
 import { registerAgentsRoutes } from "./routes/agents.js";
 import { registerExecutionStopsRoutes } from "./routes/executionStops.js";
 import { makeRequestGuard } from "./requestGuards.js";
+import { SeedMissingError } from "../definitions/lookupSeed.js";
 
 export type ApiDeps = { db: Database };
 
@@ -123,7 +124,9 @@ function setCorsHeaders(reply: FastifyReply): void {
 export function buildServer(overrides?: Partial<ApiDeps>): FastifyInstance {
   const deps: ApiDeps = { db: overrides?.db ?? realDb };
 
-  const app = Fastify({ logger: false });
+  // No automatic HEAD routes: a HEAD of `/events/stream` would run the stream
+  // handler and hold a capped stream slot (see `./requestGuards.ts`, attack 3).
+  const app = Fastify({ logger: false, exposeHeadRoutes: false });
 
   app.addHook("onRequest", async (_request, reply) => {
     setCorsHeaders(reply);
@@ -149,6 +152,9 @@ export function buildServer(overrides?: Partial<ApiDeps>): FastifyInstance {
   // errors raised by Fastify itself (e.g. malformed JSON) keep their message.
   app.setErrorHandler(async (error: { statusCode?: number; message?: string }, _request, reply) => {
     const status = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+    if (error instanceof SeedMissingError) {
+      return reply.status(status).send({ error: error.message });
+    }
     if (status >= 500) {
       // eslint-disable-next-line no-console
       console.error("Unhandled API error:", error);

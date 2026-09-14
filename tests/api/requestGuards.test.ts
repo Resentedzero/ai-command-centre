@@ -38,6 +38,16 @@ describe("refuseRequest (pure)", () => {
     expect(refuseRequest({ method: "GET", host, origin: "https://evil.example" }, { uiOrigin: UI })).toBeNull();
   });
 
+  it("refuses cross-site requests of any method unless they come from the UI's origin; same-site is untouched", () => {
+    const host = "127.0.0.1:3000";
+    // A no-cors GET from another site carries no Origin, only Sec-Fetch-Site.
+    expect(refuseRequest({ method: "GET", host, origin: undefined, secFetchSite: "cross-site" }, { uiOrigin: UI })).toMatch(/cross-site/);
+    expect(refuseRequest({ method: "GET", host, origin: "https://evil.example", secFetchSite: "cross-site" }, { uiOrigin: UI })).toMatch(/cross-site/);
+    expect(refuseRequest({ method: "GET", host, origin: undefined, secFetchSite: "same-site" }, { uiOrigin: UI })).toBeNull();
+    expect(refuseRequest({ method: "GET", host, origin: UI, secFetchSite: "cross-site" }, { uiOrigin: UI })).toBeNull();
+    expect(refuseRequest({ method: "GET", host, origin: undefined, secFetchSite: "none" }, { uiOrigin: UI })).toBeNull();
+  });
+
   it("parses hostnames and UUIDs strictly", () => {
     expect(hostnameOf("[::1]:3000")).toBe("::1");
     expect(hostnameOf("Example.COM:80")).toBe("example.com");
@@ -86,6 +96,20 @@ describe("through the server", () => {
     } finally {
       await testDb.transaction((tx) => liftStop(tx, { scope: "global" }));
     }
+  });
+
+  it("another site cannot hold an event stream open: cross-site GET is refused and HEAD is not routed", async () => {
+    const crossSite = await app.inject({
+      method: "GET",
+      url: "/events/stream?sinceEventCursor=foo",
+      headers: { host: "127.0.0.1:3000", "sec-fetch-site": "cross-site" },
+    });
+    // Refused by the guard before the route validates anything.
+    expect(crossSite.statusCode).toBe(403);
+    expect(crossSite.json().error).toMatch(/cross-site/);
+
+    const head = await app.inject({ method: "HEAD", url: "/events/stream?sinceEventCursor=foo", headers: { host: "127.0.0.1:3000" } });
+    expect(head.statusCode).toBe(404);
   });
 
   it("malformed ids are 400s, never 500s", async () => {

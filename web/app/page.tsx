@@ -11,7 +11,7 @@ import { ActivityFeed } from "../components/ActivityFeed";
  * only what the API returns — no policy/budget/workflow logic here.
  */
 export default function OverviewPage() {
-  const [agents, setAgents] = useState<AgentCardData[]>([]);
+  const [agents, setAgents] = useState<AgentCardData[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,8 +35,9 @@ export default function OverviewPage() {
       <section>
         <h2>Active Agents</h2>
         {loadError && <p style={{ color: "#b00020" }}>Failed to load active agents: {loadError}</p>}
-        {!loadError && agents.length === 0 && <p>No agents are currently active.</p>}
-        {agents.map((agent) => (
+        {!loadError && agents === null && <p>Loading…</p>}
+        {agents?.length === 0 && <p>No agents are currently active.</p>}
+        {agents?.map((agent) => (
           <AgentCard key={agent.runId} agent={agent} />
         ))}
       </section>

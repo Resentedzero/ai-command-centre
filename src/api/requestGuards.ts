@@ -21,6 +21,15 @@
  *      Origin is present and is not the UI's origin is refused. A request with
  *      no Origin at all (curl, tests, server-to-server) is not a browser
  *      cross-site request and is allowed.
+ *
+ *   3. Cross-site resource holding. A page can also open long-lived GETs —
+ *      notably `GET /events/stream`, which replays the event log and holds one
+ *      of a capped number of stream slots — with no Origin header at all (a
+ *      no-cors fetch sends none). Browsers do send `Sec-Fetch-Site`; a
+ *      `cross-site` request is refused unless it comes from the UI's own
+ *      origin. The UI and API on localhost ports are `same-site`, so the real
+ *      UI is unaffected. HEAD routes are not exposed (`server.ts`) so a HEAD
+ *      cannot hold a stream either.
  */
 import type { FastifyReply, FastifyRequest } from "fastify";
 
@@ -57,13 +66,17 @@ const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * is tested directly as well as through the server.
  */
 export function refuseRequest(
-  req: { method: string; host: string | undefined; origin: string | undefined },
+  req: { method: string; host: string | undefined; origin: string | undefined; secFetchSite?: string | undefined },
   config: RequestGuardConfig
 ): string | null {
   if (!req.host) return "missing Host header";
   const hostname = hostnameOf(req.host);
   const allowed = LOOPBACK_HOSTNAMES.has(hostname) || (config.extraAllowedHosts ?? []).includes(hostname);
   if (!allowed) return `Host "${hostname}" is not an allowed name for this API`;
+
+  if (req.secFetchSite?.toLowerCase() === "cross-site" && req.origin !== config.uiOrigin) {
+    return "cross-site requests are not accepted by this API";
+  }
 
   if (STATE_CHANGING.has(req.method.toUpperCase()) && req.origin !== undefined && req.origin !== config.uiOrigin) {
     return `Origin "${req.origin}" may not change state through this API`;
@@ -74,7 +87,12 @@ export function refuseRequest(
 export function makeRequestGuard(config: RequestGuardConfig) {
   return async function requestGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const refusal = refuseRequest(
-      { method: request.method, host: request.headers.host, origin: request.headers.origin },
+      {
+        method: request.method,
+        host: request.headers.host,
+        origin: request.headers.origin,
+        secFetchSite: request.headers["sec-fetch-site"] as string | undefined,
+      },
       config
     );
     if (refusal) {

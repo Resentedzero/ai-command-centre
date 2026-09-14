@@ -58,6 +58,26 @@ export type SeededWorkflowRefs = {
   publishToolBindingId: string;
 };
 
+/**
+ * The API cannot act without the seed. A 503 whose message is shown to the
+ * caller (the API's error handler hides other 5xx messages), so the operator
+ * sees the fix instead of "Internal server error".
+ */
+export class SeedMissingError extends Error {
+  readonly statusCode = 503;
+  constructor() {
+    super('No seeded Workflow Definition found — run "npm run seed" first.');
+    this.name = "SeedMissingError";
+  }
+}
+
+/** `findSeededPublishWorkflow`, throwing `SeedMissingError` when nothing is seeded. */
+export async function requireSeededPublishWorkflow(tx: DrizzleTransaction): Promise<SeededWorkflowRefs> {
+  const refs = await findSeededPublishWorkflow(tx);
+  if (!refs) throw new SeedMissingError();
+  return refs;
+}
+
 async function findOneByName<T>(rows: T[], label: string): Promise<T | null> {
   if (rows.length === 0) return null;
   if (rows.length > 1) {

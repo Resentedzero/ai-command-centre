@@ -69,7 +69,7 @@ describe("Approvals page", () => {
     render(<ApprovalsPage />);
     await screen.findByTestId("approval-row");
 
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Approve .*appr-1$/ }));
 
     await waitFor(() => expect(approveApproval).toHaveBeenCalledWith("appr-1"));
     await waitFor(() => expect(listPendingApprovals).toHaveBeenCalledTimes(2));
@@ -84,12 +84,28 @@ describe("Approvals page", () => {
     render(<ApprovalsPage />);
     await screen.findByTestId("approval-row");
 
-    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Reject .*appr-1$/ }));
 
     await waitFor(() => expect(rejectApproval).toHaveBeenCalledWith("appr-1"));
     await waitFor(() => expect(listPendingApprovals).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByTestId("approval-row")).not.toBeInTheDocument());
     expect(approveApproval).not.toHaveBeenCalled();
+  });
+
+  it("says the decision was recorded when advancing the workflow past it failed", async () => {
+    listPendingApprovals.mockResolvedValueOnce([approvalA]).mockResolvedValueOnce([]);
+    approveApproval.mockResolvedValueOnce({
+      approvalStatus: "approved",
+      workflowStatus: null,
+      advanceError: "The decision was recorded, but advancing the workflow run failed. Retry with POST /workflow-runs/wr-1/advance.",
+    });
+
+    render(<ApprovalsPage />);
+    await screen.findByTestId("approval-row");
+    fireEvent.click(screen.getByRole("button", { name: /^Approve .*appr-1$/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/decision was recorded/);
+    expect(screen.queryByText(/Could not resolve approval/)).not.toBeInTheDocument();
   });
 
   it("shows what the approval gates: goal, action, agent, and the content preview rendered as text", async () => {

@@ -31,7 +31,7 @@ import type { ApiDeps } from "../server.js";
 import { resolveApproval, ApprovalAlreadyResolvedError, ApprovalNotFoundError } from "../../governance/approvals.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
 import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
-import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
+import { requireSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
 
@@ -210,10 +210,7 @@ function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "ap
       const result = await (async () => {
         // Checked BEFORE resolving: the resolution commits on its own, so a
         // missing seed must not leave a decided Approval with nothing to act on.
-        const seed = await runInTx((tx) => findSeededPublishWorkflow(tx));
-        if (!seed) {
-          throw new Error('No seeded Workflow Definition found — run "npm run seed" first.');
-        }
+        const seed = await runInTx((tx) => requireSeededPublishWorkflow(tx));
 
         // Resolved and COMMITTED before any advancement (Phase 9: the advance
         // runs in its own short transactions). The conditional UPDATE inside
@@ -221,16 +218,31 @@ function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "ap
         // concurrent resolution throws here and never reaches the driver.
         const resolved = await runInTx((tx) => resolveApproval(tx, approvalId, decision, V1_RESOLUTION_ACTOR));
 
-        const advanceResult = await advanceWorkflowRunUntilBlocked(runInTx, workflowRunId, (tx) =>
-          buildInvocationSpecsForTaskDefinition(tx, seed)
-        );
-
-        return {
-          approvalId: resolved.id,
-          approvalStatus: resolved.status,
-          workflowRunId,
-          workflowStatus: advanceResult.status,
-        };
+        // The decision is already durable. A failure advancing past it must not
+        // be reported as a failure to decide (a 500 here read as "could not
+        // resolve approval" while the Approval was in fact resolved), so it is
+        // reported alongside the committed decision, with the recovery route.
+        try {
+          const advanceResult = await advanceWorkflowRunUntilBlocked(runInTx, workflowRunId, (tx) =>
+            buildInvocationSpecsForTaskDefinition(tx, seed)
+          );
+          return {
+            approvalId: resolved.id,
+            approvalStatus: resolved.status,
+            workflowRunId,
+            workflowStatus: advanceResult.status,
+          };
+        } catch (advanceError) {
+          // eslint-disable-next-line no-console
+          console.error("Workflow advancement failed after an Approval was resolved:", advanceError);
+          return {
+            approvalId: resolved.id,
+            approvalStatus: resolved.status,
+            workflowRunId,
+            workflowStatus: null,
+            advanceError: `The decision was recorded, but advancing the workflow run failed. Retry with POST /workflow-runs/${workflowRunId}/advance.`,
+          };
+        }
       })();
 
       return reply.send(result);

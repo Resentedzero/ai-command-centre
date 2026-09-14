@@ -406,6 +406,48 @@ describe("POST /approvals/:id/reject", () => {
     const events = await eventsForInvocation(approvalRow!.invocationId);
     expect(resolutionEvents(events).map((e) => e.eventType)).toEqual(["approval_granted"]);
   });
+
+  it("reports a recorded decision as recorded when advancing past it fails, instead of a 500", async () => {
+    const created = await driveToTaskBAwaitingApproval("Advance-fails Goal", "advance fails report content");
+    const approvalId = await findPendingApprovalId(created.workflowRunId);
+
+    // A second "report" Artifact on Task A's run makes the publish step's builder
+    // refuse to choose (it requires exactly one), so the advance after the
+    // decision throws.
+    const { taskA } = await findTaskInstances(created.workflowRunId);
+    const runA = await testDb.query.runs.findFirst({ where: eq(schema.runs.taskInstanceId, taskA.id) });
+    const runAInvocationIds = (await testDb.query.invocations.findMany({ where: eq(schema.invocations.runId, runA!.id) })).map((i) => i.id);
+    const report = (await testDb.query.artifacts.findMany({ where: eq(schema.artifacts.type, "report") })).find(
+      (a) => a.producingInvocationId !== null && runAInvocationIds.includes(a.producingInvocationId)
+    );
+    await testDb.insert(schema.artifacts).values({
+      type: "report",
+      version: 1,
+      producingInvocationId: report!.producingInvocationId,
+      hash: "0".repeat(64),
+      size: 1,
+      inlineContent: "x",
+    });
+
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const res = await app.inject({ method: "POST", url: `/approvals/${approvalId}/approve` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        approvalId,
+        approvalStatus: "approved",
+        workflowRunId: created.workflowRunId,
+        workflowStatus: null,
+        advanceError: expect.stringContaining(`POST /workflow-runs/${created.workflowRunId}/advance`),
+      });
+      expect(consoleError).toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    const approvalRow = await testDb.query.approvals.findFirst({ where: eq(schema.approvals.id, approvalId) });
+    expect(approvalRow?.status).toBe("approved");
+  });
 });
 
 // ---------------------------------------------------------------------------
