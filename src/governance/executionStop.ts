@@ -48,7 +48,7 @@
  * from what Policy, Approval and Budget already permitted.
  */
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { capabilityGrants, executionStops, runs } from "../db/schema.js";
+import { capabilityGrants, events, executionStops, runs } from "../db/schema.js";
 import { emitEvent, type DrizzleTransaction } from "../events/emit.js";
 
 /** Scopes at which execution can be halted. Mirrors the `execution_stop_scope` enum. */
@@ -429,6 +429,31 @@ export async function recordStopEvent(
     },
     usage: null,
   });
+}
+
+/**
+ * Writes the audit event of every stop whose state flip committed but whose
+ * event did not — the process died between the two transactions the routes use
+ * (see this module's header). Returns how many events were written.
+ *
+ * Idempotent, like `recordStopEvent`. Run at startup, before requests: a lift is
+ * the case that could not heal itself, because retrying it answers 404.
+ */
+export async function backfillStopEvents(tx: DrizzleTransaction): Promise<number> {
+  const rows = await tx.select().from(executionStops);
+  let written = 0;
+  for (const row of rows) {
+    const stop: ActiveStop = { id: row.id, scope: row.scope, scopeRefId: row.scopeRefId, reason: row.reason };
+    const kinds: ("engaged" | "lifted")[] = row.liftedAt ? ["engaged", "lifted"] : ["engaged"];
+    for (const kind of kinds) {
+      const eventType = kind === "engaged" ? EXECUTION_STOP_ENGAGED : EXECUTION_STOP_LIFTED;
+      const existing = await tx.query.events.findFirst({ where: eq(events.idempotencyKey, `${eventType}:${row.id}`) });
+      if (existing) continue;
+      await recordStopEvent(tx, stop, kind);
+      written++;
+    }
+  }
+  return written;
 }
 
 /** Lists active stops, for the control-plane read surface. */

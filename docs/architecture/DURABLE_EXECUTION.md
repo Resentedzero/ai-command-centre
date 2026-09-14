@@ -162,7 +162,7 @@ An already-terminal Run is left as it is. The full error goes to the server log;
 
 `executeRun` must tell a live dispatch (answer `in_flight` and change nothing) from an orphan (settle it). The authority is an **in-process set** of invocation ids being dispatched (`inFlightDispatches`):
 
-- An entry is added in the same transaction that commits `executing`. A stale entry for a rolled-back transaction is inert: its random id is carried by no committed row.
+- An entry is added in the same transaction that commits `executing`. A stale entry for a rolled-back transaction is inert: every reader only asks about `executing` rows, and the rolled-back Invocation is not `executing` (a fresh one has no row; a resumed one is still `awaiting_approval`).
 - `dispatchAndRecord` removes the entry in `finally`, whatever the outcome. A dispatch whose outcome could not be recorded therefore becomes recoverable, instead of staying "in flight" forever.
 
 Process memory is the right authority because it dies with the dispatcher. It is only sound if **one process executes against a database**. The spec already assumes that (§13.2); Phase 9 enforces it:
@@ -206,4 +206,11 @@ Once a request commits in several transactions, concurrent requests can interlea
 10. **A throw while resuming a step left its hold reserved (resolved).** See §4.2: the step now fails, its hold is released and its Approval state is recorded honestly. Only a transient database error still propagates, and the next advance retries it.
 11. **A stop committed during context compilation does not stop that LLM dispatch.** The stop check runs at the top of each Invocation, before routing and context compilation. A stop that commits after that check, but before `dispatchModelCall` starts, lets that one call go out; the next Invocation is refused. The window is the compile time plus one commit. Tool dispatches are re-checked immediately before their effect (§2.1). The same check could be added before a model dispatch, where a refusal would settle as consuming nothing.
 12. **The pre-effect re-check leaves a small window.** Between `assertToolDispatchStillAuthorized` committing and `execute` starting, a stop or revocation can still land; it takes effect at the next Invocation. The window is one commit and a function call.
-13. **An interrupted tool is not asked whether its effect happened.** An adapter such as `publishReport` could verify its own effect after a crash, and record success instead of `outcome: "unknown"`. Recovery does not yet ask it: the step fails, charged at estimate, and a retry is a new Run.
+13. **The startup sweep can fail a paused Workflow Run** (decision needed). If a pause commits while an Invocation is `executing` and the process then dies, the sweep settles the Invocation and also fails the paused Workflow Run. That is accurate, since the Run did fail, but it overrides the pause. The alternative is to leave it paused with a failed Run and let the operator's resume fail it.
+14. **A crash before any claim can crash-loop the startup re-drive** (decision needed). If building specs or compiling context kills the process itself (for example running out of memory on a huge artifact), everything rolls back, and every restart re-drives into the same crash. Nothing is spent, but the API goes down each cycle. A fix needs an attempt count on the Workflow Run and a rule for when to stop re-driving it: an attempt limit, which is retry-policy territory.
+15. **Recovery gaps closed after the recovery audit (resolved).**
+   - An approved tool's Run now returns to `active` when its dispatch is claimed. It used to keep reading `awaiting_approval` while executing.
+   - The TTL sweep also re-drives an `expired` Approval whose Invocation still waits, so a re-drive that failed after the expiry committed is retried rather than holding its budget until a restart.
+   - The TTL sweep starts at startup alongside the re-drive, not after it.
+   - Stop audit events a crash lost between flip and event are backfilled at startup (`backfillStopEvents`).
+16. **An interrupted tool is not asked whether its effect happened.** An adapter such as `publishReport` could verify its own effect after a crash, and record success instead of `outcome: "unknown"`. Recovery does not yet ask it: the step fails, charged at estimate, and a retry is a new Run.

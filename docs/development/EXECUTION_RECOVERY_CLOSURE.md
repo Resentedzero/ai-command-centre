@@ -36,12 +36,31 @@ No live Claude invocations. Every dispatch-capable test mocks all three provider
 **Decisions.**
 - **All tool Invocations yield, not only side-effecting ones.** One path to get right, and a structural invariant (no tool `execute` in the Executor). The cost is one extra commit per tool Invocation.
 - **A thrown tool of unknown effect is charged at estimate**, the same rule as a provider failure. Only an error proving nothing was performed (`consumption: "none"`) releases. This replaces "a thrown tool releases".
-- **An interrupted tool is never re-performed, and not yet asked to verify its effect.** Verification is an adapter capability worth adding when a tool can answer reliably (DURABLE_EXECUTION §7 #13).
+- **An interrupted tool is never re-performed, and not yet asked to verify its effect.** Verification is an adapter capability worth adding when a tool can answer reliably (DURABLE_EXECUTION §7 #16).
 - **A refusal at the pre-effect re-check consumes nothing.** The effect was never attempted.
 
 **Tests.** `tests/execution/toolDispatch.test.ts`, confirmed to fail with the `executing` claim removed and with the re-check removed; the `publishReport` idempotency and atomic-write tests; a structural invariant in `tests/execution/structuralInvariants.test.ts`. Existing tests were updated where the extra pre-dispatch `reauthorize`, the extra builder rebuild, or charge-at-estimate on a thrown tool changed an exact expectation.
+
+### C. Crash and startup recovery audit
+
+An independent audit walked every commit boundary of a request and of background work, asking what state persists after a crash and what recovers it. Nothing it traced stays stuck for good beyond the documented residuals.
+
+**Fixed:**
+- **Run status after approval.** An approved tool's Run no longer reads `awaiting_approval` while its tool executes.
+- **Stranded expiries.** An expiry whose re-drive failed is re-driven again by the next sweep, instead of keeping its hold until a restart.
+- **Sweep timing.** The TTL sweep no longer waits for the startup re-drive.
+- **Lost stop events.** Stop audit events lost to a crash are backfilled at startup.
+- **Masked database errors.** A database error while recording a model dispatch is no longer masked.
+
+Each fix has a regression test, and the first two were confirmed to fail without the fix.
+
+**Needs a decision (DURABLE_EXECUTION §7 #13, #14):**
+- whether the startup sweep may fail a paused Workflow Run;
+- a crash-loop guard for the startup re-drive, which needs an attempt limit.
 
 ## Commits
 
 | Commit | What |
 |---|---|
+| `016f58b` | A. Step failure settlement: a step whose builder or execution throws is settled (hold released, Approval state recorded, Workflow Run failed) instead of stuck |
+| `6b2a651` | B. Crash-safe tool side effects: durable `executing` claim, pre-effect re-authorization, no transaction during the effect, idempotency key to the adapter; `publishReport` atomic and idempotent |

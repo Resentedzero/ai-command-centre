@@ -7,8 +7,8 @@
  * suite — see that suite's own header).
  *
  * Order matters: take the single-executor lock, settle Invocations a previous
- * process left `executing`, listen, re-drive `in_progress` Workflow Runs, then
- * start the Approval TTL sweep. The routed default provider is the Claude
+ * process left `executing`, backfill lost stop audit events, listen, then start
+ * the Approval TTL sweep and re-drive `in_progress` Workflow Runs side by side. The routed default provider is the Claude
  * subscription CLI, so a real LLM step consumes subscription quota and needs
  * no API key.
  */
@@ -22,6 +22,7 @@ import { acquireExecutorInstanceLock } from "../execution/executorInstanceLock.j
 import { recoverInterruptedInvocations, redriveInProgressWorkflowRuns } from "../workflow/recoverInterruptedInvocations.js";
 import { findSeededPublishWorkflow } from "../definitions/lookupSeed.js";
 import { expireStaleApprovals } from "../workflow/expireStaleApprovals.js";
+import { backfillStopEvents } from "../governance/executionStop.js";
 import { buildInvocationSpecsForTaskDefinition } from "../workflow/buildInvocationSpecsForTaskDefinition.js";
 
 /** How often past-TTL Approvals are expired. A minute is ample against a TTL measured in hours. */
@@ -54,6 +55,15 @@ async function main() {
   if (recovery.failed.length > 0) {
     // eslint-disable-next-line no-console
     console.error("Could NOT settle these interrupted Invocation(s); they need operator attention:", recovery.failed);
+  }
+
+  // A stop's audit event is written in a transaction after its state flip
+  // (routes/executionStops.ts), so a crash between them lost the event for
+  // good. Enforcement never depended on it; the log does.
+  const backfilledStopEvents = await runInTx((tx) => backfillStopEvents(tx));
+  if (backfilledStopEvents > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(`Wrote ${backfilledStopEvents} emergency-stop audit event(s) a previous process committed the stop for but never recorded.`);
   }
 
   const app = buildServer();
@@ -102,6 +112,13 @@ async function main() {
     }
   };
 
+  // The sweep starts at once, not after the re-drive: a re-drive that dispatches
+  // several model calls can take minutes, and expired holds must not wait for
+  // it. Running both at once is safe — the workflow_runs row lock and the shared
+  // in-flight set make the second driver of a Workflow Run a no-op.
+  void sweepApprovals();
+  setInterval(() => void sweepApprovals(), APPROVAL_SWEEP_INTERVAL_MS).unref();
+
   // Continue Workflow Runs a previous process left mid-advance, in the
   // background so the API is available meanwhile. See the function's header.
   redriveInProgressWorkflowRuns(runInTx, makeBuilder, relayingRunnerFor)
@@ -114,10 +131,6 @@ async function main() {
     .catch((err) => {
       // eslint-disable-next-line no-console
       console.error("Startup re-drive of in-progress Workflow Runs failed:", err);
-    })
-    .finally(() => {
-      void sweepApprovals();
-      setInterval(() => void sweepApprovals(), APPROVAL_SWEEP_INTERVAL_MS).unref();
     });
 }
 

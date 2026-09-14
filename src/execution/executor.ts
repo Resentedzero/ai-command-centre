@@ -223,6 +223,10 @@ async function yieldToolDispatch(
 ): Promise<RunOutcome> {
   await markInvocationExecuting(tx, invocation.id);
   await savePendingReservation(tx, runRow.id, seqNo, reservationId);
+  // A Run resumed after its approval halt is running again. Without this it
+  // kept reading `awaiting_approval` while its approved tool executed and after
+  // it completed — committed now that the effect runs in a later transaction.
+  await tx.update(runs).set({ status: "active" }).where(eq(runs.id, runRow.id));
   inFlightDispatches.add(invocation.id);
   return {
     status: "dispatch_required",
@@ -797,6 +801,10 @@ export async function completeModelDispatch(
     await completeInvocation(tx, { invocationId, runId, taskInstanceId, payload: { artifactId }, emitEvent: false });
     return "completed";
   } catch (error) {
+    // A database error raised while recording has aborted this transaction:
+    // rethrow it unchanged rather than mask it behind cleanup writes that cannot
+    // succeed. The Invocation stays `executing` and is settled as interrupted.
+    if (sqlStateOf(error) && !(!outcome.ok && error === outcome.error)) throw error;
     const settlement = await settleFailedDispatchReservation(tx, route.reservationId, outcome, reconciled);
     await clearPendingReservation(tx, runId, invocation.seqNo);
     await failInvocation(tx, {

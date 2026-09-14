@@ -155,6 +155,9 @@ describe("status changes are recorded as events", () => {
     // workflow_runs.status. Adding events is a spec decision.
     "workflow/interpreter.ts#pauseWorkflowRun": "no spec'd event",
     "workflow/interpreter.ts#resumeWorkflowRun": "no spec'd event",
+    // A Run returning to `active` from `awaiting_approval` when its approved tool
+    // is claimed: recorded by `approval_granted` and the Invocation's own events.
+    "execution/executor.ts#yieldToolDispatch": "recorded by approval and invocation events",
   };
 
   /** `tx.update(<table>).set({ status: ... })` calls in `sourceFile`, with the table name. */

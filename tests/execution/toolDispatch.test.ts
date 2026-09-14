@@ -26,6 +26,7 @@ import { transactionRunner } from "../../src/db/transactionRunner.js";
 import { dispatchAndRecord } from "../../src/workflow/advanceWorkflowRunUntilBlocked.js";
 import { recoverInterruptedInvocations } from "../../src/workflow/recoverInterruptedInvocations.js";
 import { engageStop, liftStop } from "../../src/governance/executionStop.js";
+import { resolveApproval } from "../../src/governance/approvals.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -42,7 +43,7 @@ afterEach(() => {
 const ESTIMATE = 3;
 
 /** An AUTONOMOUS tool Grant on a funded Run inside a Workflow Run. */
-async function seedToolRun(tx: DrizzleTransaction) {
+async function seedToolRun(tx: DrizzleTransaction, autonomyState: "AUTONOMOUS" | "ALWAYS_APPROVE" = "AUTONOMOUS") {
   const [capability] = await tx.insert(schema.capabilities).values({ name: "cap-" + randomUUID(), staticRiskTag: "low" }).returning();
   const [binding] = await tx
     .insert(schema.toolBindings)
@@ -58,7 +59,7 @@ async function seedToolRun(tx: DrizzleTransaction) {
     capabilityId: capability!.id,
     permissions: ["WRITE"],
     maxTrustLevelRequired: 1,
-    autonomyState: "AUTONOMOUS",
+    autonomyState,
   });
   const [project] = await tx.insert(schema.projects).values({ name: "p-" + randomUUID() }).returning();
   const [workflowDefinition] = await tx
@@ -150,6 +151,24 @@ describe("the effect happens only after a durable claim", () => {
     expect(await runInTx((tx) => executeRun(tx, ids.runId, [toolSpec(ids, execute)]))).toEqual({ status: "completed", runId: ids.runId });
     expect(await usd(testDb as unknown as DrizzleTransaction, ids.runId)).toEqual({ reserved: 0, consumed: ESTIMATE });
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an approved tool", () => {
+  it("returns its Run to active when the dispatch is claimed, not left reading awaiting_approval", async () => {
+    await withRollback(async (tx) => {
+      const ids = await seedToolRun(tx, "ALWAYS_APPROVE");
+      const execute = vi.fn(async () => ({ wrote: true }));
+      expect((await executeRun(tx, ids.runId, [toolSpec(ids, execute)])).status).toBe("awaiting_approval");
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, ids.runId) });
+      const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.invocationId, invocation!.id) });
+      await resolveApproval(tx, approval!.id, "approved", "reviewer");
+
+      const dispatch = expectToolDispatch(await executeRun(tx, ids.runId, [toolSpec(ids, execute)]));
+      releaseDispatchSlot(dispatch.invocationId);
+      const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, ids.runId) });
+      expect(run!.status).toBe("active");
+    });
   });
 });
 

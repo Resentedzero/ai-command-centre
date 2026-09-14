@@ -124,10 +124,10 @@ describe("approval TTL", () => {
       expect(await reserved()).toBe(1);
 
       // Not yet stale: the sweep leaves it alone.
-      expect(await expireStaleApprovals(runInTx, makeBuilder)).toEqual({ expired: [], failed: [] });
+      expect(await expireStaleApprovals(runInTx, makeBuilder)).toEqual({ expired: [], failed: [], retried: [], retryFailed: [] });
 
       await backdateTtl(tx, approvalId);
-      expect(await expireStaleApprovals(runInTx, makeBuilder)).toEqual({ expired: [approvalId], failed: [] });
+      expect(await expireStaleApprovals(runInTx, makeBuilder)).toEqual({ expired: [approvalId], failed: [], retried: [], retryFailed: [] });
 
       const approval = await tx.query.approvals.findFirst({ where: eq(schema.approvals.id, approvalId) });
       expect(approval!.status).toBe("expired");
@@ -143,7 +143,43 @@ describe("approval TTL", () => {
       expect(workflowRun!.status).toBe("failed");
 
       // Idempotent: nothing stale remains.
-      expect(await expireStaleApprovals(runInTx, makeBuilder)).toEqual({ expired: [], failed: [] });
+      expect(await expireStaleApprovals(runInTx, makeBuilder)).toEqual({ expired: [], failed: [], retried: [], retryFailed: [] });
+    });
+  });
+
+  it("an expiry whose re-drive did not finish is re-driven by the next sweep, releasing the hold", async () => {
+    await withRollback(async (tx) => {
+      const { approvalId, runId, workflowRunId, execute, makeBuilder, runInTx } = await seedParkedApproval(tx);
+      await backdateTtl(tx, approvalId);
+
+      // The first re-drive fails transiently after the expiry has committed.
+      let failOnce = true;
+      const flakyBuilder = (btx: DrizzleTransaction) => {
+        if (failOnce) {
+          failOnce = false;
+          throw Object.assign(new Error("connection reset"), { code: "08006" });
+        }
+        return makeBuilder(btx);
+      };
+      const first = await expireStaleApprovals(runInTx, flakyBuilder);
+      expect(first.expired).toEqual([approvalId]);
+      expect(first.failed).toHaveLength(1);
+      const usd = async () =>
+        (await tx.query.budgetCounters.findFirst({
+          where: and(eq(schema.budgetCounters.scopeRefId, runId), eq(schema.budgetCounters.resourceUnit, "usd")),
+        }))!;
+      expect(Number((await usd()).reservedAmount)).toBe(1); // stranded: expired, still held
+
+      expect(await expireStaleApprovals(runInTx, flakyBuilder)).toEqual({
+        expired: [],
+        failed: [],
+        retried: [workflowRunId],
+        retryFailed: [],
+      });
+      expect(Number((await usd()).reservedAmount)).toBe(0);
+      expect(execute).not.toHaveBeenCalled();
+      const workflowRun = await tx.query.workflowRuns.findFirst({ where: eq(schema.workflowRuns.id, workflowRunId) });
+      expect(workflowRun!.status).toBe("failed");
     });
   });
 });

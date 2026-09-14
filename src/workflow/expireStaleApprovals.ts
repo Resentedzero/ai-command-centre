@@ -30,7 +30,7 @@
  * tests today (`../execution/taskInstance.ts`).
  */
 import { and, eq, isNotNull, lt } from "drizzle-orm";
-import { approvals, invocations, runs, taskInstances } from "../db/schema.js";
+import { approvals, invocations, runs, taskInstances, workflowRuns } from "../db/schema.js";
 import type { TransactionRunner, WorkflowRunnerFactory } from "../db/transactionRunner.js";
 import { expirePendingApproval } from "../governance/approvals.js";
 import { advanceWorkflowRunUntilBlocked, type InvocationSpecBuilderFactory } from "./advanceWorkflowRunUntilBlocked.js";
@@ -40,6 +40,9 @@ export const APPROVAL_TTL_ACTOR = "system:approval_ttl";
 export type ApprovalExpiryReport = {
   expired: string[];
   failed: { approvalId: string; error: string }[];
+  /** Workflow Runs re-driven again because an earlier expiry's re-drive did not finish. */
+  retried: string[];
+  retryFailed: { workflowRunId: string; error: string }[];
 };
 
 export async function expireStaleApprovals(
@@ -58,7 +61,8 @@ export async function expireStaleApprovals(
       .where(and(eq(approvals.status, "pending"), isNotNull(approvals.ttl), lt(approvals.ttl, now)))
   );
 
-  const report: ApprovalExpiryReport = { expired: [], failed: [] };
+  const report: ApprovalExpiryReport = { expired: [], failed: [], retried: [], retryFailed: [] };
+  const driven = new Set<string>();
   for (const { id, workflowRunId } of stale) {
     try {
       const runner = workflowRunId ? await runnerFor(workflowRunId) : runInTx;
@@ -66,10 +70,42 @@ export async function expireStaleApprovals(
       if (!expired) continue; // resolved concurrently — nothing to do
       report.expired.push(id);
       if (workflowRunId) {
+        driven.add(workflowRunId);
         await advanceWorkflowRunUntilBlocked(runner, workflowRunId, makeBuilder);
       }
     } catch (error) {
       report.failed.push({ approvalId: id, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  // The expiry commits before its re-drive, so a re-drive that threw (or a
+  // process that died between the two) left an `expired` Approval whose
+  // Invocation still waits, holding its budget, and the `pending` query above
+  // never finds it again. Re-drive those too. The only thing that path can do
+  // is release the hold and fail the step.
+  const stranded = await runInTx((tx) =>
+    tx
+      .selectDistinct({ workflowRunId: taskInstances.workflowRunId })
+      .from(approvals)
+      .innerJoin(invocations, eq(approvals.invocationId, invocations.id))
+      .innerJoin(runs, eq(invocations.runId, runs.id))
+      .innerJoin(taskInstances, eq(runs.taskInstanceId, taskInstances.id))
+      .innerJoin(workflowRuns, eq(taskInstances.workflowRunId, workflowRuns.id))
+      .where(
+        and(
+          eq(approvals.status, "expired"),
+          eq(invocations.status, "awaiting_approval"),
+          eq(workflowRuns.status, "in_progress")
+        )
+      )
+  );
+  for (const { workflowRunId } of stranded) {
+    if (!workflowRunId || driven.has(workflowRunId)) continue;
+    try {
+      await advanceWorkflowRunUntilBlocked(await runnerFor(workflowRunId), workflowRunId, makeBuilder);
+      report.retried.push(workflowRunId);
+    } catch (error) {
+      report.retryFailed.push({ workflowRunId, error: error instanceof Error ? error.message : String(error) });
     }
   }
   return report;
