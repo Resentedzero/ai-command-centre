@@ -101,9 +101,12 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
    *   - `activeStop`: the agent-scope emergency stop, if engaged (the control the
    *     UI offers; spec §9.7). There is no separate per-agent pause mechanism.
    *   - `grants`: its Capability Grants, read-only (permissions, autonomy, trust bar).
-   *   - `runs`: its most recent Runs with Task/Goal lineage and latest Invocation.
-   *   - `budgetTotals`: consumption summed PER UNIT in SQL (exact numerics as
-   *     strings). Units are separate counters and are never combined.
+   *   - `runs`: every unfinished Run plus its most recent finished ones, with
+   *     Task/Goal lineage and latest Invocation.
+   *   - `budgetTotals`: consumption over those Runs, summed PER UNIT in SQL
+   *     (exact numerics as strings). Units are separate counters, never combined.
+   *   - The stop, like every stop scoped to an agent definition, applies to THIS
+   *     version only: each version is its own row with its own id.
    *   - `recentEvents`, `outputs` (artifacts its Runs produced), and
    *     `contextLineage` (the latest `context_compiled` payload — ids, tiers,
    *     exclusion reasons, token estimate; never content; spec §5.13).
@@ -151,11 +154,23 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       .innerJoin(capabilities, eq(capabilityGrants.capabilityId, capabilities.id))
       .where(and(eq(capabilityGrants.agentDefinitionId, agent.id), eq(capabilityGrants.agentDefinitionVersion, agent.version)));
 
-    const runRows = await deps.db.query.runs.findMany({
-      where: and(eq(runs.agentDefinitionId, agent.id), eq(runs.agentDefinitionVersion, agent.version)),
+    // Every UNFINISHED Run, always (spec §15.1 screen 2: the current Task
+    // Instance), plus the most recent finished ones. A limit on "newest" alone
+    // let a Run parked at an approval gate fall off the page as newer Runs
+    // accumulated.
+    const agentRuns = and(eq(runs.agentDefinitionId, agent.id), eq(runs.agentDefinitionVersion, agent.version));
+    const unfinishedRuns = await deps.db.query.runs.findMany({
+      where: and(agentRuns, notInArray(runs.status, [...TERMINAL_RUN_STATUSES])),
+      orderBy: (r, { desc: descOrder }) => descOrder(r.startedAt),
+    });
+    const recentRuns = await deps.db.query.runs.findMany({
+      where: agentRuns,
       orderBy: (r, { desc: descOrder }) => descOrder(r.startedAt),
       limit: AGENT_RECENT_RUNS,
     });
+    const runRows = [...new Map([...unfinishedRuns, ...recentRuns].map((r) => [r.id, r])).values()].sort(
+      (a, b) => b.startedAt.getTime() - a.startedAt.getTime()
+    );
     const runIds = runRows.map((r) => r.id);
 
     const runSummaries = [];

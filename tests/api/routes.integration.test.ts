@@ -413,6 +413,7 @@ describe("POST /approvals/:id/reject", () => {
 // ---------------------------------------------------------------------------
 
 type WorkflowRunDetailBody = {
+  stepsUnavailableReason: string | null;
   goal: { title: string } | null;
   steps: Array<{
     taskInstance: { status: string } | null;
@@ -467,16 +468,35 @@ describe("GET /agents/:id (spec 15.1 screen 2)", () => {
       payload: { scope: "agent_definition", scopeRefId: publisherId, reason: "agent detail route test" },
     });
     expect(stop.statusCode).toBe(201);
+    const stopId = (stop.json() as { stop: { id: string } }).stop.id;
+    let lifted = false;
     try {
       const stopped = (await app.inject({ method: "GET", url: `/agents/${publisherId}` })).json() as AgentDetailBody;
       expect(stopped.activeStop).toMatchObject({ scope: "agent_definition", reason: "agent detail route test" });
-    } finally {
-      const lifted = await app.inject({
+
+      // Lifting a stop the caller did not see is refused, and the stop stays.
+      const stale = await app.inject({
         method: "POST",
         url: "/execution-stops/lift",
-        payload: { scope: "agent_definition", scopeRefId: publisherId },
+        payload: { scope: "agent_definition", scopeRefId: publisherId, stopId: "00000000-0000-0000-0000-000000000000" },
       });
-      expect(lifted.statusCode).toBe(200);
+      expect(stale.statusCode).toBe(409);
+
+      const liftRes = await app.inject({
+        method: "POST",
+        url: "/execution-stops/lift",
+        payload: { scope: "agent_definition", scopeRefId: publisherId, stopId },
+      });
+      expect(liftRes.statusCode).toBe(200);
+      lifted = true;
+    } finally {
+      if (!lifted) {
+        await app.inject({
+          method: "POST",
+          url: "/execution-stops/lift",
+          payload: { scope: "agent_definition", scopeRefId: publisherId },
+        });
+      }
     }
   });
 
@@ -487,11 +507,25 @@ describe("GET /agents/:id (spec 15.1 screen 2)", () => {
     expect(res.statusCode).toBe(200);
     const detail = res.json() as AgentDetailBody;
     expect(detail.runs.find((r) => r.workflowRunId === created.workflowRunId)).toMatchObject({ status: "completed" });
+    // The researcher spends in TWO units — the tool in usd, the LLM step in
+    // subscription_tokens — so separate per-unit entries prove the totals are
+    // grouped by unit rather than summed together.
+    const units = detail.budgetTotals.map((b) => b.resourceUnit).sort();
+    expect(units).toEqual(["subscription_tokens", "usd"]);
     const tokens = detail.budgetTotals.find((b) => b.resourceUnit === "subscription_tokens");
+    const usd = detail.budgetTotals.find((b) => b.resourceUnit === "usd");
     expect(Number(tokens?.consumed)).toBeGreaterThan(0);
+    expect(Number(usd?.consumed)).toBeGreaterThan(0);
+    expect(Number(tokens?.consumed)).not.toBe(Number(usd?.consumed));
     expect(detail.outputs.some((o) => o.type === "report")).toBe(true);
-    expect(typeof detail.contextLineage?.estimatedInputTokens).toBe("number");
+    expect(detail.contextLineage?.estimatedInputTokens).toEqual(expect.any(Number));
     expect(detail.recentEvents.length).toBeGreaterThan(0);
+
+    // Nothing beyond the documented read model leaks: no agent instructions,
+    // no artifact or report content, no raw event payloads, no grant scope.
+    const raw = res.body;
+    expect(raw).not.toContain("agent usage report");
+    expect(raw).not.toMatch(/"instructions"|"inlineContent"|"payload"|"scope":\{/);
   });
 
   it("is 400 for a malformed id and 404 for an unknown agent", async () => {
@@ -535,7 +569,11 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
     expect(res.statusCode).toBe(200);
     const detail = res.json() as WorkflowRunDetailBody;
     expect(detail.goal).toMatchObject({ title: "Workflow-view Goal" });
+    expect(detail.stepsUnavailableReason).toBeNull();
     expect(detail.steps).toHaveLength(2);
+    // Read model only: no report content, no raw payloads, no whole outcome objects.
+    expect(res.body).not.toContain("workflow view report");
+    expect(res.body).not.toMatch(/"payload"|"inlineContent"|"outcome":/);
 
     const [research, publish] = detail.steps;
     expect(research!.taskInstance?.status).toBe("completed");

@@ -131,7 +131,8 @@ describe("Agent Detail page", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Lift stop" }));
 
-    await waitFor(() => expect(liftAgentStop).toHaveBeenCalledWith("agent-1"));
+    // Lifts the stop that was SHOWN, by id — never "whatever is active now".
+    await waitFor(() => expect(liftAgentStop).toHaveBeenCalledWith("agent-1", "s-1"));
     expect(await screen.findByRole("alert")).toHaveTextContent(/404/);
   });
 });

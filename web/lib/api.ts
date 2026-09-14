@@ -191,7 +191,7 @@ export type BudgetCounterDetail = {
 export type RunDetail = {
   id: string;
   status: string;
-  outcome: Record<string, unknown> | null;
+  outcomeReason: string | null;
   startedAt: string;
   completedAt: string | null;
   agent: { name: string; version: number } | null;
@@ -211,6 +211,8 @@ export type WorkflowRunDetail = {
   goal: { id: string; title: string; description: string | null } | null;
   workflowDefinition: { id: string; name: string; version: number } | null;
   steps: WorkflowStepDetail[];
+  /** Why no steps can be shown (definition missing or not a linear graph); null when steps are shown. */
+  stepsUnavailableReason: string | null;
 };
 
 export async function listWorkflowRuns(): Promise<WorkflowRunSummary[]> {
@@ -296,8 +298,9 @@ export async function getAgentDetail(id: string): Promise<AgentDetail> {
 }
 
 /**
- * Engages the agent-scope emergency stop (spec 9.7): this agent's NEXT
- * Invocation, anywhere, is refused. A call already in flight finishes.
+ * Engages the agent-scope emergency stop (spec 9.7) for THIS agent definition
+ * VERSION: its next Invocation, in any workflow, is refused. Other versions of
+ * the same agent are not stopped. A call already in flight finishes.
  */
 export async function engageAgentStop(agentDefinitionId: string, reason?: string): Promise<void> {
   await apiFetch<unknown>("/execution-stops", {
@@ -306,11 +309,15 @@ export async function engageAgentStop(agentDefinitionId: string, reason?: string
   });
 }
 
-/** Lifts the agent-scope stop. Forward-only: work a stop already failed is not revived (spec 9.7). */
-export async function liftAgentStop(agentDefinitionId: string): Promise<void> {
+/**
+ * Lifts the agent-scope stop the page SHOWED (`stopId`). If a different stop has
+ * since replaced it, the API refuses (409) rather than lifting a stop the
+ * operator never saw. Forward-only: work a stop already failed is not revived (spec 9.7).
+ */
+export async function liftAgentStop(agentDefinitionId: string, stopId: string): Promise<void> {
   await apiFetch<unknown>("/execution-stops/lift", {
     method: "POST",
-    body: JSON.stringify({ scope: "agent_definition", scopeRefId: agentDefinitionId }),
+    body: JSON.stringify({ scope: "agent_definition", scopeRefId: agentDefinitionId, stopId }),
   });
 }
 

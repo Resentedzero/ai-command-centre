@@ -16,7 +16,7 @@ const { listWorkflowRuns, getWorkflowRun } = vi.hoisted(() => ({
 vi.mock("../lib/api", () => ({ listWorkflowRuns, getWorkflowRun }));
 
 import WorkflowsPage from "../app/workflows/page";
-import WorkflowRunPage from "../app/workflows/[id]/page";
+import WorkflowRunPage, { WORKFLOW_REFRESH_MS } from "../app/workflows/[id]/page";
 
 beforeEach(() => {
   listWorkflowRuns.mockReset();
@@ -64,7 +64,7 @@ describe("Workflow run detail", () => {
         run: {
           id: "run-1",
           status: "failed",
-          outcome: { status: "failed", reason: "invocation_interrupted" },
+          outcomeReason: "invocation_interrupted",
           startedAt: "t",
           completedAt: "t",
           agent: { name: "Researcher", version: 1 },
@@ -89,6 +89,7 @@ describe("Workflow run detail", () => {
       },
       { index: 1, taskDefinition: { id: "td-2", name: "Review-and-Publish", version: 1 }, taskInstance: null, run: null },
     ],
+    stepsUnavailableReason: null,
   };
 
   it("renders steps in order with each Run's invocations, failure reasons and per-unit budget", async () => {
@@ -106,6 +107,8 @@ describe("Workflow run detail", () => {
 
     expect(await screen.findByRole("heading", { name: "Compare EV batteries" })).toBeInTheDocument();
     expect(getWorkflowRun).toHaveBeenCalledWith("wr-1");
+    // A finished run is read exactly once: no polling, and no extra read when it is found to be finished.
+    expect(getWorkflowRun).toHaveBeenCalledTimes(1);
 
     const steps = screen.getAllByTestId("workflow-step");
     expect(steps).toHaveLength(2);
@@ -122,6 +125,60 @@ describe("Workflow run detail", () => {
     const budget = screen.getByTestId("run-budget");
     expect(budget).toHaveTextContent("subscription_tokens: 1050 consumed of 200000");
     expect(budget).toHaveTextContent("usd: 0.01 consumed of 1.00");
+  });
+
+  it("re-reads an unfinished run periodically, and stops once it has finished", async () => {
+    vi.useFakeTimers();
+    try {
+      const running = { ...detail, workflowRun: { ...detail.workflowRun, status: "in_progress" } };
+      getWorkflowRun.mockResolvedValueOnce(running).mockResolvedValueOnce(running).mockResolvedValue(detail);
+
+      await act(async () => {
+        render(
+          <Suspense fallback={<p>suspended</p>}>
+            <WorkflowRunPage params={Promise.resolve({ id: "wr-1" })} />
+          </Suspense>
+        );
+      });
+      expect(getWorkflowRun).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WORKFLOW_REFRESH_MS);
+      });
+      expect(getWorkflowRun).toHaveBeenCalledTimes(2);
+
+      // The third read reports it finished; polling then stops.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WORKFLOW_REFRESH_MS);
+      });
+      const callsWhenFinished = getWorkflowRun.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WORKFLOW_REFRESH_MS * 3);
+      });
+      // Finishing stops the timer without any further read.
+      expect(callsWhenFinished).toBe(3);
+      expect(getWorkflowRun.mock.calls.length).toBe(callsWhenFinished);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says why steps cannot be shown instead of rendering an empty run", async () => {
+    getWorkflowRun.mockResolvedValueOnce({
+      ...detail,
+      steps: [],
+      stepsUnavailableReason: "the workflow definition's graph is not a valid linear graph",
+    });
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<p>suspended</p>}>
+          <WorkflowRunPage params={Promise.resolve({ id: "wr-1" })} />
+        </Suspense>
+      );
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Steps cannot be shown: .*not a valid linear graph/);
   });
 
   it("shows the error when the run cannot be loaded", async () => {

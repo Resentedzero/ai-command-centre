@@ -1402,6 +1402,14 @@ provenance chains visible (Phase 5.13/7).
 >     counters per unit, exact amounts, never summed across units.
 >   - **Graph library:** none. The interpreter supports linear graphs only, so
 >     steps render as an ordered list; a library is warranted once branching exists.
+>   - **Live status:** the detail view re-reads the run every 5 seconds while it is
+>     unfinished (polling, not SSE), and stops once the run completes or fails. It
+>     says so when steps cannot be shown (a missing definition or a non-linear
+>     graph), rather than rendering an empty run.
+>   - **One Run per step:** each step shows its single Run, the only Run the
+>     interpreter creates today. Retries would need attempts listed.
+>   - **List cap:** `GET /workflow-runs` returns the 100 most recent runs, with no
+>     paging yet.
 > - **Screen 5 (Goals & Projects), built.**
 >   - **API:** `GET /goals` groups Goals under their Project, with each Goal's
 >     Workflow Runs.
@@ -1409,6 +1417,11 @@ provenance chains visible (Phase 5.13/7).
 >     `POST /goals` command (§15.2).
 >   - **Cost of starting a Goal:** its workflow runs synchronously, so it can take
 >     minutes and uses subscription quota. The form says so.
+>   - **Failed requests:** the API commits the Goal before driving it, so a failed
+>     request may still have started the Goal. The form tells the operator to check
+>     the list before retrying; starting a Goal is not idempotent.
+>   - **List cap:** `GET /goals` returns the 500 most recent Goals, with no paging
+>     yet.
 > - **Screen 2 (Agent Detail), built except performance.**
 >   - **Content:** `GET /agents/:id` and `/agents/[id]` show the agent's recent
 >     Runs, with their Goal/Workflow lineage and latest Invocation. They also show
@@ -1417,6 +1430,14 @@ provenance chains visible (Phase 5.13/7).
 >     lineage (ids, tiers, exclusion reasons, token estimate, never content).
 >   - **Controls:** the agent-scope emergency stop (§9.7), engage and lift. No
 >     per-agent pause mechanism exists, so none is offered.
+>     - **Scope:** each Agent Definition version is its own row, so a stop applies
+>       to that version only. The page says so.
+>     - **Lift:** lifting sends the id of the stop the operator saw, and the API
+>       refuses (409) if a different stop is now active.
+>   - **Which runs:** the page always lists every unfinished Run, plus the most
+>     recent finished ones. Usage totals cover those Runs.
+>   - **Outputs:** listed by type, size and time, but not linked, because the
+>     Artifact browser (screen 8) is not built.
 >   - **Performance:** shown as unavailable, because the `agent_performance`
 >     projection is V2 and not built.
 > - **Not built:** screens 6, 7 and 8.

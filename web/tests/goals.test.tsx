@@ -79,7 +79,7 @@ describe("Goals page", () => {
     await waitFor(() => expect(listGoals).toHaveBeenCalledTimes(2));
   });
 
-  it("shows why a goal could not be started", async () => {
+  it("on a failed request, says the goal may still exist rather than claiming it was not started", async () => {
     listGoals.mockResolvedValue(projects);
     createGoal.mockRejectedValueOnce(new Error("API request failed: POST /goals -> 500 Internal Server Error"));
 
@@ -88,6 +88,10 @@ describe("Goals page", () => {
     fireEvent.change(screen.getByLabelText("Goal title"), { target: { value: "Doomed goal" } });
     fireEvent.click(screen.getByRole("button", { name: "Start goal" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/Could not start the goal: .*500/);
+    // The API commits the Goal before driving it, so a failure may come after it started.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/The request failed: .*500/);
+    expect(alert).toHaveTextContent(/may still have been created/);
+    expect(alert).not.toHaveTextContent(/could not start/i);
   });
 });

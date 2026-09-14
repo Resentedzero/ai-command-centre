@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { getWorkflowRun, type RunDetail, type WorkflowRunDetail } from "../../../lib/api";
 
 /**
@@ -13,26 +13,41 @@ import { getWorkflowRun, type RunDetail, type WorkflowRunDetail } from "../../..
  * `GET /workflow-runs/:id` returns — no status is derived here. `params` is a
  * Promise in this Next.js version, read with React's `use` in a client page.
  */
+/** How often an unfinished run's detail is re-read. */
+export const WORKFLOW_REFRESH_MS = 5_000;
+
 export default function WorkflowRunPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [detail, setDetail] = useState<WorkflowRunDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    getWorkflowRun(id)
-      .then((data) => {
-        if (!cancelled) setDetail(data);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    try {
+      setDetail(await getWorkflowRun(id));
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    }
   }, [id]);
 
-  if (loadError) {
+  // The initial read.
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Re-read while the run can still change, and not after it has finished.
+  // Kept separate from the initial read so that the run becoming finished only
+  // STOPS the timer — it must not trigger an extra read of its own. Polling, not
+  // SSE: the event stream is not keyed by workflow run, and a few seconds' lag
+  // is fine for this view.
+  const finished = detail?.workflowRun.status === "completed" || detail?.workflowRun.status === "failed";
+  useEffect(() => {
+    if (finished) return;
+    const timer = setInterval(() => void load(), WORKFLOW_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [load, finished]);
+
+  if (loadError && !detail) {
     return (
       <main>
         <p style={{ color: "#b00020" }}>Failed to load workflow run: {loadError}</p>
@@ -61,7 +76,18 @@ export default function WorkflowRunPage({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
+      {loadError && (
+        <p role="alert" style={{ color: "#b00020" }}>
+          Could not refresh — what is shown may be out of date: {loadError}
+        </p>
+      )}
+
       <h2>Steps</h2>
+      {detail.stepsUnavailableReason && (
+        <p role="alert" style={{ color: "#b00020" }}>
+          Steps cannot be shown: {detail.stepsUnavailableReason}.
+        </p>
+      )}
       <ol>
         {detail.steps.map((step) => (
           <li key={step.index} data-testid="workflow-step" style={{ marginBottom: 16 }}>
@@ -77,7 +103,7 @@ export default function WorkflowRunPage({ params }: { params: Promise<{ id: stri
 }
 
 function RunSection({ run }: { run: RunDetail }) {
-  const outcomeReason = typeof run.outcome?.reason === "string" ? run.outcome.reason : null;
+  const outcomeReason = run.outcomeReason;
   return (
     <div style={{ marginTop: 8 }}>
       <div>

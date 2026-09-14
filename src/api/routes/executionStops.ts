@@ -3,7 +3,12 @@
  *
  *   GET  /execution-stops                    — list ACTIVE stops
  *   POST /execution-stops                    — engage { scope, scopeRefId?, reason? }
- *   POST /execution-stops/lift               — lift   { scope, scopeRefId? }
+ *   POST /execution-stops/lift               — lift   { scope, scopeRefId?, stopId? }
+ *
+ * `stopId` (optional, 2026-09-14): the id of the stop the caller SAW. When given
+ * and a different stop is now active for that target, the lift is refused (409)
+ * instead of silently lifting a stop the operator never reviewed — e.g. a page
+ * loaded while stop A was active must not lift a stop B engaged since.
  *
  * TWO TRANSACTIONS PER MUTATION, deliberately. The state flip commits first, on
  * its own, and only then is the audit event written. A single transaction would
@@ -35,6 +40,7 @@ import {
   type ExecutionStopScope,
 } from "../../governance/executionStop.js";
 import { relayCommittedEvent } from "../liveEventRelay.js";
+import { isUuid } from "../requestGuards.js";
 
 const SCOPES: readonly ExecutionStopScope[] = [
   "global",
@@ -49,7 +55,7 @@ function isScope(value: unknown): value is ExecutionStopScope {
   return typeof value === "string" && (SCOPES as readonly string[]).includes(value);
 }
 
-type StopBody = { scope?: unknown; scopeRefId?: unknown; reason?: unknown };
+type StopBody = { scope?: unknown; scopeRefId?: unknown; reason?: unknown; stopId?: unknown };
 
 /** Validates the request body. Returns an error message, or null when valid. */
 function validate(body: StopBody): string | null {
@@ -61,6 +67,9 @@ function validate(body: StopBody): string | null {
   }
   if (body.reason !== undefined && body.reason !== null && typeof body.reason !== "string") {
     return `"reason" must be a string when provided`;
+  }
+  if (body.stopId !== undefined && body.stopId !== null && !isUuid(body.stopId)) {
+    return `"stopId" must be a UUID when provided`;
   }
   try {
     // The same validation the governance module enforces, run first so a bad
@@ -104,6 +113,25 @@ export function registerExecutionStopsRoutes(app: FastifyInstance, deps: ApiDeps
     const body = request.body ?? {};
     const error = validate(body);
     if (error) return reply.status(400).send({ error });
+
+    // Refuse to lift a stop the caller did not see (see module header). A
+    // separate read before the lift, not one transaction with it: for a single
+    // operator the window between them is not a meaningful race, and a lift
+    // that slips through it only lifts the stop that was just confirmed active.
+    if (isUuid(body.stopId)) {
+      const target = normalizeStopTarget(
+        body.scope as ExecutionStopScope,
+        typeof body.scopeRefId === "string" ? body.scopeRefId : null
+      );
+      const active = (await deps.db.transaction((tx) => listActiveStops(tx))).find(
+        (s) => s.scope === body.scope && s.scopeRefId === target
+      );
+      if (active && active.id !== body.stopId.toLowerCase()) {
+        return reply.status(409).send({
+          error: "A different stop is now active for this target than the one you saw; reload and review it before lifting.",
+        });
+      }
+    }
 
     const lifted = await deps.db.transaction((tx) =>
       liftStop(tx, {

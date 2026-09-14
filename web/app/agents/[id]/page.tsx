@@ -69,6 +69,11 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
       </h1>
       <div>Role: {detail.agent.role}</div>
       <div>Objective: {detail.agent.objective}</div>
+      {loadError && (
+        <p role="alert" style={{ color: "#b00020" }}>
+          Could not refresh — what is shown may be out of date: {loadError}
+        </p>
+      )}
 
       <section data-testid="agent-controls" style={{ border: "1px solid #ccc", borderRadius: 6, padding: 12, marginTop: 12 }}>
         <h2>Controls</h2>
@@ -77,7 +82,11 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             <p style={{ color: "#b00020" }}>
               Stopped{detail.activeStop.reason ? `: ${detail.activeStop.reason}` : ""}
             </p>
-            <button type="button" disabled={acting} onClick={() => act(() => liftAgentStop(detail.agent.id))}>
+            <button
+              type="button"
+              disabled={acting}
+              onClick={() => act(() => liftAgentStop(detail.agent.id, detail.activeStop!.id))}
+            >
               Lift stop
             </button>
             <p style={{ fontSize: 12, color: "#555" }}>Lifting does not revive work the stop already failed.</p>
@@ -95,7 +104,8 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
               Stop agent
             </button>
             <p style={{ fontSize: 12, color: "#555" }}>
-              Stopping refuses this agent&apos;s next action everywhere. A call already running finishes.
+              Stopping refuses the next action of this version (v{detail.agent.version}) in every workflow. Other
+              versions are not affected. A call already running finishes.
             </p>
           </>
         )}
@@ -155,7 +165,9 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             ))}
           </ul>
         )}
-        <p style={{ fontSize: 12, color: "#555" }}>Per unit, across this agent&apos;s recent runs. Units are never combined.</p>
+        <p style={{ fontSize: 12, color: "#555" }}>
+          Per unit, across the runs listed above. Units are never combined.
+        </p>
       </section>
 
       <section>

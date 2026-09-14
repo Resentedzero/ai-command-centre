@@ -76,10 +76,14 @@ async function driveWithRelay(deps: ApiDeps, workflowRunId: string, beforeAdvanc
   return { workflowRunId, status: result.status };
 }
 
-/** Reads one bookkeeping array from `workflow_runs.variables`, padded/truncated to the graph's length; anything malformed reads as null. */
+/**
+ * Reads one bookkeeping array from `workflow_runs.variables`, padded/truncated
+ * to the graph's length. Anything that is not a UUID reads as null — a corrupted
+ * or hand-edited slot must not reach a uuid-typed query and turn a read into a 500.
+ */
 function idSlots(value: unknown, length: number): (string | null)[] {
   const arr = Array.isArray(value) ? value : [];
-  return Array.from({ length }, (_, i) => (typeof arr[i] === "string" ? (arr[i] as string) : null));
+  return Array.from({ length }, (_, i) => (isUuid(arr[i]) ? (arr[i] as string) : null));
 }
 
 async function runDetail(deps: ApiDeps, runId: string) {
@@ -110,10 +114,13 @@ async function runDetail(deps: ApiDeps, runId: string) {
     orderBy: (c, { asc }) => asc(c.resourceUnit),
   });
 
+  // Only the outcome's `reason` — never the whole object: a future writer adding
+  // an error message to it would otherwise leak unredacted text through this read.
+  const outcomeReason = (run.outcome as Record<string, unknown> | null)?.reason;
   return {
     id: run.id,
     status: run.status,
-    outcome: run.outcome ?? null,
+    outcomeReason: typeof outcomeReason === "string" ? outcomeReason : null,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     agent: agent ? { name: agent.name, version: agent.version } : null,
@@ -180,7 +187,14 @@ export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps):
         eq(workflowDefinitions.version, workflowRun.workflowDefinitionVersion)
       ),
     });
-    const graphSteps = definition && isLinearGraphDefinition(definition.graphDefinition) ? definition.graphDefinition.steps : [];
+    const graphValid = Boolean(definition && isLinearGraphDefinition(definition.graphDefinition));
+    const graphSteps = graphValid && definition && isLinearGraphDefinition(definition.graphDefinition) ? definition.graphDefinition.steps : [];
+    // Said explicitly, so a run whose steps cannot be shown is never rendered as a clean run with no steps.
+    const stepsUnavailableReason = !definition
+      ? "the workflow definition this run was started from no longer exists"
+      : graphValid
+        ? null
+        : "the workflow definition's graph is not a valid linear graph";
     const variables = (workflowRun.variables ?? {}) as Record<string, unknown>;
     const taskInstanceSlots = idSlots(variables.stepTaskInstanceIds, graphSteps.length);
     const runSlots = idSlots(variables.stepRunIds, graphSteps.length);
@@ -216,6 +230,7 @@ export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps):
       goal: goal ? { id: goal.id, title: goal.title, description: goal.description } : null,
       workflowDefinition: definition ? { id: definition.id, name: definition.name, version: definition.version } : null,
       steps,
+      stepsUnavailableReason,
     });
   });
 

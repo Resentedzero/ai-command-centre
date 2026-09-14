@@ -85,7 +85,8 @@ export default function GoalsPage() {
         {starting && <p>Starting… the workflow is running.</p>}
         {startError && (
           <p role="alert" style={{ color: "#b00020" }}>
-            Could not start the goal: {startError}
+            The request failed: {startError}. The goal may still have been created and started, so check the list
+            below before trying again.
           </p>
         )}
         {started && (
