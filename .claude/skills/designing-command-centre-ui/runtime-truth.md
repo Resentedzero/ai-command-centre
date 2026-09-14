@@ -58,7 +58,7 @@ Events emitted today: spec §8.2 implementation note. `run_halted`, `approval_*`
 |---|---|
 | "Agents 12/16" | Count of `GET /agents/active` rows. No "total agents" read model exists, so there is no denominator. |
 | "Tokens 42.3K" plus "USD $12.47" as one chip | One gauge per `resourceUnit`, each with its own unit label. Never combined. Only shown where a read model returns it (run or agent scope; there is no global or day read model yet). |
-| "System Healthy" | No health read model. Show the real SSE connection state (live / reconnecting / offline) from `subscribeToActivity`. |
+| "System Healthy" | No health read model. Show the real SSE connection state (connecting / live / reconnecting / offline) from `subscribeToActivity`. **Gap (checked 2026-09-14):** `subscribeToActivity(since, onEvent)` exposes no connection status today; it reconnects silently with backoff. The chip needs a client-only status callback in `web/lib/api.ts` (EventSource open, error, backoff). That is a UI change, not a backend one; until it lands, the chip is design only. |
 | XP, level, "Level 2" floor selector | `agent_xp_projection` doesn't exist (V2). A floor or level can be a world-navigation device (e.g. one floor per project), never a progression score. |
 | Minimap | Real if it navigates rooms that exist. |
 | Branching workflow graph | Workflows are linear. Draw a corridor of rooms in step order; branching waits for the interpreter (roadmap §10). |

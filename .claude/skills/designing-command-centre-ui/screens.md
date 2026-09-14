@@ -18,7 +18,17 @@ Each screen answers a different operator question, so each gets its own composit
 
 A world share below 65% is intentional for screens where exact text is the job.
 
-**Pure-pixel direction (D19), current source of truth.** These frames are on page `05 — Prototypes / Experiments` until they're promoted to the `04 — Screens` pages:
+**Pure-pixel direction (D19), current source of truth.** Promoted 2026-09-14: each final pixel screen now sits at (0, 0) on its `04 — Screens` page, with a pixel design note at x 2000. The superseded sci-fi HUD frames were moved to x ≥ 6000 and prefixed `[superseded: sci-fi HUD]`. Registry and Cost stay gated, with no pixel version. The earlier pixel iterations remain on `05`.
+
+**Pixel state frames** (on the `04` pages, built from clones of the final screens):
+- **Overview** (y 1300 and y 2500 rows): live feed offline, no active agents, loading, load failed.
+- **Agents:** execution stop active.
+- **Approvals:** nothing pending.
+- **Workflows:** step 2 failed.
+
+State rules applied: unloaded or failed means no room is lit; zero counts and offline or connecting chips are neutral, never amber or green; a halted agent's status is a skeleton until the API returns it, never cyan "active" in an unlit room.
+
+The frame names below are the pre-promotion names used on page 05:
 - **Overview:** "Overview A5 — pixel keep (cycle 5 cohesion fixes)". Earlier A–A4 frames are the review trail.
 - **Agents:** "Agents v2 — pixel (cycle 5 cohesion fixes)".
 - **Approvals:** "Approvals v2 — pixel (cycle 5 cohesion fixes)".
@@ -29,7 +39,7 @@ A world share below 65% is intentional for screens where exact text is the job.
   - "Events — pixel (dense log)"
   - "Artifacts — pixel (vault)"
 - **Artifacts is no longer fully gated.** `GET /artifacts/:id` exists: detail, preview, provenance and referencedBy. There is still no list route (browsing is per agent via `AgentDetail.outputs`) and no `web/lib/api.ts` client yet.
-- The `04 — Screens` frames below are the earlier sci-fi HUD direction, kept for reference only.
+- The `[superseded: sci-fi HUD]` frames listed below are the earlier direction, kept for reference only.
 
 Figma status (2026-09-14):
 - **State frames:**

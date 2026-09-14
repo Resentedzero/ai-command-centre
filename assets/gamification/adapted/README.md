@@ -27,6 +27,8 @@ Run it with `powershell -File compose-w2-keep.ps1`. It needs Windows PowerShell 
 - A larger command room, 24 px halls and a wider side rim with rampart columns, so it fills 1440 px at 2×.
 - The forge fire is recoloured to dark embers: it is not state, so it must not glow.
 - The command room floor is shifted teal → slate, so cyan stays unique to "active".
+- The Researcher workshop floor gets the same slate shift, and the pale Publisher stone is dimmed ×(0.72, 0.72, 0.76). An unlit room must never look lit or cyan.
+- `room-researcher-workshop-4x-slate.png`: the 4× close-up with only its teal pixels (B > R+12 and G > R+8) slate-shifted, so the furniture keeps its colours. It replaces `room-researcher-workshop-4x.png` in Figma.
 - No chests are baked into the vault. On the Artifacts screen each chest is one real artifact.
 
 ## What the composite contains

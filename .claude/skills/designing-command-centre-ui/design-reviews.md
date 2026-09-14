@@ -206,3 +206,25 @@ A cross-screen cohesion critique (cycle 5) is judging Overview A4 with Agents an
 7. **Artifacts vault:** 4 chests, matching the 4 listed outputs (one per artifact).
 
 **Loop stopped: diminishing returns.** Remaining work is promotion and implementation, not direction.
+
+## Promotion and state frames (2026-09-14)
+
+The final pixel screens moved to the `04 — Screens` pages; the sci-fi frames are marked superseded. Seven state frames were built from clones: Overview (offline, no active agents, loading, load failed), Agents (execution stop active), Approvals (nothing pending), Workflows (step failed).
+
+**Critic scores (first draft):** offline 5, no agents 5, loading 6, load failed 4, stop 4, approvals empty 7, workflow failed 4. **Verdict:** one more pass.
+
+**Accepted and applied:**
+1. **Rationale and notes-to-self removed from copy** ("returned no rows", "an unlit room would claim…", seal lore). Copy is for the operator: "Nothing is running. Start a goal to run a workflow."
+2. **Recovery controls:** Reconnect (offline), Start a goal (no agents), Retry (load failed). They are neutral wood buttons, because recovery is not a destructive control. "Lift stop" is neutral for the same reason.
+3. **One SSE label per state.** Offline says offline; stale light from the last REST load is dimmed to 45% while the feed is down.
+4. **Stop is a real state.** `activeStop != null` renders "stopped" with a red marker (stop is a control state), and the stop strip is ink on parchment with scope, reason and time as skeletons.
+5. **No fixed outcome text in templates.** Invocation rows said "started → completed", which contradicted a failed step; they now say "started → ended". The failed row carries the red marker.
+6. **Cyan only means active.** The selected-run border is cream. The Researcher workshop floor was teal in the composite, so an unlit room looked active: the compositor now shifts it to slate (like the command room) and dims the pale Publisher stone. The 4× close-up is recoloured selectively (teal pixels only).
+7. **Artifacts plaque "gated" removed:** no API source.
+
+**Rejected:**
+- Inspector and resolved-row skeletons: these frames are templates, so skeletons stand for API values.
+- Disabling Stop while offline: commands go over REST, not SSE.
+- Run budget "limit": `run.budget.limitAmount` is real.
+
+**Finding for implementation:** `subscribeToActivity` exposes no connection status, so the connection chip has no client source yet (recorded in `runtime-truth.md`).

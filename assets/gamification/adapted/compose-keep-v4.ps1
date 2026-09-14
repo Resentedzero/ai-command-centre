@@ -23,6 +23,7 @@ $deep = Attr 0.40 0.44 0.52     # ground between rooms
 # cycle 4: the rim is wider left/right (PX) so the keep fills a 1440 px viewport at 2x with no letterbox gutters
 $embers = Attr 0.55 0.30 0.30   # the forge fire is not state; it shows as dark embers, not a glow
 $slate = Attr 0.92 0.74 0.80    # the command room floor is shifted from teal to slate so cyan stays unique to "active"
+$stoneDim = Attr 0.72 0.72 0.76 # pale stone floors would read as lit
 $P = 16; $PX = 40; $IW = 640; $IH = 480
 $W = $IW + 2 * $PX; $H = $IH + 2 * $P
 $canvas = New-Object System.Drawing.Bitmap $W, $H
@@ -71,8 +72,8 @@ Put int16 167 713 18 31 204 52 $dim; Put int16 167 713 18 31 418 52 $dim
 Room 2 0 room 64 208 48 16 $dim
 Put dungeon 80 160 32 64 480 0; Put dungeon 80 160 32 64 592 0
 Put int16 13 161 38 37 533 66 $dim; Put int16 160 1068 32 16 536 74 $dim; Put int16 146 497 13 21 516 76 $dim; Put int16 162 497 13 21 574 76 $dim
-# Researcher workshop
-Room 0 1 dungeon 64 0 48 48
+# Researcher workshop (floor shifted teal -> slate like the command room: an unlit room must not look cyan)
+Room 0 1 dungeon 64 0 48 48 $slate
 Put workbench 112 115 80 61 40 208; Put anvil 80 36 79 56 92 264; Put furniture 736 165 32 27 4 276
 # Command room (runtime core)
 Room 1 1 dungeon 64 0 48 48 $slate
@@ -82,8 +83,8 @@ Put apt 16 129 32 31 216 208 $dim; Put apt 16 129 32 31 392 208 $dim
 Put apt 16 182 32 24 216 244 $dim; Put apt 16 182 32 24 392 244 $dim
 Put apt 86 179 20 28 204 292 $dim; Put apt 86 179 20 28 416 292 $dim
 Put anvil 96 132 48 28 296 294
-# Publisher workshop
-Room 2 1 floors 256 16 48 48
+# Publisher workshop (stone floor dimmed so it isn't the brightest floor when unlit)
+Room 2 1 floors 256 16 48 48 $stoneDim
 Put anvil 176 14 96 82 504 204; Put workbench 48 115 48 45 468 276
 # Engine room (Workflows)
 Room 0 2 dungeon 112 160 32 32
