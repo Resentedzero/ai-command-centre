@@ -424,6 +424,23 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
     });
   });
 
+  it("a DENY is recorded as policy_evaluated with no risk tier: Policy computed none, and a placeholder is not a fact", async () => {
+    await withRollback(async (tx) => {
+      const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, { withGrant: false });
+      await executeRun(tx, runId, [buildToolSpec({ capabilityId, toolBindingId, permission })]);
+
+      const evaluations = await tx.query.events.findMany({
+        where: and(eq(schema.events.runId, runId), eq(schema.events.eventType, "policy_evaluated")),
+      });
+      expect(evaluations).toHaveLength(1);
+      const payload = evaluations[0]!.payload as Record<string, unknown>;
+      expect(payload).toMatchObject({ checkpoint: "propose", decision: "DENY", grantId: null, autonomyState: null, capabilityId, toolBindingId });
+      expect(payload).not.toHaveProperty("riskTier");
+      expect(payload).not.toHaveProperty("amountOrScope");
+      expect(payload).not.toHaveProperty("isNovelAction");
+    });
+  });
+
   it("the ALLOW path never emits approval_required", async () => {
     await withRollback(async (tx) => {
       const { runId, capabilityId, toolBindingId, permission } = await seedToolRunFixture(tx, {
@@ -460,14 +477,41 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
       // then completion, then the Run's own terminal event.
       expect(runEvents.map((e) => e.eventType)).toEqual([
         "invocation_started",
+        "policy_evaluated",
         "approval_required",
         "approval_granted",
+        "policy_evaluated",
+        "policy_evaluated",
         "budget_consumed",
         "artifact_created",
         "invocation_completed",
         "run_completed",
       ]);
-      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+      // Spec §8.2/§9.3: every Policy evaluation is recorded, at proposal, on
+      // resume and just before the effect, with the facts it decided on.
+      const evaluations = runEvents.filter((e) => e.eventType === "policy_evaluated").map((e) => e.payload as Record<string, unknown>);
+      expect(evaluations.map((p) => [p.checkpoint, p.decision])).toEqual([
+        ["propose", "REQUIRE_APPROVAL"],
+        ["resume", "REQUIRE_APPROVAL"],
+        ["pre_dispatch", "REQUIRE_APPROVAL"],
+      ]);
+      expect(evaluations[0]).toMatchObject({
+        capabilityId,
+        permission,
+        toolBindingId,
+        autonomyState: "ALWAYS_APPROVE",
+        maxTrustLevelRequired: 1,
+        bindingTrustLevel: 2,
+        trustLevel: "first_party",
+        riskTier: expect.any(String),
+        amountOrScope: null,
+        isNovelAction: false,
+      });
+      expect(evaluations[0]!.grantId).toEqual(expect.any(String));
+      // Never the proposed action's content.
+      expect(JSON.stringify(evaluations)).not.toContain("do-thing");
 
       // The resolution event really is interleaved into the SAME per-run
       // counter as the invocation events — not a separate, unordered stream.
@@ -501,12 +545,13 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
       });
       expect(runEvents.map((e) => e.eventType)).toEqual([
         "invocation_started",
+        "policy_evaluated",
         "approval_required",
         "approval_rejected",
         "invocation_failed",
         "run_failed",
       ]);
-      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4, 5]);
+      expect(runEvents.map((e) => e.sequenceNo)).toEqual([1, 2, 3, 4, 5, 6]);
     });
   });
 

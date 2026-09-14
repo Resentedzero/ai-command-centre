@@ -258,6 +258,11 @@ describe("the pre-effect re-check", () => {
         reason: expect.stringMatching(/policy_denied_before_dispatch/),
         reservationSettlement: "released",
       });
+      // The refused evaluation is still recorded: the check commits it before the Invocation fails.
+      const preDispatch = await tx.query.events.findFirst({
+        where: eq(schema.events.idempotencyKey, `policy_evaluated:${dispatch.invocationId}:pre_dispatch`),
+      });
+      expect(preDispatch?.payload).toMatchObject({ checkpoint: "pre_dispatch", decision: "DENY", bindingTrustLevel: 0 });
     });
   });
 

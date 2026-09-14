@@ -37,6 +37,7 @@ From here on, work is named by roadmap stage and a descriptive milestone name. E
 | Capability Platform (spec §18.3 conformance) | V1 success criterion → V1.1 Registry API | **Closed** | `development/CAPABILITY_PLATFORM_CLOSURE.md` |
 | Registry writes | V1.1 Registry (API half) | **Closed** | `development/REGISTRY_WRITES_CLOSURE.md` |
 | Cost/Budget read API | V2 (screen 7, API half) | **Closed** | `development/COST_VIEWS_CLOSURE.md` |
+| Observability conformance and runtime fixes | V1 conformance (§8.2, §8.4, §9.5, §15.1 screen 8 API) | **Closed** | `development/OBSERVABILITY_CLOSURE.md` |
 | Agent performance projection | V2 | **Closed as built; its sample criterion is open.** Phase 19 makes defining that criterion part of V2; choosing its form and values is a governance decision (§6), so the projection ships display-only behind a structural firewall. V2 itself stays partial. | `development/AGENT_PERFORMANCE_CLOSURE.md` |
 
 ## 4. Why the Context Compiler phase is closed with §5.16 open
@@ -87,6 +88,18 @@ Surfaced by the agent performance projection:
 - **XP rules** (spec §16.1): the XP amounts and the quality signal they need. Gamification design, shared with the UI workstream.
 - **The external search provider for `research.retrieve`**: provider, credentials and spend authorization.
 - **NSSM service wrapping** (V1.1): installing a Windows service is a deployment action.
+
+Surfaced by the 2026-09-14 spec-to-code audits (none blocks other work):
+- **Retrying a failed recording transaction** (DURABLE_EXECUTION §7 #5): a successful call's result is discarded if its recording transaction is a deadlock victim. The fix is a bounded retry of the recording only, never the dispatch — retry machinery, which the operator excluded.
+- **Workflow Run pause/resume events**: §8.2's note defines none; §3e says every meaningful transition emits one. Add `workflow_run_paused/resumed`, or keep status-only.
+- **Agent pause/resume** (§15.1 screen 2, `agent_paused/resumed`): no per-agent pause exists; only stops. Define it, or retire the event names.
+- **Goal status lifecycle**: `goals.status` is always `active`; nothing defines when a Goal completes or fails (derive from its Workflow Runs, store transitions with events, or drop the field).
+- **`POST /goals` idempotency key**: a client retry creates a second Goal; no idempotency contract is specified for API commands.
+- **Artifact versioning** (`artifacts.version`, `artifact_updated`): immutable-only (enforce with a trigger, retire the event) or new rows with `supersedes_id`. In-place updates are ruled out by the §9.5 hash pin.
+- **Step output → input binding** (§3d variables, §18.2 "by reference"): storage is specified, binding syntax is not; also gated on a real workflow needing it (V3).
+- **Citation convention for §5.16 usage measurement**: measurement is specified as a deterministic reference match, but models are never asked to cite artifact ids, so it would record nothing until the prompt asks them to.
+- **What counts as "referenced"** for `artifact_referenced` and XP: inclusion in a compiled context only, or also a hash-pinned tool snapshot.
+- **A deadline for executing an approved action.** Spec §9.5's TTL expires unresolved Approvals, and since 2026-09-14 an approved Approval keeps authorizing past it (a paused Workflow Run resumed later no longer fails). Nothing now limits how long after approval the action may run; the Grant, revocation, snapshot and Policy re-checks still apply at execution. Options: no limit (current), or a separate approved-to-execution deadline and its value.
 
 ## 7. Handoffs and operator actions
 

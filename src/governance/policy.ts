@@ -116,7 +116,7 @@ const NO_RISK_COMPUTED: RiskTier = "low";
  * `computeRiskTier`, which is exactly the "malformed data reads as
  * low-risk" failure mode this fix targets.
  */
-function readAmountOrScope(snapshot: Record<string, unknown>): number | null {
+export function readAmountOrScope(snapshot: Record<string, unknown>): number | null {
   const value = snapshot.amountOrScope;
   if (value === undefined || value === null) {
     return null;
@@ -138,7 +138,7 @@ function readAmountOrScope(snapshot: Record<string, unknown>): number | null {
  * is present; any other value (including `null`) fails closed via throw
  * rather than silently reading as "not novel".
  */
-function readIsNovelAction(snapshot: Record<string, unknown>): boolean {
+export function readIsNovelAction(snapshot: Record<string, unknown>): boolean {
   const value = snapshot.isNovelAction;
   if (value === undefined) {
     return false;

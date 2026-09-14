@@ -56,6 +56,8 @@ import { registerAgentsRoutes } from "./routes/agents.js";
 import { registerExecutionStopsRoutes } from "./routes/executionStops.js";
 import { registerRegistryRoutes } from "./routes/registry.js";
 import { registerCostsRoutes } from "./routes/costs.js";
+import { registerTraceRoutes } from "./routes/trace.js";
+import { registerArtifactsRoutes } from "./routes/artifacts.js";
 import { makeRequestGuard } from "./requestGuards.js";
 import { SeedMissingError } from "../definitions/lookupSeed.js";
 
@@ -156,6 +158,8 @@ export function buildServer(overrides?: Partial<ApiDeps>): FastifyInstance {
   registerExecutionStopsRoutes(app, deps); // Phase 8 — emergency stop control plane.
   registerRegistryRoutes(app, deps); // V1.1 — Definitions read model and grant revocation.
   registerCostsRoutes(app, deps); // V2 — budget counters and cost-vs-success, read-only.
+  registerTraceRoutes(app, deps); // Spec 8.4 — a Run's trace, read-only.
+  registerArtifactsRoutes(app, deps); // Spec 15.1 screens 2/8 — an Artifact with provenance, read-only.
 
   return app;
 }

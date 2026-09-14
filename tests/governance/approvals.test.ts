@@ -489,6 +489,20 @@ describe("reauthorize", () => {
     });
   });
 
+  it("an APPROVED Approval keeps authorizing after its ttl (spec 9.5 expires unresolved Approvals only)", async () => {
+    await withRollback(async (tx) => {
+      const { invocation } = await seedInvocationChain(tx);
+      const snapshot = { action: "spend", amount: 5 };
+      await tx.update(invocations).set({ proposedActionSnapshot: snapshot }).where(eq(invocations.id, invocation.id));
+      const approval = await createApproval(tx, invocation.id, snapshot, "low", 3600);
+      await resolveApproval(tx, approval.id, "approved", "human:reviewer");
+      // The Workflow Run was paused (or its advance failed) and is resumed after the ttl.
+      await tx.update(approvals).set({ ttl: new Date(Date.now() - 60_000) }).where(eq(approvals.id, approval.id));
+
+      expect(await reauthorize(tx, invocation.id)).toBe(true);
+    });
+  });
+
   it(
     "returns true even when the Approval is resolved to 'rejected' — reauthorize deliberately does NOT consult " +
       "approval status; status-checking is the caller's (future Executor's) responsibility, documented as a " +

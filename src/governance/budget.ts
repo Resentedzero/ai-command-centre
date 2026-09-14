@@ -245,6 +245,56 @@ async function ensureDayCounter(
     });
 }
 
+type DenialRequest = {
+  scope: BudgetScope;
+  scopeRefId: string;
+  costClass: CostClass;
+  resourceUnit: ResourceUnit;
+  requestedAmount: string;
+};
+
+/**
+ * Records a refusal as `budget_denied` (spec §8.2) and returns it. Emitted here
+ * because only this function knows which counter refused and what it held. Same
+ * transaction as the refusal; every caller commits it (the Invocation's failure
+ * follows). Lock order is the one `budget_consumed` already uses: counter rows,
+ * then the Run's event lock. Amounts are the exact stored strings; a missing
+ * counter (a zero-limit budget, see `reserveBudget`) is named as missing. One
+ * event per refusal, so its key is unique rather than derived.
+ */
+async function deny(
+  tx: DrizzleTransaction,
+  request: DenialRequest,
+  refused: { scope: CounterScope; scopeRefId: string; row: typeof budgetCounters.$inferSelect | undefined }
+): Promise<ReservationResult> {
+  await emitLifecycleEvent(tx, {
+    eventType: "budget_denied",
+    subjectId: randomUUID(),
+    // Every production caller reserves at run scope, so this takes only that Run's
+    // event lock. A non-run scope would take the shared no-run event lock while
+    // holding counter rows (possibly the day row, shared by every Run) — a lock
+    // order DURABLE_EXECUTION §6 does not allow; revisit before adding such a caller.
+    correlation: request.scope === "run" ? await correlationForRun(tx, request.scopeRefId) : NO_CORRELATION,
+    producer: "budget-governor",
+    payload: {
+      requestedScope: request.scope,
+      requestedScopeRefId: request.scopeRefId,
+      resourceUnit: request.resourceUnit,
+      costClass: request.costClass,
+      requestedAmount: request.requestedAmount,
+      deniedCounter: {
+        scope: refused.scope,
+        scopeRefId: refused.scopeRefId,
+        missing: refused.row === undefined,
+        limitAmount: refused.row?.limitAmount ?? null,
+        reservedAmount: refused.row?.reservedAmount ?? null,
+        consumedAmount: refused.row?.consumedAmount ?? null,
+      },
+    },
+  });
+  return { authorized: false, reason: "insufficient_budget" };
+}
+
 /**
  * Reserves `estimatedAmount` against the budget_counters row for
  * (scope, scopeRefId, resourceUnit), inside the caller's transaction — and,
@@ -283,6 +333,7 @@ export async function reserveBudget(
   }
 
   const estimatedAmountStr = String(estimatedAmount);
+  const request: DenialRequest = { scope, scopeRefId, costClass, resourceUnit, requestedAmount: estimatedAmountStr };
   const dailyLimit =
     scope === "run" ? (options.dailyCeilings ?? DAILY_BUDGET_CEILINGS)[resourceUnit] : undefined;
 
@@ -292,12 +343,12 @@ export async function reserveBudget(
     // unit, independently of any other unit's counter on the same scope.
     const row = await lockCounterRow(tx, scope, scopeRefId, resourceUnit);
     if (!row) {
-      return { authorized: false, reason: "insufficient_budget" };
+      return deny(tx, request, { scope, scopeRefId, row: undefined });
     }
 
     const available = Number(row.limitAmount) - Number(row.reservedAmount) - Number(row.consumedAmount);
     if (estimatedAmount > available) {
-      return { authorized: false, reason: "insufficient_budget" };
+      return deny(tx, request, { scope, scopeRefId, row });
     }
 
     await tx
@@ -333,7 +384,7 @@ export async function reserveBudget(
   for (const hold of holds) {
     const row = await lockCounterRow(tx, hold.scope, hold.scopeRefId, resourceUnit);
     if (!row) {
-      return { authorized: false, reason: "insufficient_budget" };
+      return deny(tx, request, { scope: hold.scope, scopeRefId: hold.scopeRefId, row: undefined });
     }
     rows.push(row);
   }
@@ -342,7 +393,7 @@ export async function reserveBudget(
   for (const row of rows) {
     const available = Number(row.limitAmount) - Number(row.reservedAmount) - Number(row.consumedAmount);
     if (estimatedAmount > available) {
-      return { authorized: false, reason: "insufficient_budget" };
+      return deny(tx, request, { scope: row.scope as CounterScope, scopeRefId: row.scopeRefId, row });
     }
   }
 

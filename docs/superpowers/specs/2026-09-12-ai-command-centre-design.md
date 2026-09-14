@@ -616,6 +616,14 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 > **Governance and accounting:**
 > - `approval_required/granted/rejected/expired`
 > - `capability_granted`, `capability_grant_revoked`
+> - `policy_evaluated` (tool Invocations): one per Policy evaluation, at proposal,
+>   on resume after an Approval and just before the effect. Decision, Grant,
+>   binding trust, and the risk tier with its inputs (the snapshot's
+>   `amountOrScope` and `isNovelAction`) only when one was computed (never on
+>   DENY); no other part of the proposed action. Recorded for pre-effect refusals
+>   too: that check commits its evaluation before the Invocation is failed.
+> - `budget_denied`: one per reservation refusal, naming the refusing counter
+>   (Run or day), whether it was missing, and its exact amounts.
 > - `definition_version_created` (additive, 2026-09-14): a Registry write created a
 >   Capability, Tool Binding, or Agent/Task/Workflow Definition version. Payload
 >   `definitionType`, `id`, `name`, `version`; never a binding's config.
@@ -649,7 +657,6 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 > - `tool_called`, `tool_result_received` (covered by the invocation events)
 > - `artifact_updated/referenced`
 > - the Memory events
-> - `policy_evaluated`, `budget_denied`
 > - `agent_paused/resumed`
 
 ### 8.3 Projections — the general pattern
@@ -664,6 +671,10 @@ aggregates, analytics — kept async so the hot execution path never blocks on r
 
 A "trace" is a query: all events where `run_id = X`, ordered by `sequence_no`, joined
 with each Invocation's context-lineage stamp. No separate tracing system.
+
+> **Implementation note (2026-09-14): built.** `GET /runs/:id/trace` returns the Run's
+> events in `sequence_no` order (a step's lifecycle events carry its Run id, so they
+> belong to its trace) and each Invocation with its `context_compiled` lineage.
 
 ### 8.5 Cost accounting
 
@@ -784,6 +795,10 @@ Invocation proposed -> Policy = REQUIRE_APPROVAL
 >   Workflow Run. The expired Approval is then handled like a rejection: the budget
 >   hold is released, and the Invocation, Run and Workflow Run fail with their
 >   events.
+> - **Re-authorization.** `reauthorize` refuses an Approval past its TTL only while
+>   it is unresolved. An approved Approval keeps authorizing its exact action past
+>   the TTL (resume after a pause, or a re-drive after a failed advance); the Grant,
+>   revocation and snapshot checks still apply (fixed 2026-09-14).
 >
 > The TTL is the documented MVP default, one hour (`APPROVAL_TTL_SECONDS`).
 >
@@ -1526,7 +1541,12 @@ provenance chains visible (Phase 5.13/7).
 >   unit (never across units, limits never summed), and the §10.5 cost-vs-success
 >   rows from `agent_performance`. A measurement, not a recommendation: no minimum
 >   sample criterion exists. No UI yet.
-> - **Not built:** screen 8.
+> - **Screen 8 (Memory/Artifact browser), Artifact read API only.** `GET /artifacts/:id`
+>   returns one Artifact with a bounded preview, whether its content still matches
+>   its hash, its provenance (producing Invocation, Run and Agent, Task Definition,
+>   Workflow Run, Goal) and the compiled contexts that included it. It is what
+>   screen 2's "linked Artifacts" link to. No listing, no UI, no Memory browser
+>   (no `memory_items`, V3).
 
 ### 15.2 UI commands vs. Invocations — not the same model
 

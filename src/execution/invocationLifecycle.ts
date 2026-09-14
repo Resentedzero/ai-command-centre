@@ -37,7 +37,7 @@ import { and, eq } from "drizzle-orm";
 import { capabilityGrants, invocations, runs, toolBindings } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
-import { evaluatePolicy } from "../governance/policy.js";
+import { evaluatePolicy, readAmountOrScope, readIsNovelAction } from "../governance/policy.js";
 import type { CapabilityGrant, CapabilityPermission, PolicyDecision } from "../governance/policy.js";
 import type { RiskTier } from "../governance/risk.js";
 import type { CostClass } from "../governance/costClass.js";
@@ -228,11 +228,28 @@ export async function resolveToolBindingTrustLevel(
 // authorizeInvocation
 // ---------------------------------------------------------------------------
 
+/** Where a Policy evaluation happened: at proposal, on resume after an Approval, or just before the effect. */
+export type PolicyCheckpoint = "propose" | "resume" | "pre_dispatch";
+
 /**
  * Thin wrapper around Unit 3's `evaluatePolicy`, taking already-resolved
  * Grant/trustLevel (resolved by `executor.ts` via the two functions above —
  * see module header for why). This is the "authorize" step of the Invocation
  * lifecycle; it contains no policy logic of its own.
+ *
+ * It records the evaluation as `policy_evaluated` (spec §8.2; §9.3: the risk
+ * tier is "logged with the Approval/Policy-evaluation event for auditability")
+ * in the caller's transaction, here rather than in `policy.ts`, which stays free
+ * of events. The payload holds the facts Policy decided on: the decision, the
+ * Grant (id, autonomy, trust bar), the binding (id, raw and classified trust),
+ * and — only when a risk tier was actually computed — the tier and its
+ * snapshot inputs (`amountOrScope`, `isNovelAction`). A DENY carries no tier:
+ * Policy returns a placeholder there, and the log must not record it as a fact.
+ * No other part of the proposed action is recorded.
+ *
+ * The `pre_dispatch` check returns its refusal rather than throwing
+ * (`executor.ts#toolDispatchRefusal`), so its evaluation commits even when the
+ * effect is refused.
  */
 export async function authorizeInvocation(
   tx: DrizzleTransaction,
@@ -242,9 +259,44 @@ export async function authorizeInvocation(
     proposedActionSnapshot: Record<string, unknown>;
     trustLevel: PolicyTrustLevel;
     bindingTrustLevel: number;
+    audit: { runId: string; invocationId: string; capabilityId: string; toolBindingId: string; checkpoint: PolicyCheckpoint };
   }
 ): Promise<{ decision: PolicyDecision; riskTier: RiskTier }> {
-  return evaluatePolicy(tx, params);
+  const { audit, ...policyInput } = params;
+  const result = await evaluatePolicy(tx, policyInput);
+  const riskComputed = result.decision !== "DENY";
+
+  await emitEvent(tx, {
+    idempotencyKey: `policy_evaluated:${audit.invocationId}:${audit.checkpoint}`,
+    eventType: "policy_evaluated",
+    eventVersion: 1,
+    causationId: null,
+    correlation: { goalId: null, workflowRunId: null, taskInstanceId: null, runId: audit.runId, invocationId: audit.invocationId },
+    actor: "system",
+    producer: "policy",
+    payload: {
+      checkpoint: audit.checkpoint,
+      decision: result.decision,
+      capabilityId: audit.capabilityId,
+      permission: params.permission,
+      grantId: params.grant?.id ?? null,
+      autonomyState: params.grant?.autonomyState ?? null,
+      maxTrustLevelRequired: params.grant?.maxTrustLevelRequired ?? null,
+      toolBindingId: audit.toolBindingId,
+      bindingTrustLevel: params.bindingTrustLevel,
+      trustLevel: params.trustLevel,
+      ...(riskComputed
+        ? {
+            riskTier: result.riskTier,
+            amountOrScope: readAmountOrScope(params.proposedActionSnapshot),
+            isNovelAction: readIsNovelAction(params.proposedActionSnapshot),
+          }
+        : {}),
+    },
+    usage: null,
+  });
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

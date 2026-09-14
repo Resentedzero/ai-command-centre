@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { resetTestSchema, closeTestDb, withRollback, testDb, testPool } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
@@ -226,6 +226,49 @@ describe("in-flight dispatch", () => {
   });
 });
 
+describe("the stop re-check just before a model dispatch (DURABLE_EXECUTION §7 #11)", () => {
+  it("a stop engaged after the executing commit prevents the provider call; the hold is released and the Run halted", async () => {
+    await withRollback(async (tx) => {
+      const { runId, workflowRunId } = await seedWorkflowRun(tx);
+      const dispatch = expectDispatch(await executeRun(tx, runId, [llmSpec()]));
+      expect(await tokenCounter(tx, runId)).toEqual({ reserved: ESTIMATE, consumed: 0 });
+
+      await engageStop(tx, { scope: "workflow_run", scopeRefId: workflowRunId, reason: "incident" });
+      await dispatchAndRecord(transactionRunner(tx), dispatch);
+
+      expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
+      expect(await tokenCounter(tx, runId)).toEqual({ reserved: 0, consumed: 0 });
+      const failed = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `invocation_failed:${dispatch.invocationId}`) });
+      expect(failed!.payload).toMatchObject({ reservationSettlement: "released", providerConsumption: "none" });
+      const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
+      expect(run!.outcome).toMatchObject({ reason: "execution_stopped", stopScope: "workflow_run", stopScopeRefId: workflowRunId });
+      const halted = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `run_halted:${runId}`) });
+      expect(halted?.payload).toMatchObject({ reason: "execution_stopped", stopScope: "workflow_run" });
+    });
+  });
+});
+
+describe("a failed stop lookup just before a model dispatch fails closed", () => {
+  it("no provider call, the hold released, the Run failed (not halted: no stop was found)", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedWorkflowRun(tx);
+      const dispatch = expectDispatch(await executeRun(tx, runId, [llmSpec()]));
+
+      // Make the stop lookup itself fail; the check's savepoint rolls back, the rename does not.
+      await tx.execute(sql.raw("ALTER TABLE execution_stops RENAME TO execution_stops_unavailable"));
+      await dispatchAndRecord(transactionRunner(tx), dispatch);
+
+      expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
+      expect(await tokenCounter(tx, runId)).toEqual({ reserved: 0, consumed: 0 });
+      const failed = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `invocation_failed:${dispatch.invocationId}`) });
+      expect(failed!.payload).toMatchObject({ reservationSettlement: "released", providerConsumption: "none" });
+      const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
+      expect(run!.status).toBe("failed");
+      expect(await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `run_halted:${runId}`) })).toBeUndefined();
+    });
+  });
+});
+
 describe("interrupted Invocations", () => {
   async function assertSettledAsInterrupted(tx: DrizzleTransaction, runId: string, invocationId: string) {
     const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.id, invocationId) });
@@ -329,8 +372,12 @@ describe("stops and dispatch", () => {
       const plan = [llmSpec(), llmSpec()];
       const dispatch = expectDispatch(await executeRun(tx, runId, plan));
 
-      await engageStop(tx, { scope: "run", scopeRefId: runId });
-      vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({ result: { sum: 1 }, usage: USAGE });
+      // Engaged while the provider call is in flight (after the pre-dispatch stop
+      // re-check passed): the call's real outcome is still recorded.
+      vi.mocked(callClaudeSubscriptionModel).mockImplementationOnce(async () => {
+        await engageStop(tx, { scope: "run", scopeRefId: runId });
+        return { result: { sum: 1 }, usage: USAGE };
+      });
       await dispatchAndRecord(transactionRunner(tx), dispatch);
 
       const first = await tx.query.invocations.findFirst({ where: eq(schema.invocations.id, dispatch.invocationId) });

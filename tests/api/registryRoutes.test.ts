@@ -16,6 +16,7 @@ vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeS
 
 import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
 import { buildServer } from "../../src/api/server.js";
+import { subscribeToLiveEvents } from "../../src/api/eventBus.js";
 
 let app: FastifyInstance;
 let seed: SeedPublishWorkflowResult;
@@ -97,8 +98,20 @@ describe("POST /capability-grants/:id/revoke", () => {
       .where(eq(schema.approvals.status, "pending"));
     expect(pending).toBeDefined();
 
-    const res = await app.inject({ method: "POST", url: `/capability-grants/${seed.publishCapabilityGrantId}/revoke` });
+    const live: string[] = [];
+    const unsubscribe = subscribeToLiveEvents((e) => live.push(`${e.eventType}:${e.correlation.runId ?? "-"}`));
+    let res;
+    try {
+      res = await app.inject({ method: "POST", url: `/capability-grants/${seed.publishCapabilityGrantId}/revoke` });
+    } finally {
+      unsubscribe();
+    }
     expect(res.statusCode).toBe(200);
+    // The Approval's expiry reaches the live feed, before the revocation (commit order);
+    // otherwise a client cursor that moved past it would never replay it.
+    const expiredAt = live.indexOf(`approval_expired:${pending!.runId}`);
+    expect(expiredAt).toBeGreaterThanOrEqual(0);
+    expect(expiredAt).toBeLessThan(live.indexOf("capability_grant_revoked:-"));
     expect(res.json()).toEqual({
       grantId: seed.publishCapabilityGrantId,
       revoked: true,

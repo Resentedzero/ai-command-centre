@@ -181,7 +181,15 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
       }
       throw error;
     }
-    if (result.revoked) await relayCommittedEvent(deps.db, `capability_grant_revoked:${grant.id}`);
+    if (result.revoked) {
+      // In commit (cursor) order: each Approval's expiry was written before the
+      // revocation event. Relaying only the latter left the expiries off the live
+      // feed, and a client whose cursor then passed them would never replay them.
+      for (const approvalId of result.cancelledApprovalIds) {
+        await relayCommittedEvent(deps.db, `approval_expired:${approvalId}`);
+      }
+      await relayCommittedEvent(deps.db, `capability_grant_revoked:${grant.id}`);
+    }
 
     const affected =
       result.affectedRunIds.length > 0

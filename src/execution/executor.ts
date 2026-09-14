@@ -350,6 +350,7 @@ async function processToolSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: nu
     proposedActionSnapshot: spec.proposedActionSnapshot,
     trustLevel,
     bindingTrustLevel,
+    audit: { runId, invocationId, capabilityId: spec.capabilityId, toolBindingId: spec.toolBindingId, checkpoint: "propose" },
   });
 
   // Step 5: DENY fails this invocation AND the whole Run.
@@ -566,6 +567,13 @@ async function resumeToolSpec(
     proposedActionSnapshot: spec.proposedActionSnapshot,
     trustLevel: currentTrust.trustLevel,
     bindingTrustLevel: currentTrust.bindingTrustLevel,
+    audit: {
+      runId,
+      invocationId,
+      capabilityId: spec.capabilityId,
+      toolBindingId: storedInvocation.toolBindingId!,
+      checkpoint: "resume",
+    },
   });
   if (currentDecision === "DENY") {
     if (isRealReservation(originalReservationId)) {
@@ -848,7 +856,13 @@ export async function completeModelDispatch(
       error,
       details: settlement,
     });
-    await failRun(tx, runId);
+    // A stop caught just before dispatch is recorded like one caught at the
+    // Invocation boundary: named in the outcome, with `run_halted`.
+    if (!outcome.ok && error === outcome.error && error instanceof ExecutionStoppedError && !error.lookupFailed) {
+      await haltRunForStop(tx, runId, taskInstanceId, error.stop);
+    } else {
+      await failRun(tx, runId);
+    }
     return "failed";
   }
 }
@@ -885,22 +899,10 @@ async function settleFailedDispatchReservation(
   return { reservationSettlement: "charged_at_estimate", providerConsumption: "unknown", ...charge };
 }
 
-/**
- * Re-checks, immediately before a tool's side effect, everything that could
- * have changed since its `executing` commit (spec §9.5 "immediately before
- * execution"; §9.7 stops): emergency stops at every scope, the Grant and Tool
- * Binding through Policy, and — for an approval-gated Invocation — the
- * Approval's re-authorization. Throws if the effect must not happen.
- *
- * The driver runs this in its own short transaction, then calls `execute` with
- * no transaction open. A throw means nothing was performed, so the driver
- * records it as consuming nothing (the reservation is released). The window
- * that remains is one commit plus a round trip, and a stop engaged inside it
- * takes effect at the next Invocation (DURABLE_EXECUTION §6).
- */
-export async function assertToolDispatchStillAuthorized(tx: DrizzleTransaction, dispatch: PendingToolDispatch): Promise<void> {
-  const run = await tx.query.runs.findFirst({ where: eq(runs.id, dispatch.runId) });
-  if (!run) throw new Error(`tool dispatch refused: run "${dispatch.runId}" no longer exists.`);
+/** Throws `ExecutionStoppedError` if a stop applies to the Run at any scope above the Grant; returns the Run. */
+async function assertRunNotStopped(tx: DrizzleTransaction, runId: string, what: string): Promise<typeof runs.$inferSelect> {
+  const run = await tx.query.runs.findFirst({ where: eq(runs.id, runId) });
+  if (!run) throw new Error(`${what} refused: run "${runId}" no longer exists.`);
   const taskInstance = await tx.query.taskInstances.findFirst({ where: eq(taskInstances.id, run.taskInstanceId) });
   const workflowRun = taskInstance?.workflowRunId
     ? await tx.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, taskInstance.workflowRunId) })
@@ -912,11 +914,59 @@ export async function assertToolDispatchStillAuthorized(tx: DrizzleTransaction, 
     workflowRunId: taskInstance?.workflowRunId ?? null,
     runId: run.id,
   });
-  await assertCapabilityGrantsNotStopped(tx, {
-    runId: run.id,
-    capabilityId: dispatch.capabilityId,
-    permission: dispatch.permission,
-  });
+  return run;
+}
+
+/** A stop refusal as a value; any other failure (a failed lookup aborts the transaction) propagates. */
+function stopRefusal(error: unknown): ExecutionStoppedError {
+  if (error instanceof ExecutionStoppedError && !error.lookupFailed) return error;
+  throw error;
+}
+
+/**
+ * Re-checks emergency stops immediately before a model dispatch (DURABLE_EXECUTION
+ * §7 #11; spec §9.7). The Invocation-boundary check ran before context compilation
+ * and the `executing` commit; a stop engaged since then is honoured here, before
+ * any subscription quota or money is spent. Returns the refusal, or null to
+ * proceed; the driver records a refusal as consuming nothing, so the reservation is
+ * released and the Run is halted naming the stop.
+ */
+export async function modelDispatchRefusal(tx: DrizzleTransaction, dispatch: PendingModelDispatch): Promise<Error | null> {
+  try {
+    await assertRunNotStopped(tx, dispatch.runId, "model dispatch");
+    return null;
+  } catch (error) {
+    return stopRefusal(error);
+  }
+}
+
+/**
+ * Re-checks, immediately before a tool's side effect, everything that could
+ * have changed since its `executing` commit (spec §9.5 "immediately before
+ * execution"; §9.7 stops): emergency stops at every scope, the Grant and Tool
+ * Binding through Policy, and — for an approval-gated Invocation — the
+ * Approval's re-authorization.
+ *
+ * Returns the refusal, or null to proceed, rather than throwing, so the driver's
+ * short transaction COMMITS what the check recorded (its `policy_evaluated`) even
+ * when the effect is refused. It throws only when the check itself fails. Either
+ * way nothing was performed, so the driver records the refusal as consuming
+ * nothing (the reservation is released). The window that remains is one commit
+ * plus a round trip, and a stop engaged inside it takes effect at the next
+ * Invocation (DURABLE_EXECUTION §6).
+ */
+export async function toolDispatchRefusal(tx: DrizzleTransaction, dispatch: PendingToolDispatch): Promise<Error | null> {
+  let run: typeof runs.$inferSelect;
+  try {
+    run = await assertRunNotStopped(tx, dispatch.runId, "tool dispatch");
+    await assertCapabilityGrantsNotStopped(tx, {
+      runId: run.id,
+      capabilityId: dispatch.capabilityId,
+      permission: dispatch.permission,
+    });
+  } catch (error) {
+    return stopRefusal(error);
+  }
 
   const grant = await resolveCapabilityGrant(tx, {
     runId: run.id,
@@ -930,19 +980,27 @@ export async function assertToolDispatchStillAuthorized(tx: DrizzleTransaction, 
     proposedActionSnapshot: dispatch.proposedActionSnapshot,
     trustLevel: trust.trustLevel,
     bindingTrustLevel: trust.bindingTrustLevel,
+    audit: {
+      runId: run.id,
+      invocationId: dispatch.invocationId,
+      capabilityId: dispatch.capabilityId,
+      toolBindingId: dispatch.toolBindingId,
+      checkpoint: "pre_dispatch",
+    },
   });
   if (decision === "DENY") {
-    throw new Error("tool dispatch refused: Policy now denies this action (policy_denied_before_dispatch).");
+    return new Error("tool dispatch refused: Policy now denies this action (policy_denied_before_dispatch).");
   }
 
   const approval = await tx.query.approvals.findFirst({ where: eq(approvals.invocationId, dispatch.invocationId) });
   if (approval) {
     if (approval.status !== "approved" || !(await reauthorize(tx, dispatch.invocationId))) {
-      throw new Error("tool dispatch refused: the Approval no longer authorizes this action (reauthorization_failed_before_dispatch).");
+      return new Error("tool dispatch refused: the Approval no longer authorizes this action (reauthorization_failed_before_dispatch).");
     }
   } else if (decision !== "ALLOW") {
-    throw new Error("tool dispatch refused: this action now requires an Approval it does not have (approval_required_before_dispatch).");
+    return new Error("tool dispatch refused: this action now requires an Approval it does not have (approval_required_before_dispatch).");
   }
+  return null;
 }
 
 /**

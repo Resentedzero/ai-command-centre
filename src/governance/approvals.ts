@@ -19,9 +19,11 @@
  *      invocation" is a structural DB invariant, not a convention — this
  *      lookup is deterministic by construction, never an arbitrary pick among
  *      several matching rows.
- *   4. If `approval.ttl` is set and has passed, return `false` immediately —
- *      a passive check at the re-authorization boundary. (The proactive expiry
- *      is `../workflow/expireStaleApprovals.ts`, via `expirePendingApproval`.)
+ *   4. If `approval.ttl` is set and has passed, and the Approval is not
+ *      `approved`, return `false` immediately — a passive check at the
+ *      re-authorization boundary. Spec §9.5's TTL expires UNRESOLVED Approvals;
+ *      an approved one keeps authorizing past it. (The proactive expiry is
+ *      `../workflow/expireStaleApprovals.ts`, via `expirePendingApproval`.)
  *   5. `capability_grants` rows matching (agentDefinitionId,
  *      agentDefinitionVersion, capabilityId), filtered in application code to
  *      those that are not revoked (`revokedAt === null`) and whose
@@ -42,7 +44,7 @@
  * they simply mean no Grant can possibly match, so `reauthorize` fails
  * closed and returns `false` rather than throwing.
  *
- * Deliberately NOT checked: `approvals.status`. A `pending` or even
+ * Deliberately NOT checked, beyond the ttl rule in step 4: `approvals.status`. A `pending` or even
  * `rejected` Approval still yields `true` here if the Grant is valid,
  * unrevoked, covers the permission, the ttl hasn't passed, and the snapshot
  * is unchanged — status-checking is the CALLER's (the Executor's resume path)
@@ -291,9 +293,13 @@ export async function reauthorize(tx: DrizzleTransaction, invocationId: string):
   }
 
   // Passive ttl-expiry check, independent of the sweep
-  // (`expireStaleApprovals.ts`): an Approval whose ttl has already passed can
+  // (`expireStaleApprovals.ts`): an UNRESOLVED Approval whose ttl has passed can
   // no longer authorize execution, even if the sweep has not reached it yet.
-  if (approval.ttl !== null && approval.ttl.getTime() < Date.now()) {
+  // Spec §9.5 expires "Unresolved Approvals past a TTL"; an Approval a human
+  // already approved is resolved, so its ttl no longer applies. Without this, a
+  // Workflow Run paused around its approval, or re-driven after a failed
+  // advance, failed on resume once the ttl passed although it was approved.
+  if (approval.status !== "approved" && approval.ttl !== null && approval.ttl.getTime() < Date.now()) {
     return false;
   }
 

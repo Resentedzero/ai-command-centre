@@ -51,10 +51,11 @@ import { workflowDefinitions, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import type { TransactionRunner } from "../db/transactionRunner.js";
 import {
-  assertToolDispatchStillAuthorized,
   completeModelDispatch,
   completeToolDispatch,
+  modelDispatchRefusal,
   releaseDispatchSlot,
+  toolDispatchRefusal,
 } from "../execution/executor.js";
 import type { PendingDispatch, PendingToolDispatch, ToolDispatchOutcome } from "../execution/types.js";
 import { dispatchModelCall } from "../router/modelRouter.js";
@@ -107,7 +108,8 @@ async function getWorkflowRunStepCount(tx: DrizzleTransaction, workflowRunId: st
 export async function dispatchAndRecord(runInTx: TransactionRunner, dispatch: PendingDispatch): Promise<void> {
   try {
     if (dispatch.kind === "llm") {
-      const outcome = await dispatchModelCall(dispatch.route, dispatch.compiledContext, dispatch.expectedOutputShape);
+      const refusal = await refusalBeforeDispatch(runInTx, (tx) => modelDispatchRefusal(tx, dispatch));
+      const outcome = refusal ?? (await dispatchModelCall(dispatch.route, dispatch.compiledContext, dispatch.expectedOutputShape));
       await runInTx((tx) => completeModelDispatch(tx, dispatch, outcome));
     } else {
       const outcome = await performToolDispatch(runInTx, dispatch);
@@ -119,18 +121,34 @@ export async function dispatchAndRecord(runInTx: TransactionRunner, dispatch: Pe
 }
 
 /**
+ * Runs a pre-dispatch check in its own short transaction. The check returns its
+ * refusal instead of throwing, so the transaction commits what it recorded
+ * (`policy_evaluated`). A refusal — or the check itself failing — means the call
+ * or effect was never attempted, so it is returned as an outcome consuming
+ * nothing (its reservation is released when recorded); null means proceed.
+ */
+async function refusalBeforeDispatch(
+  runInTx: TransactionRunner,
+  check: (tx: DrizzleTransaction) => Promise<Error | null>
+): Promise<{ ok: false; error: Error & { consumption: "none" } } | null> {
+  let refusal: Error | null;
+  try {
+    refusal = await runInTx(check);
+  } catch (error) {
+    refusal = error instanceof Error ? error : new Error(String(error));
+  }
+  return refusal === null ? null : { ok: false, error: Object.assign(refusal, { consumption: "none" as const }) };
+}
+
+/**
  * Re-checks authorization in its own short transaction, then runs the tool
  * with none open (DURABLE_EXECUTION §2.1). A refusal means the effect was never
  * attempted, so it is marked as consuming nothing and its reservation is
  * released when recorded. Never throws.
  */
 async function performToolDispatch(runInTx: TransactionRunner, dispatch: PendingToolDispatch): Promise<ToolDispatchOutcome> {
-  try {
-    await runInTx((tx) => assertToolDispatchStillAuthorized(tx, dispatch));
-  } catch (error) {
-    const refusal = error instanceof Error ? error : new Error(String(error));
-    return { ok: false, error: Object.assign(refusal, { consumption: "none" as const }) };
-  }
+  const refusal = await refusalBeforeDispatch(runInTx, (tx) => toolDispatchRefusal(tx, dispatch));
+  if (refusal) return refusal;
   try {
     const result = await dispatch.execute({ invocationId: dispatch.invocationId, idempotencyKey: dispatch.idempotencyKey });
     return { ok: true, result };
