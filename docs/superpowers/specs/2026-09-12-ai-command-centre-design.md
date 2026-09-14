@@ -1561,8 +1561,9 @@ provenance chains visible (Phase 5.13/7).
 >   scope (exact amounts; a Run counter labelled with its Agent and Task Definition;
 >   a `day` key echoed uninterpreted), consumed and reserved totals per scope and
 >   unit (never across units, limits never summed), and the §10.5 cost-vs-success
->   rows from `agent_performance`. A measurement, not a recommendation: no minimum
->   sample criterion exists. No UI yet.
+>   rows from `agent_performance`. A measurement, not a recommendation: rows are shown
+>   whatever their sample count (the minimum sample criterion gates decisions only,
+>   Phase 12 note). No UI yet.
 > - **Screen 8 (Memory/Artifact browser), Artifact read API only.** `GET /artifacts/:id`
 >   returns one Artifact with a bounded preview, whether its content still matches
 >   its hash, its provenance (producing Invocation, Run and Agent, Task Definition,

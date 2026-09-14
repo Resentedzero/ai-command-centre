@@ -47,7 +47,7 @@ The brief asked for "the fully specified V4 conditional-autonomy mechanism". Rea
 - Mix groups: another Task Definition, another Agent Definition id, or the same id under another version.
 - Lower a tier, override the risk floor, avoid a budget refusal, or reach a model with no candidate at the preferred tier.
 - Reach Policy, Approvals or the Executor (structural test). `evaluatePolicy` is unchanged, so `CONDITIONAL` still requires approval.
-- Excluded failures stay excluded: sample rules are the projector's and are unchanged (`tests/projections/agentPerformance.test.ts`).
+- Excluded failures stay excluded: sample rules are the projector's and are unchanged (`tests/projections/agentPerformance.test.ts`). End to end (real Events, projector, route): 9 agent samples plus governance, budget, Approval-expiry, crash, stop and halted Runs leave the group below N = 10, so the tier does not move; with N = 9 the same data does move it.
 - A concurrent, uncommitted rebuild neither blocks routing nor changes what it reads; once committed, the missing rows route to the default (real transactions).
 
 ## Mutation checks

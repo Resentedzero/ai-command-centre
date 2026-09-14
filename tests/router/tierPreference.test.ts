@@ -10,7 +10,8 @@ import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { closeTestDb, resetTestSchema, testDb, testPool, withRollback } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
-import type { DrizzleTransaction } from "../../src/events/emit.js";
+import { emitEvent, type DrizzleTransaction } from "../../src/events/emit.js";
+import { refreshAgentPerformance } from "../../src/projections/agentPerformance.js";
 import type { ModelTier, RouteRequest } from "../../src/router/types.js";
 import { providerCandidates } from "../../src/router/tierConfig.js";
 import {
@@ -274,6 +275,61 @@ describe("authorizeRoute with measured tier preference", () => {
       const { request } = await seedBoundRun(tx);
       await expect(authorizeRoute(tx, request, { minPerformanceSamples: 0 })).rejects.toThrow(/positive integer/);
       expect(await started(tx, request.invocationId)).toBeUndefined();
+    });
+  });
+});
+
+describe("end to end: Events -> projector -> route", () => {
+  async function terminalRun(tx: DrizzleTransaction, request: RouteRequest, group: Group, events: [string, Record<string, unknown>][]) {
+    const source = await tx.query.taskInstances.findFirst({ where: eq(schema.taskInstances.id, request.taskInstanceId) });
+    const [taskInstance] = await tx
+      .insert(schema.taskInstances)
+      .values({ taskDefinitionId: group.taskDefinitionId, taskDefinitionVersion: 1, projectId: source!.projectId, status: "completed" })
+      .returning();
+    const [run] = await tx
+      .insert(schema.runs)
+      .values({ taskInstanceId: taskInstance!.id, agentDefinitionId: group.agentDefinitionId, agentDefinitionVersion: group.agentDefinitionVersion, status: "completed" })
+      .returning();
+    for (const [eventType, payload] of events) {
+      await emitEvent(tx, {
+        idempotencyKey: `${eventType}:${randomUUID()}`,
+        eventType,
+        eventVersion: 1,
+        causationId: null,
+        correlation: { goalId: null, workflowRunId: null, taskInstanceId: taskInstance!.id, runId: run!.id, invocationId: null },
+        actor: "system",
+        producer: "test",
+        payload,
+        usage: null,
+      });
+    }
+  }
+  const modelCall = (resultingTier: ModelTier): [string, Record<string, unknown>] => ["invocation_started", { resultingTier }];
+  const consumed = (amount: string): [string, Record<string, unknown>] => ["budget_consumed", { resourceUnit: "subscription_tokens", amount }];
+
+  it("governance, stop and crash failures do not count toward N as routing sees it", async () => {
+    await withRollback(async (tx) => {
+      const { group, request } = await seedBoundRun(tx);
+      // CHEAP: 9 agent samples at 4000 per success, plus Runs that are not the agent's outcome.
+      for (let i = 0; i < 9; i++) await terminalRun(tx, request, group, [modelCall("CHEAP"), consumed("4000"), ["run_completed", {}]]);
+      for (const reason of ["policy_denied", "insufficient_budget", "approval_expired", "interrupted_outcome_unknown", "execution_stopped"]) {
+        await terminalRun(tx, request, group, [modelCall("CHEAP"), ["invocation_failed", { reason }], ["run_failed", {}]]);
+      }
+      await terminalRun(tx, request, group, [modelCall("CHEAP"), ["run_halted", {}], ["run_completed", {}]]);
+      // MID: 10 samples at 2000 per success.
+      for (let i = 0; i < 10; i++) await terminalRun(tx, request, group, [modelCall("MID"), consumed("2000"), ["run_completed", {}]]);
+      await refreshAgentPerformance(tx);
+
+      expect(await routedTier(tx, request, 10)).toBe("CHEAP");
+      const snapshot = (await started(tx, request.invocationId))!.historicalPerformance as { rows: TierPerformanceRow[] };
+      expect(snapshot.rows.find((r) => r.tier === "CHEAP")).toMatchObject({ sampleCount: 9, eligibility: { eligible: false, reason: "insufficient_samples" } });
+
+      // Control: with N = 9 the same data does move the tier, so the exclusions are what held it.
+      const [second] = await tx
+        .insert(schema.invocations)
+        .values({ runId: request.runId, seqNo: 2, kind: "llm", costClass: "llm", status: "pending", idempotencyKey: `test-inv-${randomUUID()}` })
+        .returning();
+      expect(await routedTier(tx, { ...request, invocationId: second!.id }, 9)).toBe("MID");
     });
   });
 });
