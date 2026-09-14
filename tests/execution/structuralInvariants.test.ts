@@ -162,9 +162,10 @@ describe("agent_performance is display-only until its sample criterion exists (s
   // A tripwire, not a guarantee: a table name assembled at run time, iteration over
   // the schema object, or an HTTP call to the read API would pass. Migrations are
   // checked in tests/projections/agentPerformance.test.ts.
-  const ALLOWED = ["api/routes/agents.ts", "api/start.ts", "db/schema.ts", "projections/agentPerformance.ts"];
+  // api/routes/costs.ts joined 2026-09-14: the screen 7 cost-vs-success display.
+  const ALLOWED = ["api/routes/agents.ts", "api/routes/costs.ts", "api/start.ts", "db/schema.ts", "projections/agentPerformance.ts"];
 
-  it("only the schema, projector, startup loop and read API reference agent_performance", () => {
+  it("only the schema, projector, startup loop and read APIs reference agent_performance", () => {
     const referencing = new Set<string>();
     for (const file of sourceFiles()) {
       visit(parse(file), (n) => {

@@ -25,11 +25,11 @@ Not built: average duration and approval-rejection rate (§8.8 names them; Phase
 
 - **Full rebuild, not a watermark.** Each refresh deletes and re-inserts every row from Events in one transaction, under a transaction-scoped advisory lock (`(20260914, hashtext('projection:agent_performance'))`). `events.global_seq` is a Postgres sequence, so a transaction can commit a lower value after a higher one is visible; an incremental watermark over it would skip that event forever. A rebuild is idempotent by construction and a failed refresh rolls back to the previous rows, which readers keep seeing meanwhile.
 - **In-process loop** (`src/api/start.ts`): once at startup, then every 60 seconds, one refresh at a time, never on the execution path (§8.10: no new service). A failed refresh is logged and retried on the next tick.
-- **Read API:** `GET /agents/:id` returns the version's rows as `performance` (previously `null`). It lags recent Runs by up to a refresh interval and is shown whatever the sample count.
+- **Read APIs:** `GET /agents/:id` returns the version's rows as `performance` (previously `null`), and `GET /costs` returns every row with Agent and Task Definition names as `costVsSuccess` (spec screen 7). Both lag recent Runs by up to a refresh interval and show rows whatever the sample count, as measurement, never as a recommendation.
 
 ## 4. Firewall
 
-`tests/execution/structuralInvariants.test.ts` ("agent_performance is display-only…") fails if any source file other than the schema, the projector, the startup loop and the Agent Detail route references the table, its identifier or the projector. Consuming it from Policy or the Router is a deliberate edit to that allowlist, which should come with the sample criterion.
+`tests/execution/structuralInvariants.test.ts` ("agent_performance is display-only…") fails if any source file other than the schema, the projector, the startup loop and the two read routes (`api/routes/agents.ts`, `api/routes/costs.ts`) references the table, its identifier or the projector. Consuming it from Policy or the Router is a deliberate edit to that allowlist, which should come with the sample criterion.
 
 ## 5. Residuals
 

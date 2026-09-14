@@ -55,6 +55,7 @@ import { registerEventsRoutes } from "./routes/events.js";
 import { registerAgentsRoutes } from "./routes/agents.js";
 import { registerExecutionStopsRoutes } from "./routes/executionStops.js";
 import { registerRegistryRoutes } from "./routes/registry.js";
+import { registerCostsRoutes } from "./routes/costs.js";
 import { makeRequestGuard } from "./requestGuards.js";
 import { SeedMissingError } from "../definitions/lookupSeed.js";
 
@@ -154,6 +155,7 @@ export function buildServer(overrides?: Partial<ApiDeps>): FastifyInstance {
   registerAgentsRoutes(app, deps); // Unit 11, Ruling 1 — new, additive.
   registerExecutionStopsRoutes(app, deps); // Phase 8 — emergency stop control plane.
   registerRegistryRoutes(app, deps); // V1.1 — Definitions read model and grant revocation.
+  registerCostsRoutes(app, deps); // V2 — budget counters and cost-vs-success, read-only.
 
   return app;
 }

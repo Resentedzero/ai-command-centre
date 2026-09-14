@@ -1520,7 +1520,13 @@ provenance chains visible (Phase 5.13/7).
 >   changes by revoking it and creating another, one Grant per request.
 >   `docs/architecture/CAPABILITY_PLATFORM.md` §5. No UI yet; no Policies editor
 >   (no `policies` table).
-> - **Not built:** screens 7 and 8.
+> - **Screen 7 (Cost/Budget), API only.** `GET /costs` returns `budget_counters` by
+>   scope (exact amounts; a Run counter labelled with its Agent and Task Definition;
+>   a `day` key echoed uninterpreted), consumed and reserved totals per scope and
+>   unit (never across units, limits never summed), and the §10.5 cost-vs-success
+>   rows from `agent_performance`. A measurement, not a recommendation: no minimum
+>   sample criterion exists. No UI yet.
+> - **Not built:** screen 8.
 
 ### 15.2 UI commands vs. Invocations — not the same model
 

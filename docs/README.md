@@ -38,6 +38,7 @@ Module-level contracts live in the header comment of each source file. The root 
 - [`development/CAPABILITY_PLATFORM_CLOSURE.md`](development/CAPABILITY_PLATFORM_CLOSURE.md): the Capability Platform — Tool Adapter registry, local-corpus binding, definition-driven planning (spec §18.3 met), Registry API, adversarial review dispositions.
 - [`development/REGISTRY_WRITES_CLOSURE.md`](development/REGISTRY_WRITES_CLOSURE.md): Registry writes — versioned, audited creation of Definitions, Tool Bindings and Capability Grants through the API; review dispositions.
 - [`development/AGENT_PERFORMANCE_CLOSURE.md`](development/AGENT_PERFORMANCE_CLOSURE.md): the V2 agent performance projection — rules, rebuild loop, firewall, review dispositions.
+- [`development/COST_VIEWS_CLOSURE.md`](development/COST_VIEWS_CLOSURE.md): the Cost/Budget read API (`GET /costs`, spec screen 7) — counters by scope, per-unit totals, cost-vs-success; review dispositions.
 ## 4. Planning and research (advisory, authorizes nothing)
 - [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
 - [`roadmap/ROADMAP_STATUS.md`](roadmap/ROADMAP_STATUS.md): **where the implementation actually is**, by roadmap stage (V1–V6); what the phase labels mean; current milestone; open governance decisions. Status only, not an authorization.
