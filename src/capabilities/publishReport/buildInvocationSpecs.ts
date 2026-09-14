@@ -89,19 +89,28 @@ async function findResearchReportArtifact(
   workflowRunId: string,
   researchReportTaskDefinitionId: string
 ): Promise<{ id: string; hash: string }> {
-  const taskAInstance = await tx.query.taskInstances.findFirst({
+  // Exactly one source step and one Run, like the Artifact below: since Registry
+  // writes, a workflow can have two steps with the same Task Definition, and
+  // picking one of them silently would publish an arbitrary report.
+  const taskAInstances = await tx.query.taskInstances.findMany({
     where: and(eq(taskInstances.workflowRunId, workflowRunId), eq(taskInstances.taskDefinitionId, researchReportTaskDefinitionId)),
   });
-  if (!taskAInstance) {
+  if (taskAInstances.length !== 1) {
     throw new Error(
-      `buildPublishReportInvocationSpecs: no Research-Report task_instances row found for workflow_run "${workflowRunId}"`
+      `buildPublishReportInvocationSpecs: expected exactly one source task_instances row for workflow_run "${workflowRunId}", ` +
+        `found ${taskAInstances.length} (fail closed).`
     );
   }
+  const taskAInstance = taskAInstances[0]!;
 
-  const taskARun = await tx.query.runs.findFirst({ where: eq(runs.taskInstanceId, taskAInstance.id) });
-  if (!taskARun) {
-    throw new Error(`buildPublishReportInvocationSpecs: no runs row found for Task A's task_instance "${taskAInstance.id}"`);
+  const taskARuns = await tx.query.runs.findMany({ where: eq(runs.taskInstanceId, taskAInstance.id) });
+  if (taskARuns.length !== 1) {
+    throw new Error(
+      `buildPublishReportInvocationSpecs: expected exactly one runs row for Task A's task_instance "${taskAInstance.id}", ` +
+        `found ${taskARuns.length} (fail closed).`
+    );
   }
+  const taskARun = taskARuns[0]!;
 
   const rows = await tx
     .select({ id: artifacts.id, hash: artifacts.hash, inlineContent: artifacts.inlineContent })
