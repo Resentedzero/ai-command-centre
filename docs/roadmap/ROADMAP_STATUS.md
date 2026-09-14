@@ -96,4 +96,4 @@ UI workstream (APIs built, no UI):
 - Cost dashboard against `GET /costs` (settle field names such as `agentVersion` when typing it).
 
 Operator:
-- Apply migrations 0014 (unique Definition versions and Capability names; fails if duplicates were hand-inserted) and 0015 (`agent_performance`) with `npm run migrate`.
+- Apply migrations 0014 (unique Definition versions and Capability names; fails if duplicates were hand-inserted) and 0015 (`agent_performance`) with `npm run db:migrate`. **Applied to the local database 2026-09-14.**
