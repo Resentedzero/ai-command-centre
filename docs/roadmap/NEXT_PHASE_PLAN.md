@@ -177,6 +177,12 @@ roadmap order.
 
 ### 4. Agent Detail Views
 
+> **BUILT (2026-09-14).** `GET /agents/:id` and `web/app/agents/[id]`, with the
+> agent-scope emergency stop (engage, and lift by stop id) through
+> `/execution-stops`. Performance is shown as unavailable until
+> `agent_performance` exists. The pause/stop mechanism questioned below exists:
+> see Appendix A #2. Spec §15.1 implementation note.
+
 - **Purpose:** Per-Agent-Definition drill-down: current Task Instance and its
   Goal/Workflow Run lineage, current Invocation, capabilities in use (context
   lineage), recent actions (event trace), outputs (Artifacts), performance,
@@ -220,6 +226,11 @@ roadmap order.
   it couldn't populate yet.
 
 ### 5. Workflow Visualization
+
+> **BUILT, linear only (2026-09-14).** `GET /workflow-runs[/:id]` and
+> `web/app/workflows`, rendering steps as an ordered list with no graph
+> library; a library is warranted once branching (§10) exists. Spec §15.1
+> implementation note.
 
 - **Purpose:** A Workflow Run's graph (Task Instance nodes + status),
   drillable into a Task Instance's Run(s) and each Run's Invocation sequence.
@@ -676,7 +687,14 @@ plan is written, rather than leaving it implicit:
    review), or scope V1.1's Registry down to Agent Definitions + Capability
    Grants only and defer a Policies editor until a table is justified.
 
-2. **Confirmed by direct code inspection:** the only pause/revocation-related
+2. > **RESOLVED (Phase 8, `ce7155c`).** The emergency stop exists: the
+   > `execution_stops` table, checked by the Executor before every Invocation,
+   > with scopes global / agent_definition / capability_grant / goal /
+   > workflow_run / run, and the `/execution-stops` routes. See
+   > `src/governance/executionStop.ts` and spec §9.7's implementation note.
+   > The original question follows.
+
+   **Confirmed by direct code inspection:** the only pause/revocation-related
    field anywhere in V1's schema is `capability_grants.revoked_at`
    (`src/db/schema.ts:127`), added in Unit 3 for material-change invalidation
    — a Grant-scoped concern, not Phase 9.7's emergency-pause mechanism. Phase

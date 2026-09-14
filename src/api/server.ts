@@ -6,57 +6,31 @@
  * needs is exposed as a route here.
  *
  * ---------------------------------------------------------------------------
- * Ruling 3 (task-10-brief.md, corrected in fix round 1) — synchronous,
- * bounded-loop advancement, documented once here for the whole API layer
+ * Advancement
  * ---------------------------------------------------------------------------
- * This MVP has NO background poller/worker process — the API server is the
- * only process. Every mutating route that changes a Workflow Run's state
- * therefore drives advancement SYNCHRONOUSLY, inline in the request/response
- * cycle, immediately after its own state change.
- *
- * FIX ROUND 1: the original ruling called `advanceWorkflowRun`
- * (`../workflow/interpreter.ts`) exactly ONCE per route. Because a single
- * call only ever advances one step (interpreter.ts's own documented
- * algorithm never creates the next step's Task Instance within the same
- * call), that left a Workflow Run permanently stuck after Task A completed
- * — no route in this unit's surface could ever trigger the second call
- * needed to create Task B (see task-10-report.md's original "Concerns" /
- * "Fix round 1" sections for the full writeup). The corrected design routes
- * every advancing call through `advanceWorkflowRunUntilBlocked`
- * (`../workflow/advanceWorkflowRunUntilBlocked.ts`), which loops
- * `advanceWorkflowRun` up to the run's OWN step count (derived from its
- * Workflow Definition's graph, never hardcoded) and stops early on a
- * terminal status — see that module's header for the bound/termination
- * argument (why this can never under- or over-advance):
- *   - `POST /goals` (`routes/goals.ts`): create Goal -> `startWorkflowRun`
- *     -> `advanceWorkflowRunUntilBlocked` (drives as far as automatically
- *     possible, e.g. Task A completing AND Task B reaching
- *     `awaiting_approval`, within this MVP's 2-step seed).
- *   - `POST /approvals/:id/approve|reject` (`routes/approvals.ts`):
- *     `resolveApproval` -> (if the gated Invocation belongs to a
- *     workflow-created Task Instance) `advanceWorkflowRunUntilBlocked`.
- *   - `POST /workflow-runs/:id/resume` (`routes/workflowRuns.ts`):
- *     `resumeWorkflowRun` -> `advanceWorkflowRunUntilBlocked`.
- *   - `POST /workflow-runs/:id/pause` (`routes/workflowRuns.ts`): the ONE
- *     deliberate exception — `pauseWorkflowRun` ONLY, no advancement.
- *     Pausing must never itself cause more work to happen.
- * This is a deliberate MVP simplification that only holds because this is a
- * single-user, local, single-process app with no meaningful concurrency — a
- * real multi-user deployment would need a real background driver instead of
- * piggybacking advancement onto whichever HTTP request happens to touch a
- * Workflow Run next.
+ * Routes that change a Workflow Run's state drive it forward in the request
+ * through `advanceWorkflowRunUntilBlocked`
+ * (`../workflow/advanceWorkflowRunUntilBlocked.ts`), bounded by the run's own
+ * step count. Each step commits in its own short transaction and every
+ * provider call happens with no transaction open
+ * (`docs/architecture/DURABLE_EXECUTION.md`):
+ *   - `POST /goals`: create Goal -> `startWorkflowRun` -> advance.
+ *   - `POST /approvals/:id/approve|reject`: `resolveApproval` (committed) ->
+ *     advance. An advance failure after the decision is reported alongside it.
+ *   - `POST /workflow-runs/:id/resume`: resume -> advance.
+ *     `POST /workflow-runs/:id/advance`: advance only (recovery).
+ *   - `POST /workflow-runs/:id/pause` and `/execution-stops`: no advancement —
+ *     stopping must never itself cause more work.
+ * Outside requests, `start.ts` settles interrupted Invocations and re-drives
+ * `in_progress` Workflow Runs at startup, and runs the Approval TTL sweep
+ * every minute. One such process per database (`executorInstanceLock.ts`).
  *
  * ---------------------------------------------------------------------------
- * Ruling 4 — no real provider API key is configured
+ * Providers
  * ---------------------------------------------------------------------------
- * `.env` has no real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` (by design — see
- * the repo's own `.env`). `tests/api/routes.integration.test.ts` and
- * `tests/api/sseReplay.test.ts` mock `../router/providers/anthropic.js` /
- * `openai.js` exactly as Units 8/9's own integration tests do, so
- * `POST /goals`'s Task A llm step never makes a real network call under
- * test. Exercising the real LLM step against a live, locally-run server
- * (`start.ts`) requires the operator's OWN real API key in their own `.env`
- * — this is not something this unit configures or can configure.
+ * The routed default is the Claude subscription CLI (`claude -p`), which needs
+ * no API key. Every API test mocks all three provider adapters (anthropic,
+ * openai, claudeSubscription) so no test makes a real call or consumes quota.
  *
  * ---------------------------------------------------------------------------
  * Test injection (Ruling 5)

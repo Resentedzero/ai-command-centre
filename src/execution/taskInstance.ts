@@ -2,9 +2,13 @@
  * `createStandaloneTaskInstance` / `createWorkflowTaskInstance` — the two
  * structurally distinct Goal->Task Instance creation paths (Phase 3b/Ruling
  * 7). `task_instances.workflow_run_id` is nullable precisely to distinguish
- * them: standalone tasks (Unit 8) go Goal -> Task Instance directly
- * (`workflow_run_id: null`); workflow-created tasks (Unit 7, not yet built)
- * go Workflow Run -> Task Instance (`workflow_run_id` set).
+ * them: standalone tasks go Goal -> Task Instance directly
+ * (`workflow_run_id: null`); workflow-created tasks go Workflow Run -> Task
+ * Instance (`workflow_run_id` set, by the Workflow Interpreter).
+ *
+ * In production only the workflow path is used: no API route or driver
+ * creates or executes standalone Task Instances. `createStandaloneTaskInstance`
+ * is used by tests, and emits no `task_instance_created` event.
  *
  * Neither the brief's `createStandaloneTaskInstance(tx, taskDefinitionId,
  * goalId, input)` signature nor `createWorkflowTaskInstance(tx,
@@ -25,10 +29,7 @@
  * makes the two paths structurally distinct is that this unit's OWN code
  * (`executor.ts`, and any standalone-task caller) never references
  * `createWorkflowTaskInstance` — verified by a structural test in
- * `tests/execution/taskInstance.test.ts`. The complementary half ("never
- * called by Unit 7's code") cannot be verified yet: Unit 7 does not exist.
- * This is called out explicitly in the Unit 6 report rather than silently
- * treated as satisfied.
+ * `tests/execution/taskInstance.test.ts`.
  */
 import { eq } from "drizzle-orm";
 import { goals, taskDefinitions, taskInstances, workflowRuns } from "../db/schema.js";

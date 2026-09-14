@@ -258,8 +258,9 @@ export type CompleteInvocationParams = {
   payload?: Record<string, unknown>;
   /**
    * Default true (tool, deterministic, retrieval). Pass `false` for "llm"
-   * kind: Unit 5's `callModel` already emitted `invocation_completed`
-   * (Ruling 3) — this flag only updates the `invocations.status` column.
+   * kind: the Executor emits the model's `invocation_completed` (with usage)
+   * through the Router's `emitModelInvocationCompleted` — this flag only
+   * updates the `invocations.status` column.
    */
   emitEvent?: boolean;
 };
@@ -313,11 +314,9 @@ export async function markInvocationExecuting(tx: DrizzleTransaction, invocation
 }
 
 /**
- * Always emits `invocation_failed` — including for the "llm" kind. Unlike
- * `invocation_started`/`invocation_completed`, Unit 5's `callModel` and
- * `authorizeRoute` deliberately never emit a failure event themselves (see
- * `modelRouter.ts`'s own header: "Emitting invocation_failed uniformly...
- * is the future Unit 6 Executor's responsibility"), so there is no
+ * Always emits `invocation_failed` — including for the "llm" kind. The Model
+ * Router never emits a failure event itself (see `modelRouter.ts`'s header:
+ * failure events are the Executor's, uniformly across kinds), so there is no
  * possibility of a duplicate here and no flag is needed.
  */
 export async function failInvocation(tx: DrizzleTransaction, params: FailInvocationParams): Promise<void> {

@@ -1,5 +1,10 @@
 # Phase 8 — Runtime Containment: Closure
 
+> **Historical record.** Phase 8 was committed in `ce7155c`. The B-4 hard stop
+> below (provider calls inside a transaction) was resolved by Phase 9 in
+> `b33a929`, and `callModel` has since been split into `dispatchModelCall` /
+> `finalizeModelCall`. Current state: [`POST_PHASE9_CLOSURE.md`](POST_PHASE9_CLOSURE.md).
+
 **Status:** complete in the working tree, and **nothing is committed** (HEAD `7648cc2`).
 **Verification (2026-09-13):**
 - `tsc --noEmit` is clean.

@@ -384,8 +384,6 @@ export async function resumeWorkflowRun(tx: DrizzleTransaction, workflowRunId: s
 // advanceWorkflowRun and its helpers
 // ---------------------------------------------------------------------------
 
-/** Ruling 2: translates a RunOutcome into the owning Task Instance's status, then
- *  determines the Workflow Run-level result (algorithm steps 7-11). */
 /** The step being resolved, with everything its lifecycle events are correlated by. */
 type StepRef = { workflowRunId: string; goalId: string; taskInstanceId: string; runId: string };
 

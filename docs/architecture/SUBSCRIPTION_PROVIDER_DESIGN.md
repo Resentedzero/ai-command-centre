@@ -311,7 +311,8 @@ NDJSON, one JSON object per line, dispatched by `type`:
 **Preserved unchanged:** `--json-schema` validation and the
 success-without-`structured_output` rejection; `--tools ""`;
 `--strict-mcp-config`; `--setting-sources ""`; env sanitization; bounded stdin;
-timeout → SIGTERM → release-not-reconcile; per-invocation fresh cwd; pinned
+timeout → SIGTERM → no reconcile (superseded 2026-09-14: the reservation is
+charged at estimate, not released — see the Part 8 amendment); per-invocation fresh cwd; pinned
 model; no fallback model.
 
 **Fail-closed additions:** absence of a `result` event is a failure
@@ -615,7 +616,8 @@ Quota state: staleness expiry; reset handling; `status != "allowed"`;
 
 Governance: resource-unit separation; no USD fabrication anywhere for
 subscription; guardrail refusal releases the reservation; guardrail never writes
-`budget_counters`; timeout releases rather than reconciles.
+`budget_counters`; timeout does not reconcile reported usage (superseded
+2026-09-14: it charges the reservation at estimate — Part 8 amendment).
 
 Routing/fallback: provider map selects each provider and no other; a fourth
 provider cannot fall through; **API fallback disabled → quota failure never

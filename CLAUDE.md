@@ -42,6 +42,8 @@ out to. The Workflow Interpreter never calls an LLM.
 
 ## Per-module CLAUDE.md files
 
-None exist yet — this is the first unit (project foundation: schema, the
-Event envelope, test-database strategy). Per Phase 17.2, a `CLAUDE.md`
-accompanies each module as its unit lands.
+None exist yet (`web/CLAUDE.md` only points at the Next.js version notes in
+`web/AGENTS.md`). Module contracts live in each source file's header comment.
+Architecture invariants that can be checked statically — no provider call
+inside a transaction, the single chokepoint, status changes recorded as
+events — are enforced by `tests/execution/structuralInvariants.test.ts`.

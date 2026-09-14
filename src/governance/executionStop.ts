@@ -7,9 +7,10 @@
  *
  * WHY THIS IS SOUND
  * -----------------
- * The Executor drives a whole Run inside ONE transaction, so a stop can only
- * help if a row committed by a different connection becomes visible to a
- * `SELECT` issued inside that already-open transaction. It does: this database
+ * The Executor advances a Run in short transactions (Phase 9), each of which
+ * may propose and execute several Invocations, so a stop must be visible to a
+ * `SELECT` issued inside a transaction that was already open when the stop
+ * committed on another connection. It is: this database
  * runs at Postgres's default READ COMMITTED (`src/db/client.ts` sets no
  * isolation level and no route passes transaction config), where every
  * statement takes a fresh snapshot.
@@ -26,8 +27,8 @@
  *
  * That split is load-bearing, not tidiness. `emitEvent` takes
  * `pg_advisory_xact_lock(hashtext(runId))` for the event's `correlation.runId`
- * (`src/events/emit.ts`), and an in-flight Run already holds exactly that lock
- * — it wrote `invocation_started` for itself. An engage transaction that
+ * (`src/events/emit.ts`), and a Run's open transaction already holds exactly
+ * that lock until it commits — it wrote `invocation_started` for itself. An engage transaction that
  * inserted the stop AND emitted an event tagged with the target Run would wait
  * on that lock, so the stop could not commit until the very Run it was meant to
  * halt had finished. So:

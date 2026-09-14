@@ -446,11 +446,9 @@ async function resumeToolSpec(
   }
 
   if (approval.status !== "approved") {
-    // "rejected" (Ruling 4 step 9's explicit case), or "expired" — a status this
-    // unit never sets itself (the proactive TTL-expiry sweep is out of scope
-    // per approvals.ts's own header) but handled defensively as an equally
-    // terminal non-approved outcome, rather than silently falling through to
-    // the approved-path logic below.
+    // "rejected", or "expired" (set by the TTL sweep, `expireStaleApprovals.ts`,
+    // spec §9.5) — both terminal non-approved outcomes, handled identically:
+    // nothing ran, so the hold is released and the Invocation fails.
     const reservationId = await peekPendingReservation(tx, runId, seqNo);
     if (isRealReservation(reservationId)) {
       await releaseReservation(tx, reservationId);
@@ -1277,13 +1275,14 @@ export async function executeRun(
         await failInterruptedInvocation(tx, existing.id);
         return { status: "failed", runId };
       }
-      // "proposed"/"failed" rows persisting here indicate a mid-execution crash
-      // recovery scenario, which is explicitly out of this unit's scope (see
-      // module header) — fail loudly rather than silently re-running or
-      // silently skipping something whose side effects are unknown.
+      // A committed "proposed" or "failed" Invocation on a Run that is still
+      // executing should be unreachable: proposing and settling happen in the
+      // same transaction as the step, and a failed Invocation fails its Run.
+      // Fail loudly rather than re-running or skipping something whose side
+      // effects are unknown. (`executing` is handled above.)
       throw new Error(
-        `executeRun: invocation for run "${runId}" seqNo ${seqNo} is in unexpected status "${existing.status}"; ` +
-          "crash-recovery for non-terminal, non-awaiting_approval invocations is out of scope for this unit."
+        `executeRun: invocation for run "${runId}" seqNo ${seqNo} is in unexpected status "${existing.status}" ` +
+          "for a Run that is still executing (invariant violation)."
       );
     }
 

@@ -14,43 +14,24 @@
  * section): `../liveEventRelay.ts` (`createWorkflowRelay`, which relays after
  * every committed transaction of a workflow request, and `relayCommittedEvent`
  * for control-plane events such as emergency stops), and ONLY that module.
- * The history below describes the original per-request design; the
- * mechanism — observe committed rows, never publish from inside a
- * transaction — is unchanged.
  *
- * The problem: `emitEvent` (`../events/emit.ts`) is frozen/unmodifiable
- * (Unit 1), and it is called from deep inside Units 2-9 — e.g.
- * `src/router/modelRouter.ts`'s `authorizeRoute`/`callModel`, several layers
- * below any route handler — so neither "modify emitEvent to also call
- * publishLiveEvent" nor "make every emitEvent call site also call
- * publishLiveEvent" is available without touching frozen Unit 1-9 files.
+ * Events are written by `emitEvent` deep inside the Executor, Router and
+ * governance modules, so publishing is not done at the write. Instead every
+ * writer runs its transactions through a relaying runner, which, AFTER each
+ * commit, reads the Event rows that transaction created (a per-`runId`
+ * sequence watermark diff — see `../liveEventRelay.ts`) and publishes them.
+ * Nothing is ever published from inside a transaction, so a subscriber never
+ * sees an event Postgres does not durably have.
  *
- * The resolution: Ruling 3 (task-10-brief.md) already makes this unit's own
- * route handlers (`POST /goals`, `POST /approvals/:id/approve|reject`,
- * `POST /workflow-runs/:id/resume`) the ONLY place any mutation happens in
- * this single-process, no-poller MVP — every Event that will ever exist got
- * created synchronously inside one of those four routes' own database
- * transaction. So THIS layer (new, unfrozen, Unit 10 code) is a legitimate
- * place to observe "which Event rows did that transaction just create" —
- * `../liveEventRelay.ts` does this via a before/after per-`runId` sequenceNo
- * watermark diff around each mutating route's transaction (see that
- * module's header for the exact mechanism and why it is correct even though
- * `sequenceNo` is only monotonic per-run, never globally).
+ * The writers that relay (each commit separately — Phase 9 short
+ * transactions): the mutating routes (`POST /goals`, approve/reject,
+ * `POST /workflow-runs/:id/resume|advance`, `/execution-stops`), and, in
+ * `../api/start.ts`, the startup re-drive and the periodic Approval TTL sweep.
  *
- * Why NOT Postgres LISTEN/NOTIFY: the frozen spec (Phase 4) offered it as an
- * option, but every prior unit in this project has consistently chosen an
- * in-process mechanism over a deployment/database trick when the process
- * topology allows it (e.g. Unit 6's `runs.budget_envelope` in-process
- * bookkeeping instead of a separate reservations table/service). This is a
- * single-process app — the API server is the only process that ever writes
- * an Event — so a LISTEN/NOTIFY round-trip through Postgres would be strictly
- * more moving parts (a second PG connection held open, NOTIFY payload size
- * limits, no back-pressure) for zero benefit over an in-process EventEmitter
- * the writer and the reader already share. Why NOT a polling loop: the
- * before/after diff triggers exactly once per mutating request, event-driven
- * by that request's own completion — there is no interval timer anywhere in
- * this design, and so no added latency or steady-state DB load between
- * requests.
+ * Why not Postgres LISTEN/NOTIFY: this is one process (startup enforces it —
+ * `../execution/executorInstanceLock.ts`), so every Event writer and every
+ * subscriber share it. A NOTIFY round-trip would add a held connection and
+ * payload limits for no benefit over an in-process EventEmitter.
  */
 import { EventEmitter } from "node:events";
 import type { WireEventEnvelope } from "./eventEnvelopeRow.js";

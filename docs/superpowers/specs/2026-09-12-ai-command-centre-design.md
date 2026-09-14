@@ -618,6 +618,16 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 > instance, workflow run or goal id is filled from the Run's own rows. Lifecycle
 > events about a step share that Run's sequence.
 >
+> **Status changes with no event of their own:**
+> - Workflow Run pause and resume: recorded only in `workflow_runs.status`; this
+>   section defines no event for them.
+> - A Run entering `awaiting_approval`: recorded by `approval_required`, in the
+>   same transaction.
+>
+> `tests/execution/structuralInvariants.test.ts` checks that every function
+> updating a Run, Task Instance or Workflow Run status also writes an event,
+> with pause and resume as its only named exceptions.
+>
 > **Not yet emitted:**
 > - `tool_called`, `tool_result_received` (covered by the invocation events)
 > - `artifact_updated/referenced`

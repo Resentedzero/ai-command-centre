@@ -134,7 +134,7 @@ export function quotaObservationFrom(error: unknown): QuotaObservation | undefin
 
 /**
  * The one shape every provider adapter implements (Phase 10.1's interface,
- * unchanged). Uniform across adapters so `callModel` can dispatch through a
+ * unchanged). Uniform across adapters so `dispatchModelCall` can dispatch through a
  * map rather than a conditional — see `modelRouter.ts`'s PROVIDERS.
  */
 export type ProviderAdapter = (
@@ -154,7 +154,7 @@ export type RouteRequest = {
   // invocationId, but its own "Tests required" list demands the routing
   // decision be captured as structured payload on the `invocation_started`
   // event — impossible without something to attach the event to. The caller
-  // (a future Unit 6 Executor) is expected to have already created the
+  // (the Executor) is expected to have already created the
   // `invocations` row before calling `authorizeRoute`; this unit never
   // creates Invocation rows itself.
   invocationId: string;
@@ -179,7 +179,7 @@ export type RouteResult = {
   reservationId: string;
   /**
    * The routed candidate's provider and accounting (Phase 7D). Carried so
-   * `callModel` dispatches to the adapter that was actually SELECTED, rather
+   * `dispatchModelCall` dispatches to the adapter that was actually SELECTED, rather
    * than re-deriving it from the tier's primary candidate — which would send a
    * non-primary candidate's call to the wrong provider.
    */
@@ -187,16 +187,17 @@ export type RouteResult = {
   accounting: TierAccounting;
   // Further addition (this unit's own resolution, in the same spirit as the
   // invocationId ruling above): the brief's frozen RouteResult has no
-  // invocationId either, but `callModel` is separately required (same
-  // pre-dispatch ruling, point 3) to emit `invocation_completed` correlated
-  // to an invocation — and `callModel`'s only input besides the compiled
-  // context is `RouteResult`. Without carrying invocationId forward from
-  // `authorizeRoute`'s `req.invocationId` into its returned `RouteResult`,
-  // `callModel` would have no way to know which invocation it is completing.
+  // invocationId either, but `emitModelInvocationCompleted` is separately
+  // required (same pre-dispatch ruling, point 3) to emit `invocation_completed`
+  // correlated to an invocation — and the Router's dispatch/finalize functions
+  // receive only `RouteResult` besides the compiled context and outcome.
+  // Without carrying invocationId forward from `authorizeRoute`'s
+  // `req.invocationId` into its returned `RouteResult`, they would have no way
+  // to know which invocation they are completing.
   // This is a minimal, additive extension of the same gap, not a new
   // architectural choice.
   invocationId: string;
-  // Fix round 1 addition (independent review, Important #1): `callModel`'s
+  // Fix round 1 addition (independent review, Important #1): the Router's
   // `invocation_completed` emission was correlating with `runId: null` /
   // `taskInstanceId: null` because RouteResult didn't carry them, even
   // though every invocation belongs to a real, non-null run. Per Unit 1's

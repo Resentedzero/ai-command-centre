@@ -29,9 +29,10 @@
  * Pass 2+3 are TWO functions, split across a transaction boundary (Phase 9):
  * `dispatchModelCall` calls the provider wrapper selected by the route with NO
  * transaction open, and `finalizeModelCall` records the outcome in a fresh
- * transaction — reconciling actual usage via Unit 2's `reconcileBudget`, and
- * emitting `invocation_completed` with usage populated
- * (pre-dispatch ruling, point 3), correlated to `invocationId`, `runId`, AND
+ * transaction — reconciling actual usage via Unit 2's `reconcileBudget`. It
+ * emits no event: the Executor calls `emitModelInvocationCompleted` only after
+ * the result is persisted, so a failed persist cannot leave both a completed
+ * and a failed event. That event carries usage, correlated to `invocationId`, `runId`, AND
  * `taskInstanceId` (all three carried on `RouteResult` — see `./types.ts`;
  * `runId`/`taskInstanceId` added in fix round 1 after independent review
  * flagged that a `runId: null` event falls into `emit.ts`'s shared GLOBAL
@@ -159,7 +160,7 @@ function staticExclusion(
  * Candidate order is the configured order (`providerCandidates`). There is no
  * provider-name branch anywhere in this function: adding a provider to the
  * config changes routing with no code change here, which is the property the
- * total-map dispatch already gives `callModel`.
+ * total-map dispatch already gives `dispatchModelCall`.
  *
  * QUOTA: consumed as the guardrail's POLICY RESULT only. This function never
  * reads a utilization number, a threshold, or a reset time — duplicating that

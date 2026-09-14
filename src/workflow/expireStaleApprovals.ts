@@ -25,8 +25,9 @@
  *
  * One Approval's failure is reported and does not stop the rest. An Approval
  * whose Task Instance is standalone (no Workflow Run) is expired but not
- * re-driven — nothing drives standalone Runs; its hold is released whenever
- * its Run is next executed.
+ * re-driven: nothing drives standalone Runs, so its hold stays reserved until
+ * something executes that Run. Standalone Task Instances are created only by
+ * tests today (`../execution/taskInstance.ts`).
  */
 import { and, eq, isNotNull, lt } from "drizzle-orm";
 import { approvals, invocations, runs, taskInstances } from "../db/schema.js";

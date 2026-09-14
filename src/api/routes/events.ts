@@ -56,9 +56,9 @@
  * (independent-review Minor 1 — an earlier version of this paragraph claimed
  * "mutations are serialized per request", which is false and, worse, read as
  * if requests were serialized with respect to EACH OTHER). What IS
- * guaranteed: each mutating request does its own writes inside ONE atomic
- * transaction, and `../liveEventRelay.ts` publishes only after that
- * transaction has committed, so a subscriber never sees an event Postgres
+ * guaranteed: a mutating request commits in several short transactions (Phase
+ * 9), and `../liveEventRelay.ts` publishes each one's events only after it has
+ * committed, so a subscriber never sees an event Postgres
  * does not durably have. What is NOT guaranteed: any serialization BETWEEN
  * requests. Fastify serves requests concurrently, each on its own pooled
  * connection, so two mutating transactions can genuinely overlap and commit

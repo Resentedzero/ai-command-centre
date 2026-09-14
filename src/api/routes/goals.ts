@@ -2,23 +2,16 @@
  * `POST /goals` — creates a Goal (attached to the seed's own fixture Project
  * — see `../../definitions/lookupSeed.ts`'s header; this MVP has no
  * project-management routes of its own), starts a Workflow Run against the
- * seeded "Research-and-Publish" Workflow Definition, then immediately calls
- * `advanceWorkflowRun` once (Ruling 3 — see `../server.ts`'s header) to kick
- * off Task A.
+ * seeded "Research-and-Publish" Workflow Definition, then drives it as far as
+ * automatically possible (bounded by its own step count) through
+ * `../../workflow/advanceWorkflowRunUntilBlocked.ts` — see `../server.ts`'s
+ * header.
  *
- * Thin pass-through, per the brief's route-structure requirement: the only
- * orchestration functions this handler calls are Unit 7's `startWorkflowRun`
- * and (via `../../workflow/advanceWorkflowRunUntilBlocked.ts` — Ruling 3 fix
- * round 1) `advanceWorkflowRun`, dispatched through
- * `../../workflow/buildInvocationSpecsForTaskDefinition.ts` (Ruling 2) — no
- * policy/budget/workflow logic is written inline here.
- *
- * Ruling 3 fix round 1: this route drives the run as far as automatically
- * possible (bounded by its own step count), not just Task A — see
- * `advanceWorkflowRunUntilBlocked.ts`'s header for why looping is safe and
- * bounded, and task-10-report.md's "Fix round 1" section for why the
- * original "call advanceWorkflowRun once" ruling left the run permanently
- * stuck after Task A with no route able to progress it.
+ * Thin pass-through: the only orchestration functions this handler calls are
+ * `startWorkflowRun` and the driver, with specs from
+ * `../../workflow/buildInvocationSpecsForTaskDefinition.ts` — no
+ * policy/budget/workflow logic is written inline here. The Goal and Workflow
+ * Run commit first, so a request that fails later has still created them.
  */
 import type { FastifyInstance } from "fastify";
 import { inArray } from "drizzle-orm";

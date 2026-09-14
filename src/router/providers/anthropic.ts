@@ -22,7 +22,7 @@
  * reconciliation consistent, per one cost model, rather than inventing a
  * second one here or having this file reach into `tierConfig.ts` itself
  * (which would blur "provider wrapper" and "V1 config" responsibilities).
- * `modelRouter.ts`'s `callModel` passes `tierConfig[route.tier].pricing`
+ * `modelRouter.ts`'s `dispatchModelCall` passes the route's pricing
  * through. Input and output are priced at SEPARATE rates (`TierPricing`,
  * imported from `../types.js` — a config-free type, so the "provider wrapper
  * never names tierConfig" rule is preserved): output costs ~5x input on the
@@ -44,8 +44,9 @@
  * closes is narrow but is a governance BYPASS, not a cosmetic one:
  *
  *   A response whose `usage` is missing ENTIRELY already failed safely —
- *   the property access throws a TypeError, the Executor's catch releases
- *   the reservation and emits `invocation_failed`. But a PARTIAL `usage`
+ *   the property access throws, and the Executor settles the reservation
+ *   (charged at its estimate: consumption unknown — DURABLE_EXECUTION §4.1)
+ *   and emits `invocation_failed`. But a PARTIAL `usage`
  *   (e.g. `{input_tokens: 5}` with no `output_tokens`) did not throw: it
  *   RESOLVED, with `tokensOut === undefined` and
  *   `costAmount = (5 + undefined) * price === NaN`. No `invocation_failed`

@@ -20,8 +20,8 @@
  *      lookup is deterministic by construction, never an arbitrary pick among
  *      several matching rows.
  *   4. If `approval.ttl` is set and has passed, return `false` immediately —
- *      a passive check at the re-authorization boundary (NOT the proactive
- *      background TTL-expiry sweep, which stays out of scope for this unit).
+ *      a passive check at the re-authorization boundary. (The proactive expiry
+ *      is `../workflow/expireStaleApprovals.ts`, via `expirePendingApproval`.)
  *   5. `capability_grants` rows matching (agentDefinitionId,
  *      agentDefinitionVersion, capabilityId), filtered in application code to
  *      those that are not revoked (`revokedAt === null`) and whose
@@ -45,7 +45,7 @@
  * Deliberately NOT checked: `approvals.status`. A `pending` or even
  * `rejected` Approval still yields `true` here if the Grant is valid,
  * unrevoked, covers the permission, the ttl hasn't passed, and the snapshot
- * is unchanged — status-checking is the CALLER's (the future Executor's)
+ * is unchanged — status-checking is the CALLER's (the Executor's resume path)
  * responsibility, not `reauthorize`'s. `reauthorize`'s stated purpose (Phase
  * 9.5) is re-checking Grant validity immediately before execution, which is
  * orthogonal to how/whether the Approval itself was resolved. This is a
@@ -290,9 +290,9 @@ export async function reauthorize(tx: DrizzleTransaction, invocationId: string):
     throw new Error(`reauthorize: no approval found for invocation "${invocationId}"`);
   }
 
-  // Passive ttl-expiry check (not the proactive background sweep, which
-  // stays out of scope): an Approval whose ttl has already passed can no
-  // longer authorize execution.
+  // Passive ttl-expiry check, independent of the sweep
+  // (`expireStaleApprovals.ts`): an Approval whose ttl has already passed can
+  // no longer authorize execution, even if the sweep has not reached it yet.
   if (approval.ttl !== null && approval.ttl.getTime() < Date.now()) {
     return false;
   }

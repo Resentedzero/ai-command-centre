@@ -6,11 +6,9 @@
  * call, documented here rather than silently assumed.
  *
  * "Active" = a `runs` row whose status is NOT in the terminal set
- * (`"completed"`, `"failed"` -- see `src/workflow/interpreter.ts`'s
- * `AdvanceResult`/`resolveStepOutcome`, the only place `runs.status` is ever
- * written a final value). Every other value the column holds today
- * (`"active"` at creation -- `src/workflow/interpreter.ts:358` -- and
- * `"awaiting_approval"` -- `src/execution/executor.ts`) represents a Run
+ * (`"completed"`, `"failed"` -- written by the Executor, `src/execution/executor.ts`).
+ * Every other value the column holds today (`"active"` at creation, by the
+ * Workflow Interpreter, and `"awaiting_approval"`) represents a Run
  * that still has live work associated with it, by construction, so nothing
  * further needs to be enumerated for the "active" side of this filter.
  *

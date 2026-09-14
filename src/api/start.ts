@@ -6,10 +6,11 @@
  * the app (`app.inject()`, or a test-local `.listen({port: 0})` for the SSE
  * suite — see that suite's own header).
  *
- * Exercising `POST /goals`'s real LLM step against this locally-running
- * server requires a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` in the
- * operator's own `.env` (see `server.ts`'s Ruling 4 note) — this script does
- * not configure or supply one.
+ * Order matters: take the single-executor lock, settle Invocations a previous
+ * process left `executing`, listen, re-drive `in_progress` Workflow Runs, then
+ * start the Approval TTL sweep. The routed default provider is the Claude
+ * subscription CLI, so a real LLM step consumes subscription quota and needs
+ * no API key.
  */
 import "dotenv/config";
 import { buildServer } from "./server.js";

@@ -6,7 +6,7 @@
  * applies here identically, mirrored against `OPENAI_API_KEY` and the
  * OpenAI SDK's chat-completions usage shape (`prompt_tokens`/
  * `completion_tokens`) — including the split input/output rates, so both
- * providers behind `callModel`'s single dispatch site share one contract.
+ * providers behind `dispatchModelCall`'s single dispatch site share one contract.
  * No tier currently routes here; the prices themselves are the caller's
  * concern, this file only applies whichever rates it is handed.
  *
