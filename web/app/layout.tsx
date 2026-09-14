@@ -10,6 +10,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <a href="/" style={{ marginRight: 12 }}>
             Overview
           </a>
+          <a href="/workflows" style={{ marginRight: 12 }}>
+            Workflows
+          </a>
           <a href="/approvals">Approvals</a>
         </nav>
         {children}

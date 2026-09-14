@@ -1,5 +1,13 @@
 /**
+ * `GET /workflow-runs` / `GET /workflow-runs/:id` (read model, 2026-09-14) and
  * `POST /workflow-runs/:id/pause` / `/resume` / `/advance`.
+ *
+ * The two GETs back spec §15.1 screen 3 (Workflow/Task view): a Workflow Run's
+ * steps in graph order, each step's Task Instance and Run, the Run's Invocation
+ * sequence with failure reasons, and its budget counters per resource unit.
+ * Before these, failure reasons, run outcomes and spend were visible only by
+ * reading the raw event feed. Read-only; amounts are returned as the exact
+ * numeric strings Postgres stores, never converted, and units are never summed.
  *
  * Ruling 3 (see `../server.ts`'s header): pause NEVER drives advancement —
  * pausing should never itself cause more work to happen. Resume re-drives the
@@ -19,9 +27,21 @@
  * Errors: a non-UUID id is 400; an unknown Workflow Run is 404; a Workflow Run
  * in the wrong state for the operation is 409.
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { workflowRuns } from "../../db/schema.js";
+import {
+  agentDefinitions,
+  budgetCounters,
+  events,
+  goals,
+  invocations,
+  runs,
+  taskDefinitions,
+  taskInstances,
+  workflowDefinitions,
+  workflowRuns,
+} from "../../db/schema.js";
+import { isLinearGraphDefinition } from "../../workflow/graphTypes.js";
 import type { ApiDeps } from "../server.js";
 import {
   pauseWorkflowRun,
@@ -56,7 +76,149 @@ async function driveWithRelay(deps: ApiDeps, workflowRunId: string, beforeAdvanc
   return { workflowRunId, status: result.status };
 }
 
+/** Reads one bookkeeping array from `workflow_runs.variables`, padded/truncated to the graph's length; anything malformed reads as null. */
+function idSlots(value: unknown, length: number): (string | null)[] {
+  const arr = Array.isArray(value) ? value : [];
+  return Array.from({ length }, (_, i) => (typeof arr[i] === "string" ? (arr[i] as string) : null));
+}
+
+async function runDetail(deps: ApiDeps, runId: string) {
+  const run = await deps.db.query.runs.findFirst({ where: eq(runs.id, runId) });
+  if (!run) return null;
+
+  const agent =
+    run.agentDefinitionId && run.agentDefinitionVersion !== null
+      ? await deps.db.query.agentDefinitions.findFirst({
+          where: and(eq(agentDefinitions.id, run.agentDefinitionId), eq(agentDefinitions.version, run.agentDefinitionVersion)),
+        })
+      : undefined;
+
+  const invocationRows = await deps.db.query.invocations.findMany({
+    where: eq(invocations.runId, runId),
+    orderBy: (i, { asc }) => asc(i.seqNo),
+  });
+  // The failure reason lives on the immutable `invocation_failed` event
+  // (already redacted at its write point), not on the invocations row.
+  const failures = await deps.db
+    .select({ invocationId: events.invocationId, payload: events.payload })
+    .from(events)
+    .where(and(eq(events.runId, runId), eq(events.eventType, "invocation_failed")));
+  const failureByInvocation = new Map(failures.map((f) => [f.invocationId, f.payload as Record<string, unknown>]));
+
+  const counters = await deps.db.query.budgetCounters.findMany({
+    where: and(eq(budgetCounters.scope, "run"), eq(budgetCounters.scopeRefId, runId)),
+    orderBy: (c, { asc }) => asc(c.resourceUnit),
+  });
+
+  return {
+    id: run.id,
+    status: run.status,
+    outcome: run.outcome ?? null,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    agent: agent ? { name: agent.name, version: agent.version } : null,
+    invocations: invocationRows.map((i) => {
+      const failure = failureByInvocation.get(i.id);
+      return {
+        id: i.id,
+        seqNo: i.seqNo,
+        kind: i.kind,
+        status: i.status,
+        startedAt: i.startedAt,
+        completedAt: i.completedAt,
+        failureReason: typeof failure?.reason === "string" ? failure.reason : null,
+        errorCode: typeof failure?.errorCode === "string" ? failure.errorCode : null,
+      };
+    }),
+    budget: counters.map((c) => ({
+      resourceUnit: c.resourceUnit,
+      limitAmount: c.limitAmount,
+      reservedAmount: c.reservedAmount,
+      consumedAmount: c.consumedAmount,
+    })),
+  };
+}
+
 export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps): void {
+  app.get("/workflow-runs", async (_request, reply) => {
+    const rows = await deps.db.query.workflowRuns.findMany({
+      orderBy: (w, { desc }) => desc(w.createdAt),
+      limit: 100,
+    });
+    const summaries = [];
+    for (const row of rows) {
+      const goal = await deps.db.query.goals.findFirst({ where: eq(goals.id, row.goalId) });
+      const definition = await deps.db.query.workflowDefinitions.findFirst({
+        where: and(eq(workflowDefinitions.id, row.workflowDefinitionId), eq(workflowDefinitions.version, row.workflowDefinitionVersion)),
+      });
+      summaries.push({
+        id: row.id,
+        status: row.status,
+        createdAt: row.createdAt,
+        completedAt: row.completedAt,
+        goal: goal ? { id: goal.id, title: goal.title } : null,
+        workflowDefinition: definition ? { name: definition.name, version: definition.version } : null,
+      });
+    }
+    return reply.send({ workflowRuns: summaries });
+  });
+
+  app.get<{ Params: { id: string } }>("/workflow-runs/:id", async (request, reply) => {
+    const workflowRunId = request.params.id;
+    if (!isUuid(workflowRunId)) {
+      return reply.status(400).send({ error: "workflow run id must be a UUID" });
+    }
+    const workflowRun = await deps.db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, workflowRunId) });
+    if (!workflowRun) {
+      return reply.status(404).send({ error: `No workflow run found for id "${workflowRunId}"` });
+    }
+
+    const goal = await deps.db.query.goals.findFirst({ where: eq(goals.id, workflowRun.goalId) });
+    const definition = await deps.db.query.workflowDefinitions.findFirst({
+      where: and(
+        eq(workflowDefinitions.id, workflowRun.workflowDefinitionId),
+        eq(workflowDefinitions.version, workflowRun.workflowDefinitionVersion)
+      ),
+    });
+    const graphSteps = definition && isLinearGraphDefinition(definition.graphDefinition) ? definition.graphDefinition.steps : [];
+    const variables = (workflowRun.variables ?? {}) as Record<string, unknown>;
+    const taskInstanceSlots = idSlots(variables.stepTaskInstanceIds, graphSteps.length);
+    const runSlots = idSlots(variables.stepRunIds, graphSteps.length);
+
+    const steps = [];
+    for (let index = 0; index < graphSteps.length; index++) {
+      const step = graphSteps[index]!;
+      const taskDefinition = await deps.db.query.taskDefinitions.findFirst({
+        where: and(eq(taskDefinitions.id, step.taskDefinitionId), eq(taskDefinitions.version, step.taskDefinitionVersion)),
+      });
+      const taskInstanceId = taskInstanceSlots[index];
+      const taskInstance = taskInstanceId
+        ? await deps.db.query.taskInstances.findFirst({ where: eq(taskInstances.id, taskInstanceId) })
+        : undefined;
+      const runId = runSlots[index];
+      steps.push({
+        index,
+        taskDefinition: taskDefinition
+          ? { id: taskDefinition.id, name: taskDefinition.name, version: taskDefinition.version }
+          : null,
+        taskInstance: taskInstance ? { id: taskInstance.id, status: taskInstance.status } : null,
+        run: runId ? await runDetail(deps, runId) : null,
+      });
+    }
+
+    return reply.send({
+      workflowRun: {
+        id: workflowRun.id,
+        status: workflowRun.status,
+        createdAt: workflowRun.createdAt,
+        completedAt: workflowRun.completedAt,
+      },
+      goal: goal ? { id: goal.id, title: goal.title, description: goal.description } : null,
+      workflowDefinition: definition ? { id: definition.id, name: definition.name, version: definition.version } : null,
+      steps,
+    });
+  });
+
   app.post<{ Params: { id: string } }>("/workflow-runs/:id/pause", async (request, reply) => {
     const workflowRunId = request.params.id;
     if (!isUuid(workflowRunId)) {

@@ -82,7 +82,16 @@ export default function ApprovalsPage() {
           <div>TTL: {approval.ttl ?? "-"}</div>
           {approval.context && (
             <div data-testid="approval-context" style={{ marginTop: 8 }}>
-              {approval.context.goal && <div>Goal: {approval.context.goal.title}</div>}
+              {approval.context.goal && (
+                <div>
+                  Goal:{" "}
+                  {approval.context.workflowRunId ? (
+                    <a href={`/workflows/${approval.context.workflowRunId}`}>{approval.context.goal.title}</a>
+                  ) : (
+                    approval.context.goal.title
+                  )}
+                </div>
+              )}
               {approval.context.capabilityName && (
                 <div>
                   Action: {approval.context.capabilityName}

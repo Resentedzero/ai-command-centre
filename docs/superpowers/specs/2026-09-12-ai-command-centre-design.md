@@ -1391,6 +1391,19 @@ tier) cost-vs-success comparison from Phase 10.5.
 **8. Memory/Artifact browser** — Artifacts and Memory Items by scope, with
 provenance chains visible (Phase 5.13/7).
 
+> **Implementation note (2026-09-14): what is built.**
+> - **Built:** screens 1 (Overview) and 4 (Approvals queue, with the goal, action,
+>   agent and a preview of the content being approved).
+> - **Screen 3 (Workflow/Task view), partly built.**
+>   - **API:** read-only `GET /workflow-runs` and `GET /workflow-runs/:id`.
+>   - **UI:** `/workflows` and `/workflows/[id]`.
+>   - **Detail content:** steps in graph order; each step's Task Instance and Run;
+>     the Run's Invocations with failure reasons and error codes; its budget
+>     counters per unit, exact amounts, never summed across units.
+>   - **Graph library:** none. The interpreter supports linear graphs only, so
+>     steps render as an ordered list; a library is warranted once branching exists.
+> - **Not built:** screens 2 (Agent Detail), 5, 6, 7 and 8.
+
 ### 15.2 UI commands vs. Invocations — not the same model
 
 Every mutating UI action — start a Goal, pause/resume/stop, edit a Definition,

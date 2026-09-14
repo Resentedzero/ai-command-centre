@@ -412,6 +412,56 @@ describe("POST /approvals/:id/reject", () => {
 // Independent-review Important 1 — concurrent approve/reject of ONE Approval
 // ---------------------------------------------------------------------------
 
+type WorkflowRunDetailBody = {
+  goal: { title: string } | null;
+  steps: Array<{
+    taskInstance: { status: string } | null;
+    run: {
+      status: string;
+      invocations: Array<{ kind: string; status: string; failureReason: string | null }>;
+      budget: Array<{ resourceUnit: string; consumedAmount: string; limitAmount: string }>;
+    } | null;
+  }>;
+};
+
+describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", () => {
+  it("lists the run and details every step, Run, Invocation and per-unit budget counter", async () => {
+    const created = await driveToTaskBAwaitingApproval("Workflow-view Goal", "workflow view report");
+
+    const list = await app.inject({ method: "GET", url: "/workflow-runs" });
+    expect(list.statusCode).toBe(200);
+    const { workflowRuns } = list.json() as { workflowRuns: Array<{ id: string; status: string; goal: { title: string } | null }> };
+    expect(workflowRuns.find((w) => w.id === created.workflowRunId)).toMatchObject({
+      status: "in_progress",
+      goal: { title: "Workflow-view Goal" },
+    });
+
+    const res = await app.inject({ method: "GET", url: `/workflow-runs/${created.workflowRunId}` });
+    expect(res.statusCode).toBe(200);
+    const detail = res.json() as WorkflowRunDetailBody;
+    expect(detail.goal).toMatchObject({ title: "Workflow-view Goal" });
+    expect(detail.steps).toHaveLength(2);
+
+    const [research, publish] = detail.steps;
+    expect(research!.taskInstance?.status).toBe("completed");
+    expect(research!.run?.status).toBe("completed");
+    expect(research!.run?.invocations.map((i) => i.kind)).toEqual(["tool", "llm", "deterministic"]);
+    expect(research!.run?.invocations.every((i) => i.status === "completed" && i.failureReason === null)).toBe(true);
+    const tokens = research!.run?.budget.find((b) => b.resourceUnit === "subscription_tokens");
+    expect(Number(tokens?.consumedAmount)).toBeGreaterThan(0);
+
+    expect(publish!.taskInstance?.status).toBe("awaiting_approval");
+    expect(publish!.run?.invocations).toEqual([expect.objectContaining({ kind: "tool", status: "awaiting_approval" })]);
+  });
+
+  it("is 400 for a malformed id and 404 for an unknown run", async () => {
+    expect((await app.inject({ method: "GET", url: "/workflow-runs/abc" })).statusCode).toBe(400);
+    expect(
+      (await app.inject({ method: "GET", url: "/workflow-runs/00000000-0000-0000-0000-000000000000" })).statusCode
+    ).toBe(404);
+  });
+});
+
 describe("POST /workflow-runs/:id/advance", () => {
   it("re-drives an in_progress run without changing anything when it is genuinely waiting on a human", async () => {
     const created = await createGoal("Advance-while-waiting Goal", "advance report");

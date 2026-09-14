@@ -157,6 +157,72 @@ export async function rejectApproval(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Workflow/Task view (spec 15.1 screen 3) — read-only
+// ---------------------------------------------------------------------------
+
+export type WorkflowRunSummary = {
+  id: string;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  goal: { id: string; title: string } | null;
+  workflowDefinition: { name: string; version: number } | null;
+};
+
+export type InvocationDetail = {
+  id: string;
+  seqNo: number;
+  kind: string;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+  failureReason: string | null;
+  errorCode: string | null;
+};
+
+/** Amounts are the exact decimal strings the API stores. Units are separate counters and are never summed. */
+export type BudgetCounterDetail = {
+  resourceUnit: string;
+  limitAmount: string;
+  reservedAmount: string;
+  consumedAmount: string;
+};
+
+export type RunDetail = {
+  id: string;
+  status: string;
+  outcome: Record<string, unknown> | null;
+  startedAt: string;
+  completedAt: string | null;
+  agent: { name: string; version: number } | null;
+  invocations: InvocationDetail[];
+  budget: BudgetCounterDetail[];
+};
+
+export type WorkflowStepDetail = {
+  index: number;
+  taskDefinition: { id: string; name: string; version: number } | null;
+  taskInstance: { id: string; status: string } | null;
+  run: RunDetail | null;
+};
+
+export type WorkflowRunDetail = {
+  workflowRun: { id: string; status: string; createdAt: string; completedAt: string | null };
+  goal: { id: string; title: string; description: string | null } | null;
+  workflowDefinition: { id: string; name: string; version: number } | null;
+  steps: WorkflowStepDetail[];
+};
+
+export async function listWorkflowRuns(): Promise<WorkflowRunSummary[]> {
+  const data = await apiFetch<{ workflowRuns: WorkflowRunSummary[] }>("/workflow-runs");
+  return data.workflowRuns;
+}
+
+export async function getWorkflowRun(id: string): Promise<WorkflowRunDetail> {
+  return apiFetch<WorkflowRunDetail>(`/workflow-runs/${encodeURIComponent(id)}`);
+}
+
+// ---------------------------------------------------------------------------
 // subscribeToActivity (Ruling 5)
 // ---------------------------------------------------------------------------
 
