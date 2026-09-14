@@ -1,7 +1,7 @@
 # Execution recovery and idempotency: Closure
 
 **Started:** 2026-09-14, after Phase 9's closure ([`POST_PHASE9_CLOSURE.md`](POST_PHASE9_CLOSURE.md)).
-**Status:** in progress. Local commits on `main`, none pushed.
+**Status:** complete (milestones A–D). Local commits on `main`, none pushed. Open items are user decisions, listed under C and D and in DURABLE_EXECUTION §7 (#13, #14, #16, #19).
 **Authoritative write-up:** [`docs/architecture/DURABLE_EXECUTION.md`](../architecture/DURABLE_EXECUTION.md).
 
 No live Claude invocations. Every dispatch-capable test mocks all three provider adapters.
@@ -87,3 +87,11 @@ Both behavioural fixes were confirmed to fail without the fix.
 | `016f58b` | A. Step failure settlement: a step whose builder or execution throws is settled (hold released, Approval state recorded, Workflow Run failed) instead of stuck |
 | `6b2a651` | B. Crash-safe tool side effects: durable `executing` claim, pre-effect re-authorization, no transaction during the effect, idempotency key to the adapter; `publishReport` atomic and idempotent |
 | `d43ea00` | C. Recovery audit fixes: Run status after approval, stranded-expiry retry, sweep timing, stop event backfill, unmasked recording errors |
+| `ea1c918` | D. Concurrency review fixes: Approval status re-read after settlement, stop attribution at the pre-effect check, unique step savepoint, `revokeCapabilityGrant` contract |
+
+## Verification (at `ea1c918`)
+
+- Backend `tsc --noEmit`: clean.
+- Backend suite: 44 files, 659 passed, 2 skipped.
+- Web `tsc --noEmit`: clean. Web suite: 6 files, 33 passed.
+- `git diff --check`: clean.
