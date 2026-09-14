@@ -35,3 +35,4 @@ Fixed order (§5.14): `instructions` (Agent Definition) → `constraints` (untru
 3. **Binding eligibility by trust.** §5.7 says "eligible Tool bindings". All bindings of a granted capability are listed; the Grant's trust bar is enforced by Policy at execution, not at compilation.
 4. **Not built:** compression (§5.9), caching (§5.11), relevance scoring (§5.3), memory (§5.6), model-window negotiation (§5.17), tokenizer-accurate estimates (`estimateTokens` is `ceil(chars / 4)`).
 5. **No separate system channel on the Claude CLI** — see the spec §5.15 implementation note.
+6. **Follow-up, not a blocker: §5.16 usage measurement.** Deterministically check which included artifact ids the output references, and record it on the completion event. Its consumers (`agent_performance`, tier-preference tuning, evaluation) are V2/V4, so it belongs with that measurement work (`docs/roadmap/ROADMAP_STATUS.md` §4).

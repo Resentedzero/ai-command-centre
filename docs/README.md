@@ -30,6 +30,7 @@ Module-level contracts live in the header comment of each source file. The root 
 
 ## 4. Planning and research (advisory, authorizes nothing)
 - [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
+- [`roadmap/ROADMAP_STATUS.md`](roadmap/ROADMAP_STATUS.md): **where the implementation actually is**, by roadmap stage (V1–V6); what the phase labels mean; current milestone; open governance decisions. Status only, not an authorization.
 - [`superpowers/plans/2026-09-12-ai-command-centre-mvp.md`](superpowers/plans/2026-09-12-ai-command-centre-mvp.md): the original MVP implementation plan.
 - `research/`: the subscription provider research, runtime spike and benchmark notes.
 - `gamification/`: the tile pack inventory.

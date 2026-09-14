@@ -1,7 +1,7 @@
 # Context Compiler hardening: Closure
 
 **Started:** 2026-09-14, after the execution recovery milestone ([`EXECUTION_RECOVERY_CLOSURE.md`](EXECUTION_RECOVERY_CLOSURE.md)).
-**Status:** complete. Local commits on `main`, none pushed.
+**Status:** closed. Local commits on `main`, none pushed. §5.16 usage measurement is follow-up work for the V2/V4 measurement stage, not a blocker (`docs/roadmap/ROADMAP_STATUS.md` §4).
 **Authoritative write-up:** [`docs/architecture/CONTEXT_COMPILER.md`](../architecture/CONTEXT_COMPILER.md).
 
 No live Claude invocations. Every dispatch-capable test mocks all three provider adapters.

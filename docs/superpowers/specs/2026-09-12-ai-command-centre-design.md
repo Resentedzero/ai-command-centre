@@ -1612,6 +1612,12 @@ infrastructure is not built merely to satisfy architectural completeness.
    producing a Report Artifact. The Capability is defined by its contract (retrieve
    information relevant to a query), not by a named external provider — its concrete
    Tool Binding (direct API, or a deterministic/local implementation where
+> **Implementation note (2026-09-14): correction.** The `memory_items` table does
+> **not** exist in the implemented schema (`src/db/schema.ts` header). The memory
+> seam is the Context Compiler's always-empty `memory` layer. The table and write
+> path arrive together, against a concrete gap (V3). Status by roadmap stage:
+> `docs/roadmap/ROADMAP_STATUS.md`.
+
    practical) is chosen at implementation time per the Phase 6 decision framework,
    and the capability boundary must survive replacing that binding entirely. Proves:
    task receipt, capability selection, tool call, structured tool output, artifact
