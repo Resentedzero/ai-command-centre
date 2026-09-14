@@ -27,10 +27,11 @@
  * Errors: a non-UUID id is 400; an unknown Workflow Run is 404; a Workflow Run
  * in the wrong state for the operation is 409.
  */
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   agentDefinitions,
+  artifacts,
   budgetCounters,
   events,
   goals,
@@ -102,6 +103,15 @@ async function runDetail(deps: ApiDeps, runId: string) {
     .where(and(eq(events.runId, runId), eq(events.eventType, "invocation_failed")));
   const failureByInvocation = new Map(failures.map((f) => [f.invocationId, f.payload as Record<string, unknown>]));
 
+  // Ids only, so screen 3 can link each Invocation's outputs to `GET /artifacts/:id`.
+  const produced = invocationRows.length
+    ? await deps.db
+        .select({ id: artifacts.id, invocationId: artifacts.producingInvocationId })
+        .from(artifacts)
+        .where(inArray(artifacts.producingInvocationId, invocationRows.map((i) => i.id)))
+        .orderBy(asc(artifacts.createdAt), asc(artifacts.id))
+    : [];
+
   const counters = await deps.db.query.budgetCounters.findMany({
     where: and(eq(budgetCounters.scope, "run"), eq(budgetCounters.scopeRefId, runId)),
     orderBy: (c, { asc }) => asc(c.resourceUnit),
@@ -128,6 +138,7 @@ async function runDetail(deps: ApiDeps, runId: string) {
         completedAt: i.completedAt,
         failureReason: typeof failure?.reason === "string" ? failure.reason : null,
         errorCode: typeof failure?.errorCode === "string" ? failure.errorCode : null,
+        artifactIds: produced.filter((a) => a.invocationId === i.id).map((a) => a.id),
       };
     }),
     budget: counters.map((c) => ({

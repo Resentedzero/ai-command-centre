@@ -65,7 +65,7 @@ Goal: an operator extends and edits the system through the API, not SQL (spec §
 
 **Not next, and why.** Memory (V3) is gated on "a concrete gap that appears in practice" and variable passing / branching on "a real workflow that needs it" (`NEXT_PHASE_PLAN.md` §10–11). Autonomy (V4/V5) needs the sample criterion (§6).
 
-**Position after 2026-09-14.** `agent_performance` and the Cost/Budget read API followed (§3). No decision-free, evidence-backed item remains: every open item is a decision in §6 or a handoff in §7. The Artifact browser API (`NEXT_PHASE_PLAN.md` §8) is small and ungated by stage but waits for "a concrete need to browse Artifacts outside" the views that already show them (Agent Detail outputs, Approval previews); none has appeared.
+**Position after 2026-09-14.** `agent_performance`, the Cost/Budget read API and the observability conformance batch followed (§3). Three spec-to-code audits found and closed the last items the spec determines (`OBSERVABILITY_CLOSURE.md`), including a single-Artifact read API (screen 8's API half) and Artifact ids on the Workflow Run detail; a browse/listing surface still waits for a need. No decision-free, evidence-backed item remains: every open item is a decision in §6 or a handoff in §7. Two engineering residuals are open but are not decisions and are low value for one operator: an SSE cursor ordered by commit rather than insert (`global_seq` is assigned at insert, so a reconnect can in principle skip a late-committing event), and an in-flight slot for a dispatch whose recording COMMIT outcome is unknown.
 
 ## 6. Decisions required (governance, not engineering)
 
@@ -107,6 +107,8 @@ UI workstream (APIs built, no UI):
 - Registry screen against `GET /registry` and the six create routes plus revocation (`CAPABILITY_PLATFORM.md` §5).
 - Agent Detail: `web/lib/api.ts` still types `performance` as `null`; the API returns rows.
 - Cost dashboard against `GET /costs` (settle field names such as `agentVersion` when typing it).
+- Run trace view against `GET /runs/:id/trace` (events in sequence order, each Invocation's context lineage).
+- Artifact view against `GET /artifacts/:id`: Agent Detail `outputs` ids and the Workflow Run detail's per-Invocation `artifactIds` (typed in `web/lib/api.ts`) link straight to it.
 
 Operator:
 - Apply migrations 0014 (unique Definition versions and Capability names; fails if duplicates were hand-inserted) and 0015 (`agent_performance`) with `npm run db:migrate`. **Applied to the local database 2026-09-14.**

@@ -69,7 +69,7 @@ describe("Workflow run detail", () => {
           completedAt: "t",
           agent: { name: "Researcher", version: 1 },
           invocations: [
-            { id: "i-1", seqNo: 1, kind: "tool", status: "completed", startedAt: "t", completedAt: "t", failureReason: null, errorCode: null },
+            { id: "i-1", seqNo: 1, kind: "tool", status: "completed", startedAt: "t", completedAt: "t", failureReason: null, errorCode: null, artifactIds: [] },
             {
               id: "i-2",
               seqNo: 2,
@@ -79,6 +79,7 @@ describe("Workflow run detail", () => {
               completedAt: "t",
               failureReason: "interrupted_outcome_unknown",
               errorCode: "timeout",
+              artifactIds: [],
             },
           ],
           budget: [

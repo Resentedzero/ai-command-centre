@@ -250,22 +250,26 @@ describe("the stop re-check just before a model dispatch (DURABLE_EXECUTION §7 
 
 describe("a failed stop lookup just before a model dispatch fails closed", () => {
   it("no provider call, the hold released, the Run failed (not halted: no stop was found)", async () => {
-    await withRollback(async (tx) => {
-      const { runId } = await seedWorkflowRun(tx);
-      const dispatch = expectDispatch(await executeRun(tx, runId, [llmSpec()]));
+    // Real transactions, not the savepoint harness: Postgres answers COMMIT of an aborted transaction with a
+    // silent ROLLBACK, where RELEASE SAVEPOINT throws, so savepoints would mask a check that swallowed the failure.
+    const { runId } = await testDb.transaction((tx) => seedWorkflowRun(tx));
+    const runInTx = transactionRunner(testDb);
+    const dispatch = expectDispatch(await runInTx((tx) => executeRun(tx, runId, [llmSpec()])));
 
-      // Make the stop lookup itself fail; the check's savepoint rolls back, the rename does not.
-      await tx.execute(sql.raw("ALTER TABLE execution_stops RENAME TO execution_stops_unavailable"));
-      await dispatchAndRecord(transactionRunner(tx), dispatch);
+    await testDb.execute(sql.raw("ALTER TABLE execution_stops RENAME TO execution_stops_unavailable"));
+    try {
+      await dispatchAndRecord(runInTx, dispatch);
+    } finally {
+      await testDb.execute(sql.raw("ALTER TABLE execution_stops_unavailable RENAME TO execution_stops"));
+    }
 
-      expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
-      expect(await tokenCounter(tx, runId)).toEqual({ reserved: 0, consumed: 0 });
-      const failed = await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `invocation_failed:${dispatch.invocationId}`) });
-      expect(failed!.payload).toMatchObject({ reservationSettlement: "released", providerConsumption: "none" });
-      const run = await tx.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
-      expect(run!.status).toBe("failed");
-      expect(await tx.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `run_halted:${runId}`) })).toBeUndefined();
-    });
+    expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
+    expect(await runInTx((tx) => tokenCounter(tx, runId))).toEqual({ reserved: 0, consumed: 0 });
+    const failed = await testDb.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `invocation_failed:${dispatch.invocationId}`) });
+    expect(failed!.payload).toMatchObject({ reservationSettlement: "released", providerConsumption: "none" });
+    const run = await testDb.query.runs.findFirst({ where: eq(schema.runs.id, runId) });
+    expect(run!.status).toBe("failed");
+    expect(await testDb.query.events.findFirst({ where: eq(schema.events.idempotencyKey, `run_halted:${runId}`) })).toBeUndefined();
   });
 });
 

@@ -21,13 +21,15 @@ The roadmap's remaining stage work is gated on evidence (V3) or decisions (§6).
 | 5 | `GET /artifacts/:id`: bounded preview, content-hash check, provenance chain, compiled contexts that included it | §15.1 screens 2 and 8, §5.13 | `api/routes/artifacts.ts` |
 | 6 | **Bug:** an approved Approval failed re-authorization once its TTL passed (a paused Workflow Run resumed later failed) | §9.5 "Unresolved Approvals past a TTL" | `governance/approvals.ts#reauthorize` |
 | 7 | **Bug:** a Grant revocation's `approval_expired` events never reached the live feed, and a reconnect could skip them | §15.3 | `api/routes/registry.ts` |
-| 8 | Emergency stops re-checked immediately before a model dispatch; a refusal releases the hold and halts the Run | §9.7, DURABLE_EXECUTION §7 #11 | `execution/executor.ts#assertModelDispatchNotStopped`, driver |
+| 8 | Emergency stops re-checked immediately before a model dispatch; a refusal releases the hold and halts the Run | §9.7, DURABLE_EXECUTION §7 #11 | `execution/executor.ts#modelDispatchRefusal`, driver |
+| 9 | Workflow Run detail returns each Invocation's produced `artifactIds`, so screen 3 can link outputs to item 5 | §15.1 screen 3 | `api/routes/workflowRuns.ts` |
+| 10 | The failed-stop-lookup test runs on real transactions (see O13) | test fidelity | `tests/execution/durableExecution.test.ts` |
 
 ## Decisions made
 
 - **`policy_evaluated` is emitted by the lifecycle wrapper, not Policy.** `policy.ts` stays free of events and budget.
 - **No risk tier on DENY.** Policy returns a placeholder there; the log must not record it as a fact.
-- **A pre-dispatch DENY is not logged as `policy_evaluated`.** It throws inside its own transaction; the refusal is recorded by the Invocation's failure (`policy_denied_before_dispatch`).
+- **A pre-dispatch refusal is logged.** The check returns its refusal instead of throwing, so its `policy_evaluated` commits; the Invocation's failure (`policy_denied_before_dispatch` and siblings) follows (review M1).
 - **`budget_denied` has no derived key.** Each refusal is its own fact.
 - **The Artifact API is a single-Artifact read, no listing.** The audit found the spec's own unmet requirement (screen 2's outputs are "linked Artifacts"); a browse/listing surface still waits for a need.
 - **An existing test that engaged a stop between the executing commit and the dispatch was moved inside the provider call.** That window is exactly what item 8 closes; the test still proves a stop during the call records the real outcome and blocks the next Invocation.
@@ -75,7 +77,10 @@ Each mutant was applied, the named tests run, and the file restored byte-for-byt
 | O6 (re-run after the review fix) no stop re-check before a model dispatch | 1 fails |
 | O11 a pre-dispatch DENY thrown again, so its evaluation rolls back (review M1) | 1 fails |
 | O12 a stop ignored on the model path | 1 fails |
-| O13 `stopRefusal` treats a failed lookup as "proceed" | passes: equivalent where reachable. A failed lookup is already an `ExecutionStoppedError` and aborts the check's savepoint, so the check cannot commit and the driver records a refusal anyway; the lookup-failure test proves no provider call is made |
+| O13 `stopRefusal` treats a failed lookup as "proceed" | passed at first, wrongly recorded as equivalent: the test ran in the savepoint harness, where `RELEASE SAVEPOINT` on the aborted check throws. In production `COMMIT` of an aborted transaction silently rolls back, the check returns "proceed" and the provider is called. The test now uses real transactions; 1 fails |
+| A1 `artifactIds` ignore the producing Invocation | passed at first (the tool's Artifact also names the LLM Invocation, via `referencedBy`); a uniqueness assertion was added |
+
+Lesson: a test asserting that a check "cannot commit" after a failed statement must run on real transactions; savepoint-based harnesses throw where production does not.
 
 ## Verification
 

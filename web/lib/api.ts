@@ -201,6 +201,8 @@ export type InvocationDetail = {
   completedAt: string | null;
   failureReason: string | null;
   errorCode: string | null;
+  /** Artifacts this Invocation produced; each resolves via `GET /artifacts/:id`. */
+  artifactIds: string[];
 };
 
 /** Amounts are the exact decimal strings the API stores. Units are separate counters and are never summed. */

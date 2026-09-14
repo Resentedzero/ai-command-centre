@@ -506,7 +506,7 @@ type WorkflowRunDetailBody = {
     taskInstance: { status: string } | null;
     run: {
       status: string;
-      invocations: Array<{ kind: string; status: string; failureReason: string | null }>;
+      invocations: Array<{ id: string; kind: string; status: string; failureReason: string | null; artifactIds: string[] }>;
       budget: Array<{ resourceUnit: string; consumedAmount: string; limitAmount: string }>;
     } | null;
   }>;
@@ -671,8 +671,19 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
     const tokens = research!.run?.budget.find((b) => b.resourceUnit === "subscription_tokens");
     expect(Number(tokens?.consumedAmount)).toBeGreaterThan(0);
 
+    // Each output is linkable: the id resolves through the Artifact API to the Invocation that produced it.
+    const llm = research!.run!.invocations.find((i) => i.kind === "llm")!;
+    expect(llm.artifactIds.length).toBeGreaterThan(0);
+    const allArtifactIds = research!.run!.invocations.flatMap((i) => i.artifactIds);
+    expect(new Set(allArtifactIds).size).toBe(allArtifactIds.length); // each Artifact under exactly one Invocation
+    for (const artifactId of llm.artifactIds) {
+      const artifact = await app.inject({ method: "GET", url: `/artifacts/${artifactId}` });
+      expect(artifact.statusCode).toBe(200);
+      expect(artifact.body).toContain(llm.id);
+    }
+
     expect(publish!.taskInstance?.status).toBe("awaiting_approval");
-    expect(publish!.run?.invocations).toEqual([expect.objectContaining({ kind: "tool", status: "awaiting_approval" })]);
+    expect(publish!.run?.invocations).toEqual([expect.objectContaining({ kind: "tool", status: "awaiting_approval", artifactIds: [] })]);
   });
 
   it("redacts a provider error's host path end to end: neither the failure event nor the detail view carries it", async () => {
