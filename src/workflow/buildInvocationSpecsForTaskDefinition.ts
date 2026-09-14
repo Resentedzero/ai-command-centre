@@ -52,8 +52,6 @@ export function buildInvocationSpecsForTaskDefinition(tx: DrizzleTransaction, se
         {
           agentDefinitionId: seed.agentDefinitionId,
           agentDefinitionVersion: seed.agentDefinitionVersion,
-          capabilityId: seed.capabilityId,
-          toolBindingId: seed.toolBindingId,
           query,
           contextBudget: DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET,
         },
@@ -67,8 +65,6 @@ export function buildInvocationSpecsForTaskDefinition(tx: DrizzleTransaction, se
         {
           agentDefinitionId: seed.publisherAgentDefinitionId,
           agentDefinitionVersion: seed.publisherAgentDefinitionVersion,
-          capabilityId: seed.publishCapabilityId,
-          toolBindingId: seed.publishToolBindingId,
           researchReportTaskDefinitionId: seed.taskDefinitionId,
           destinationRelativePath: `reports/${params.taskInstanceId}.json`,
         },

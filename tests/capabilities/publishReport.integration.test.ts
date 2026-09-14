@@ -144,8 +144,6 @@ function buildCombinedBuilder(
         {
           agentDefinitionId: seed.agentDefinitionId,
           agentDefinitionVersion: seed.agentDefinitionVersion,
-          capabilityId: seed.capabilityId,
-          toolBindingId: seed.toolBindingId,
           query: "unit 9 capstone integration query",
           contextBudget: DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET,
         },
@@ -158,8 +156,6 @@ function buildCombinedBuilder(
         {
           agentDefinitionId: seed.publisherAgentDefinitionId,
           agentDefinitionVersion: seed.publisherAgentDefinitionVersion,
-          capabilityId: seed.publishCapabilityId,
-          toolBindingId: seed.publishToolBindingId,
           researchReportTaskDefinitionId: seed.taskDefinitionId,
           destinationRelativePath: typeof destinationRelativePath === "function" ? destinationRelativePath() : destinationRelativePath,
         },

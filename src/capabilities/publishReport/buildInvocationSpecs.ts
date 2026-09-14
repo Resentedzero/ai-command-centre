@@ -57,22 +57,19 @@
 import { and, eq } from "drizzle-orm";
 import { artifacts, invocations, runs, taskInstances } from "../../db/schema.js";
 import type { DrizzleTransaction } from "../../events/emit.js";
-import type { InvocationSpec, ToolInvocationSpec } from "../../execution/types.js";
+import type { InvocationSpec } from "../../execution/types.js";
 import { bindRunAgent, findRunByTaskInstanceId } from "../shared/runProvisioning.js";
 import { provisionRunBudgets } from "../../governance/runBudgetPolicy.js";
-import { publishReport } from "./toolBinding.js";
+import { resolveToolInvocation } from "../toolAdapters.js";
+import { PUBLISH_REPORT_CAPABILITY } from "./capability.js";
 
 export type PublishReportBuilderConfig = {
   agentDefinitionId: string;
   agentDefinitionVersion: number;
-  capabilityId: string;
-  toolBindingId: string;
   /** Unit 8's "Research-Report" `task_definitions.id` — the id to find Task A's Task Instance by, within this workflow run. */
   researchReportTaskDefinitionId: string;
   /** Must be a stable, deterministic value across every call for the same run — see this module's header. */
   destinationRelativePath: string;
-  /** MVP placeholder cost for the local proof-of-governance write; see `./toolBinding.ts`'s header for why this is not a real external cost. */
-  estimatedCost?: number;
 };
 
 export type BuilderParams = {
@@ -91,7 +88,7 @@ async function findResearchReportArtifact(
   tx: DrizzleTransaction,
   workflowRunId: string,
   researchReportTaskDefinitionId: string
-): Promise<{ id: string; hash: string; inlineContent: string }> {
+): Promise<{ id: string; hash: string }> {
   const taskAInstance = await tx.query.taskInstances.findFirst({
     where: and(eq(taskInstances.workflowRunId, workflowRunId), eq(taskInstances.taskDefinitionId, researchReportTaskDefinitionId)),
   });
@@ -118,10 +115,7 @@ async function findResearchReportArtifact(
     );
   }
   const row = rows[0]!;
-  if (row.inlineContent === null) {
-    throw new Error(`buildPublishReportInvocationSpecs: report Artifact "${row.id}" has no inlineContent to publish.`);
-  }
-  return { id: row.id, hash: row.hash, inlineContent: row.inlineContent };
+  return { id: row.id, hash: row.hash };
 }
 
 export async function buildPublishReportInvocationSpecs(
@@ -146,7 +140,7 @@ export async function buildPublishReportInvocationSpecs(
     );
   }
 
-  const { id: artifactId, hash: artifactHash, inlineContent } = await findResearchReportArtifact(
+  const { id: artifactId, hash: artifactHash } = await findResearchReportArtifact(
     tx,
     ownTaskInstance.workflowRunId,
     config.researchReportTaskDefinitionId
@@ -160,25 +154,14 @@ export async function buildPublishReportInvocationSpecs(
   // it fails closed as `resume_spec_mismatch`.
   const proposedActionSnapshot = { artifactId, artifactHash, destinationRelativePath: config.destinationRelativePath };
 
-  const toolSpec: ToolInvocationSpec = {
-    kind: "tool",
-    costClass: "external_side_effect",
-    capabilityId: config.capabilityId,
+  // The Capability's current Tool Binding decides what runs (`../toolAdapters.ts`).
+  // Its adapter reads the approved bytes now and re-proves them against the
+  // approved hash when it runs, with no transaction open.
+  const toolSpec = await resolveToolInvocation(tx, {
+    capabilityName: PUBLISH_REPORT_CAPABILITY.id,
     permission: "PUBLISH",
     proposedActionSnapshot,
-    toolBindingId: config.toolBindingId,
-    estimatedCost: config.estimatedCost ?? 0.05,
-    // Runs after the `executing` commit with no transaction open, so it carries
-    // the content read above rather than a transaction to read it with.
-    // `publishReport` re-proves the bytes against the approved hash.
-    execute: async ({ idempotencyKey }) =>
-      publishReport({
-        content: inlineContent,
-        expectedHash: artifactHash,
-        destinationRelativePath: config.destinationRelativePath,
-        idempotencyKey,
-      }),
-  };
+  });
 
   return [toolSpec]; // Ruling 4: tool-only, no llm step.
 }

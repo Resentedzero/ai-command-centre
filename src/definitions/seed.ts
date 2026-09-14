@@ -56,6 +56,8 @@ import type { ContextBudget } from "../context/types.js";
 import type { LinearGraphDefinition } from "../workflow/graphTypes.js";
 import { RESEARCH_RETRIEVE_CAPABILITY } from "../capabilities/researchRetrieve/capability.js";
 import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capability.js";
+import { RESEARCH_RETRIEVE_SYNTHETIC } from "../capabilities/researchRetrieve/adapter.js";
+import { PUBLISH_REPORT_FILESYSTEM } from "../capabilities/publishReport/adapter.js";
 
 /**
  * MVP default Context Budget for the "Research-Report" Task Definition.
@@ -131,7 +133,7 @@ export async function seedResearchWorkflow(tx: DrizzleTransaction): Promise<Seed
     .values({
       capabilityId,
       kind: "internal",
-      config: {},
+      config: { function: RESEARCH_RETRIEVE_SYNTHETIC },
       trustLevel: 2,
       version: 1,
     })
@@ -316,7 +318,7 @@ export async function seedPublishWorkflow(tx: DrizzleTransaction): Promise<SeedP
     .values({
       capabilityId: publishCapabilityId,
       kind: "internal",
-      config: {},
+      config: { function: PUBLISH_REPORT_FILESYSTEM },
       trustLevel: 2,
       version: 1,
     })

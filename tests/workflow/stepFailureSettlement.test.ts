@@ -58,8 +58,6 @@ function builderFor(tx: DrizzleTransaction, seed: Seed, failStep?: { taskDefinit
         {
           agentDefinitionId: seed.agentDefinitionId,
           agentDefinitionVersion: seed.agentDefinitionVersion,
-          capabilityId: seed.capabilityId,
-          toolBindingId: seed.toolBindingId,
           query: "settlement query",
           contextBudget: DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET,
         },
@@ -71,8 +69,6 @@ function builderFor(tx: DrizzleTransaction, seed: Seed, failStep?: { taskDefinit
       {
         agentDefinitionId: seed.publisherAgentDefinitionId,
         agentDefinitionVersion: seed.publisherAgentDefinitionVersion,
-        capabilityId: seed.publishCapabilityId,
-        toolBindingId: seed.publishToolBindingId,
         researchReportTaskDefinitionId: seed.taskDefinitionId,
         destinationRelativePath: "settlement/report.json",
       },

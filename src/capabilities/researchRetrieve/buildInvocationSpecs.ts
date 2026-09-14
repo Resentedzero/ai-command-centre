@@ -28,8 +28,9 @@
  * Interpreter makes.
  *
  * The plan (`seqNo` = array position + 1):
- *   1. `"tool"` — `research.retrieve` via `retrieveResearch`. A ready-made
- *      spec; it depends on nothing earlier.
+ *   1. `"tool"` — `research.retrieve`, fulfilled by whichever Tool Binding the
+ *      Capability currently has (`../toolAdapters.ts`). A ready-made spec; it
+ *      depends on nothing earlier.
  *   2. `"llm"` — DEFERRED. `intent: "synthesize"`, `riskTier: "low"`,
  *      `taskDifficulty: "simple"`, with `candidateArtifactIds` populated from
  *      seqNo 1's ACTUAL Artifact id, supplied by the Executor at resolution
@@ -75,7 +76,8 @@ import type {
 import type { ContextBudget } from "../../context/types.js";
 import { bindRunAgent, findRunByTaskInstanceId } from "../shared/runProvisioning.js";
 import { provisionRunBudgets } from "../../governance/runBudgetPolicy.js";
-import { retrieveResearch } from "./toolBinding.js";
+import { resolveToolInvocation } from "../toolAdapters.js";
+import { RESEARCH_RETRIEVE_CAPABILITY } from "./capability.js";
 
 /**
  * This plan's fixed shape. Positions are selected by `seqNo`, never by index
@@ -88,8 +90,6 @@ const LLM_SEQ_NO = 2;
 export type ResearchReportBuilderConfig = {
   agentDefinitionId: string;
   agentDefinitionVersion: number;
-  capabilityId: string;
-  toolBindingId: string;
   query: string;
   contextBudget: ContextBudget;
 };
@@ -101,17 +101,13 @@ export type BuilderParams = {
   input: Record<string, unknown>;
 };
 
-function buildToolSpec(config: ResearchReportBuilderConfig): ToolInvocationSpec {
-  return {
-    kind: "tool",
-    costClass: "metered_api",
-    capabilityId: config.capabilityId,
+/** seqNo 1: the Capability's current Tool Binding decides what runs (`../toolAdapters.ts`). */
+async function buildToolSpec(tx: DrizzleTransaction, config: ResearchReportBuilderConfig): Promise<ToolInvocationSpec> {
+  return await resolveToolInvocation(tx, {
+    capabilityName: RESEARCH_RETRIEVE_CAPABILITY.id,
     permission: "READ",
     proposedActionSnapshot: { query: config.query },
-    toolBindingId: config.toolBindingId,
-    estimatedCost: 0.01,
-    execute: async () => await retrieveResearch(config.query),
-  };
+  });
 }
 
 /**
@@ -206,5 +202,5 @@ export async function buildResearchReportInvocationSpecs(
 
   // Fixed length, fixed order, decided here and now — nothing below can change
   // how many Invocations this Run has, only what positions 2 and 3 contain.
-  return [buildToolSpec(config), llmSpec, reportSpec];
+  return [await buildToolSpec(tx, config), llmSpec, reportSpec];
 }

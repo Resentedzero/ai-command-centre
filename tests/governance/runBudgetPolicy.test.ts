@@ -124,8 +124,6 @@ describe("the real production builder cannot self-authorize", () => {
         {
           agentDefinitionId: seed.agentDefinitionId,
           agentDefinitionVersion: seed.agentDefinitionVersion,
-          capabilityId: seed.capabilityId,
-          toolBindingId: seed.toolBindingId,
           query: "q",
           contextBudget: DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET,
           // A capability trying to grant itself more. The option no longer

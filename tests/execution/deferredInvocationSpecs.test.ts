@@ -424,8 +424,6 @@ describe("buildResearchReportInvocationSpecs no longer executes anything itself"
         {
           agentDefinitionId: seed.agentDefinitionId,
           agentDefinitionVersion: seed.agentDefinitionVersion,
-          capabilityId: seed.capabilityId,
-          toolBindingId: seed.toolBindingId,
           query: "finding 4 builder purity",
           contextBudget: DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET,
         },

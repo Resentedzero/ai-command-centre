@@ -119,6 +119,9 @@ describe("no tool side effect inside a transaction", () => {
     // Deterministic and retrieval specs are internal and still run in the
     // Executor's transaction; every tool spec's execute is dispatched.
     expect(executeCallers.sort()).toEqual([
+      // The adapter call inside a Tool Invocation spec's `execute` closure: it
+      // runs only when that closure does, i.e. from performToolDispatch.
+      "capabilities/toolAdapters.ts#resolveToolInvocation:fn",
       "execution/executor.ts#processGenericSpec:spec",
       "workflow/advanceWorkflowRunUntilBlocked.ts#performToolDispatch:dispatch",
     ]);
