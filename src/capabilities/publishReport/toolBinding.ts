@@ -38,6 +38,7 @@
  * `./buildInvocationSpecs.ts`, which closes over whatever `tx` it already has
  * — so nothing about the frozen Executor/InvocationSpec interfaces changes.
  */
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { eq } from "drizzle-orm";
@@ -104,7 +105,15 @@ function assertSafeDestination(publishedRoot: string, destinationRelativePath: s
 export async function publishReport(
   tx: DrizzleTransaction,
   artifactId: string,
-  destinationRelativePath: string
+  destinationRelativePath: string,
+  /**
+   * The sha256 of the content the Approval was granted for (2026-09-14), pinned
+   * in `proposedActionSnapshot.artifactHash`. REQUIRED: nothing is published
+   * without it. The Approval names the artifact by id; the pin is what proves
+   * the bytes written are the bytes that were approved, rather than whatever the
+   * id resolves to at execution time.
+   */
+  expectedHash: string
 ): Promise<{ publishedPath: string }> {
   const artifactRoot = process.env.ARTIFACT_ROOT;
   if (!artifactRoot) {
@@ -119,6 +128,15 @@ export async function publishReport(
   }
   if (artifact.inlineContent === null) {
     throw new Error(`publishReport: artifact "${artifactId}" has no inlineContent to publish.`);
+  }
+  // Recomputed from the bytes about to be written — never taken from the stored
+  // `hash` column, which would not catch content altered without its hash.
+  const actualHash = createHash("sha256").update(artifact.inlineContent).digest("hex");
+  if (actualHash !== expectedHash) {
+    throw new Error(
+      `publishReport: artifact "${artifactId}" no longer matches the content that was approved ` +
+        "(content hash mismatch); refusing to publish."
+    );
   }
 
   await mkdir(path.dirname(destination), { recursive: true });

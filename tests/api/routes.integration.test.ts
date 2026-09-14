@@ -310,6 +310,22 @@ describe("GET /approvals", () => {
       destinationRelativePath: expect.any(String),
     });
     expect(found?.riskTier).toBeDefined();
+
+    // Spec 9.5 / 15.1: the operator sees what they are approving — the Goal, the
+    // exact action, and the content itself, with proof it is what would publish.
+    expect(found?.proposedActionSnapshot).toMatchObject({ artifactHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(found?.context).toMatchObject({
+      goal: { title: "Approvals-list Goal" },
+      capabilityName: expect.any(String),
+      permission: "PUBLISH",
+      workflowRunId: created.workflowRunId,
+      artifact: {
+        type: "report",
+        truncated: false,
+        hashMatchesSnapshot: true,
+        preview: expect.stringContaining("approvals list report"),
+      },
+    });
   });
 });
 

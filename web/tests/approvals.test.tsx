@@ -91,4 +91,62 @@ describe("Approvals page", () => {
     await waitFor(() => expect(screen.queryByTestId("approval-row")).not.toBeInTheDocument());
     expect(approveApproval).not.toHaveBeenCalled();
   });
+
+  it("shows what the approval gates: goal, action, agent, and the content preview rendered as text", async () => {
+    const withContext: ApprovalData = {
+      ...approvalA,
+      context: {
+        capabilityName: "publish.report",
+        permission: "PUBLISH",
+        agent: { name: "Publisher", version: 1 },
+        goal: { id: "goal-1", title: "Compare EV batteries" },
+        workflowRunId: "wr-1",
+        runId: "run-1",
+        artifact: {
+          id: "art-1",
+          type: "report",
+          size: 42,
+          hash: "a".repeat(64),
+          preview: '<b>not markup</b> {"report":"the draft"}',
+          truncated: true,
+          hashMatchesSnapshot: true,
+        },
+      },
+    };
+    listPendingApprovals.mockResolvedValueOnce([withContext]);
+
+    render(<ApprovalsPage />);
+
+    const context = await screen.findByTestId("approval-context");
+    expect(context).toHaveTextContent("Compare EV batteries");
+    expect(context).toHaveTextContent("publish.report (PUBLISH)");
+    expect(context).toHaveTextContent("Publisher v1");
+    expect(context).toHaveTextContent("(preview truncated)");
+    // Model output is shown literally, never interpreted as HTML.
+    const preview = screen.getByTestId("approval-preview");
+    expect(preview).toHaveTextContent('<b>not markup</b> {"report":"the draft"}');
+    expect(preview.querySelector("b")).toBeNull();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("warns when the content no longer matches what was proposed", async () => {
+    listPendingApprovals.mockResolvedValueOnce([
+      {
+        ...approvalA,
+        context: {
+          capabilityName: "publish.report",
+          permission: "PUBLISH",
+          agent: null,
+          goal: null,
+          workflowRunId: null,
+          runId: null,
+          artifact: { id: "art-1", type: "report", size: 5, hash: "b".repeat(64), preview: "later", truncated: false, hashMatchesSnapshot: false },
+        },
+      },
+    ]);
+
+    render(<ApprovalsPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no longer matches/);
+  });
 });

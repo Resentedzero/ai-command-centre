@@ -80,6 +80,37 @@ export default function ApprovalsPage() {
           <div>Resolved at: {approval.resolvedAt ?? "-"}</div>
           <div>Resolved by: {approval.resolvedBy ?? "-"}</div>
           <div>TTL: {approval.ttl ?? "-"}</div>
+          {approval.context && (
+            <div data-testid="approval-context" style={{ marginTop: 8 }}>
+              {approval.context.goal && <div>Goal: {approval.context.goal.title}</div>}
+              {approval.context.capabilityName && (
+                <div>
+                  Action: {approval.context.capabilityName}
+                  {approval.context.permission ? ` (${approval.context.permission})` : ""}
+                </div>
+              )}
+              {approval.context.agent && (
+                <div>
+                  Agent: {approval.context.agent.name} v{approval.context.agent.version}
+                </div>
+              )}
+              {approval.context.artifact && (
+                <div>
+                  <strong>Content to be acted on</strong> ({approval.context.artifact.type}, {approval.context.artifact.size} bytes)
+                  {approval.context.artifact.hashMatchesSnapshot === false && (
+                    <p role="alert" style={{ color: "#b00020" }}>
+                      Warning: this content no longer matches what was proposed; approving will fail.
+                    </p>
+                  )}
+                  {/* Model output: rendered as text by React, never as HTML. */}
+                  <pre data-testid="approval-preview" style={{ whiteSpace: "pre-wrap", background: "#fafafa", padding: 8 }}>
+                    {approval.context.artifact.preview ?? "(no inline content)"}
+                  </pre>
+                  {approval.context.artifact.truncated && <div>(preview truncated)</div>}
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <strong>Proposed action:</strong>
             <pre style={{ whiteSpace: "pre-wrap", background: "#f5f5f5", padding: 8 }}>

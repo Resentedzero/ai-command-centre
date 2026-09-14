@@ -15,7 +15,18 @@
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
-import { approvals, invocations, runs, taskInstances } from "../../db/schema.js";
+import { createHash } from "node:crypto";
+import {
+  agentDefinitions,
+  approvals,
+  artifacts,
+  capabilities,
+  goals,
+  invocations,
+  runs,
+  taskInstances,
+  workflowRuns,
+} from "../../db/schema.js";
 import type { ApiDeps } from "../server.js";
 import { resolveApproval, ApprovalAlreadyResolvedError, ApprovalNotFoundError } from "../../governance/approvals.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
@@ -52,6 +63,72 @@ import { isUuid } from "../requestGuards.js";
  * identities arrive, this constant is the single place they replace.
  */
 export const V1_RESOLUTION_ACTOR = "human:operator";
+
+/** Characters of artifact content shown with an Approval. Enough to judge a report; bounded for the list response. */
+export const APPROVAL_PREVIEW_CHARS = 2_000;
+
+/**
+ * What an Approval gates, assembled for the human deciding it (spec §9.5: the
+ * exact action must be identifiable; §15.1 screen 4: the Invocation/Run it
+ * gates). Before this the queue showed only `{artifactId, destinationRelativePath}`
+ * — an operator approved publishing content they could not see.
+ *
+ * `artifact.preview` is model output shown to a human: the UI renders it as
+ * text (never HTML). `hashMatchesSnapshot` compares the artifact's CURRENT
+ * content to the hash pinned in the snapshot (null when no hash is pinned), so
+ * the operator can see the preview is what would actually be published.
+ */
+async function approvalContext(deps: ApiDeps, approval: typeof approvals.$inferSelect) {
+  const invocation = await deps.db.query.invocations.findFirst({ where: eq(invocations.id, approval.invocationId) });
+  const run = invocation ? await deps.db.query.runs.findFirst({ where: eq(runs.id, invocation.runId) }) : undefined;
+  const taskInstance = run
+    ? await deps.db.query.taskInstances.findFirst({ where: eq(taskInstances.id, run.taskInstanceId) })
+    : undefined;
+  const workflowRun = taskInstance?.workflowRunId
+    ? await deps.db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, taskInstance.workflowRunId) })
+    : undefined;
+  const goal = workflowRun ? await deps.db.query.goals.findFirst({ where: eq(goals.id, workflowRun.goalId) }) : undefined;
+  const capability = invocation?.capabilityId
+    ? await deps.db.query.capabilities.findFirst({ where: eq(capabilities.id, invocation.capabilityId) })
+    : undefined;
+  const agent =
+    run?.agentDefinitionId && run.agentDefinitionVersion !== null
+      ? await deps.db.query.agentDefinitions.findFirst({
+          where: and(eq(agentDefinitions.id, run.agentDefinitionId), eq(agentDefinitions.version, run.agentDefinitionVersion)),
+        })
+      : undefined;
+
+  const snapshot = (approval.proposedActionSnapshot ?? {}) as Record<string, unknown>;
+  let artifact = null;
+  if (isUuid(snapshot.artifactId)) {
+    const row = await deps.db.query.artifacts.findFirst({ where: eq(artifacts.id, snapshot.artifactId) });
+    if (row) {
+      const content = row.inlineContent;
+      artifact = {
+        id: row.id,
+        type: row.type,
+        size: row.size,
+        hash: row.hash,
+        preview: content === null ? null : content.slice(0, APPROVAL_PREVIEW_CHARS),
+        truncated: content !== null && content.length > APPROVAL_PREVIEW_CHARS,
+        hashMatchesSnapshot:
+          typeof snapshot.artifactHash !== "string" || content === null
+            ? null
+            : createHash("sha256").update(content).digest("hex") === snapshot.artifactHash,
+      };
+    }
+  }
+
+  return {
+    capabilityName: capability?.name ?? null,
+    permission: invocation?.permission ?? null,
+    agent: agent ? { name: agent.name, version: agent.version } : null,
+    goal: goal ? { id: goal.id, title: goal.title } : null,
+    workflowRunId: taskInstance?.workflowRunId ?? null,
+    runId: run?.id ?? null,
+    artifact,
+  };
+}
 
 /** Approval -> Invocation -> Run -> Task Instance -> workflowRunId (Ruling 3's own stated lookup path), read-only, BEFORE any mutation. */
 async function lookupApprovalWorkflowRunId(
@@ -172,7 +249,12 @@ export function registerApprovalsRoutes(app: FastifyInstance, deps: ApiDeps): vo
       where: and(eq(approvals.status, "pending"), or(isNull(approvals.ttl), gt(approvals.ttl, new Date()))),
       orderBy: (a, { asc }) => asc(a.createdAt),
     });
-    return reply.send({ approvals: pending });
+    // Additive: every existing field is unchanged; `context` is new.
+    const withContext = [];
+    for (const approval of pending) {
+      withContext.push({ ...approval, context: await approvalContext(deps, approval) });
+    }
+    return reply.send({ approvals: withContext });
   });
 
   registerResolveRoute(app, deps, "approved", "/approvals/:id/approve");

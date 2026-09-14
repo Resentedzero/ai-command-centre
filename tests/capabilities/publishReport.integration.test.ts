@@ -57,6 +57,7 @@ import {
 // Phase 9: advanceWorkflowRun yields at each LLM Invocation; this drives it to
 // the next real boundary exactly as the production driver does.
 import { advanceWorkflowRunToBoundary as advanceWorkflowRun } from "../helpers/driveToBoundary.js";
+import { createHash as sha256Hash } from "node:crypto";
 import { seedPublishWorkflow, DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET } from "../../src/definitions/seed.js";
 import { buildResearchReportInvocationSpecs } from "../../src/capabilities/researchRetrieve/buildInvocationSpecs.js";
 import { buildPublishReportInvocationSpecs } from "../../src/capabilities/publishReport/buildInvocationSpecs.js";
@@ -318,8 +319,11 @@ describe("Task A -> Task B artifact hand-off (by reference)", () => {
       const snapshot = finalState.invocation!.proposedActionSnapshot as PublishSnapshot;
       expect(snapshot.artifactId).toBe(midState.reportArtifactId); // BY REFERENCE, same id
       expect(snapshot.destinationRelativePath).toBe(destinationRelativePath);
-      // Never duplicated inline: the snapshot is exactly {artifactId, destinationRelativePath}, nothing else.
-      expect(Object.keys(snapshot).sort()).toEqual(["artifactId", "destinationRelativePath"]);
+      // Never duplicated inline: the snapshot is exactly {artifactId, artifactHash,
+      // destinationRelativePath}. The hash pins WHICH content was approved without
+      // carrying the content itself — it is the report's own sha256 digest.
+      expect(Object.keys(snapshot).sort()).toEqual(["artifactHash", "artifactId", "destinationRelativePath"]);
+      expect((snapshot as Record<string, unknown>).artifactHash).toBe(reportArtifactRow!.hash);
       expect(JSON.stringify(snapshot)).not.toContain(reportArtifactRow!.inlineContent!);
     });
   });
@@ -414,7 +418,13 @@ describe("Approval creation carries the exact snapshot", () => {
 
       const { invocation, approval, reportArtifactId } = await getWorkflowState(tx, seed, workflowRunId);
       expect(approval?.status).toBe("pending");
-      expect(approval?.proposedActionSnapshot).toEqual({ artifactId: reportArtifactId, destinationRelativePath });
+      // The Approval pins the report's content hash, so it is for these exact bytes.
+      const report = await tx.query.artifacts.findFirst({ where: eq(schema.artifacts.id, reportArtifactId!) });
+      expect(approval?.proposedActionSnapshot).toEqual({
+        artifactId: reportArtifactId,
+        artifactHash: report!.hash,
+        destinationRelativePath,
+      });
       expect(invocation?.proposedActionSnapshot).toEqual(approval?.proposedActionSnapshot);
     });
   });
@@ -523,10 +533,20 @@ describe("Material-change invalidation, end-to-end", () => {
         await resolveApproval(tx, approval!.id, "approved", "reviewer");
 
         // Tamper the STORED invocation snapshot to the NEW (tampered) value...
+        // Only the destination changes: the id and the pinned content hash are
+        // kept, so the stored snapshot still equals what the builder rebuilds
+        // below and the spec-vs-stored pre-check passes — leaving reauthorize's
+        // comparison against the Approval's frozen snapshot as the guard that fires.
         const original = invocation!.proposedActionSnapshot as PublishSnapshot;
         await tx
           .update(schema.invocations)
-          .set({ proposedActionSnapshot: { artifactId: original.artifactId, destinationRelativePath: tamperedDestination } })
+          .set({
+            proposedActionSnapshot: {
+              artifactId: original.artifactId,
+              artifactHash: (original as Record<string, unknown>).artifactHash,
+              destinationRelativePath: tamperedDestination,
+            },
+          })
           .where(eq(schema.invocations.id, invocation!.id));
 
         // ...and flip the builder's own knob to that SAME tampered value, so
@@ -583,8 +603,12 @@ describe("Full governance chain integration", () => {
         expect(initial.invocation?.permission).toBe("PUBLISH");
         expect(initial.invocation?.status).toBe("awaiting_approval");
         expect(initial.approval?.status).toBe("pending");
+        const initialReport = await tx.query.artifacts.findFirst({
+          where: eq(schema.artifacts.id, initial.reportArtifactId!),
+        });
         expect(initial.approval?.proposedActionSnapshot).toEqual({
           artifactId: initial.reportArtifactId,
+          artifactHash: initialReport!.hash,
           destinationRelativePath,
         });
         expect(initial.approval?.riskTier).toBe("highest"); // staticRiskTag "highest" floors it; no escalators fire.
@@ -626,7 +650,8 @@ describe("Full governance chain integration", () => {
         expect(callOrder).toEqual(["reauthorize:true", "reserveBudget:true"]);
 
         expect(publishSpy).toHaveBeenCalledTimes(1);
-        expect(publishSpy).toHaveBeenCalledWith(tx, initial.reportArtifactId, destinationRelativePath);
+        // Called with the hash pinned in the Approval — the content it was approved for.
+        expect(publishSpy).toHaveBeenCalledWith(tx, initial.reportArtifactId, destinationRelativePath, initialReport!.hash);
 
         // The real side effect actually happened.
         const publishedPath = publishedPathFor(destinationRelativePath);
@@ -821,7 +846,7 @@ describe("Structural: publishReport's destination is always local, relative, und
         .insert(schema.artifacts)
         .values({ type: "report", version: 1, hash: "x", size: 1, inlineContent: "{}" })
         .returning();
-      await expect(publishReport(tx, artifact!.id, "../../escape.json")).rejects.toThrow(/\.\.|traversal/i);
+      await expect(publishReport(tx, artifact!.id, "../../escape.json", artifact!.hash)).rejects.toThrow(/\.\.|traversal/i);
     });
   });
 
@@ -831,8 +856,8 @@ describe("Structural: publishReport's destination is always local, relative, und
         .insert(schema.artifacts)
         .values({ type: "report", version: 1, hash: "x", size: 1, inlineContent: "{}" })
         .returning();
-      await expect(publishReport(tx, artifact!.id, "C:\\Windows\\escape.json")).rejects.toThrow(/absolute|traversal/i);
-      await expect(publishReport(tx, artifact!.id, "/etc/escape.json")).rejects.toThrow(/absolute|traversal/i);
+      await expect(publishReport(tx, artifact!.id, "C:\\Windows\\escape.json", artifact!.hash)).rejects.toThrow(/absolute|traversal/i);
+      await expect(publishReport(tx, artifact!.id, "/etc/escape.json", artifact!.hash)).rejects.toThrow(/absolute|traversal/i);
     });
   });
 
@@ -842,7 +867,13 @@ describe("Structural: publishReport's destination is always local, relative, und
         .insert(schema.artifacts)
         .values({ type: "report", version: 1, hash: "x", size: Buffer.byteLength("hello"), inlineContent: "hello" })
         .returning();
-      const { publishedPath } = await publishReport(tx, artifact!.id, "structural/hello.txt");
+      // The expected hash is recomputed from content by publishReport, so it must be the real one.
+      const { publishedPath } = await publishReport(
+        tx,
+        artifact!.id,
+        "structural/hello.txt",
+        sha256Hash("sha256").update("hello").digest("hex")
+      );
       PUBLISHED_FILES.push(publishedPath);
       const expectedRoot = path.resolve(process.env.ARTIFACT_ROOT!, "published");
       expect(publishedPath.startsWith(expectedRoot + path.sep)).toBe(true);
@@ -854,6 +885,22 @@ describe("Structural: publishReport's destination is always local, relative, und
 // ---------------------------------------------------------------------------
 // 11. Structural: capability.ts stays implementation-agnostic
 // ---------------------------------------------------------------------------
+
+describe("publishReport publishes only the approved content", () => {
+  it("refuses content whose hash does not match the one pinned at approval, and writes nothing", async () => {
+    await withRollback(async (tx) => {
+      const [artifact] = await tx
+        .insert(schema.artifacts)
+        .values({ type: "report", version: 1, hash: "stale", size: 5, inlineContent: "later" })
+        .returning();
+      const destinationRelativePath = "hash-pin/refused.txt";
+      const approvedHash = sha256Hash("sha256").update("originally approved content").digest("hex");
+
+      await expect(publishReport(tx, artifact!.id, destinationRelativePath, approvedHash)).rejects.toThrow(/hash mismatch/);
+      expect(existsSync(publishedPathFor(destinationRelativePath))).toBe(false);
+    });
+  });
+});
 
 describe("structural: capability.ts contains no reference to the concrete implementation in toolBinding.ts", () => {
   it("has no import of toolBinding.ts and no mention of its function name or implementation details", () => {

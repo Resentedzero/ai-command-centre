@@ -755,6 +755,19 @@ Invocation proposed -> Policy = REQUIRE_APPROVAL
 > **Tool binding re-check on resume.** On resume, Policy is re-evaluated against the
 > Tool Binding persisted with the Invocation. A binding whose trust has fallen
 > below the Grant's bar is denied before execution.
+>
+> **What an Approval is for.**
+> - **Hash pin.** The `publish.report` snapshot pins the content's sha256
+>   (`artifactHash`) alongside the artifact id. `publishReport` recomputes the hash
+>   from the bytes it is about to write, and refuses on a mismatch. The Approval is
+>   therefore for those exact bytes, not whatever the id resolves to later.
+> - **Old approvals.** An Approval created before the pin existed fails closed on
+>   resume, as a spec mismatch.
+> - **Context for the operator.** `GET /approvals` adds the context the human needs
+>   to decide: the Goal, the capability and permission, and the agent. It also
+>   includes a bounded preview of the referenced content, with whether that
+>   content still matches the pinned hash. The UI renders the preview as text,
+>   never as HTML.
 
 Any parameter change after Approval creation invalidates it; execution must match the
 snapshot exactly. Unresolved Approvals past a TTL auto-resolve to reject

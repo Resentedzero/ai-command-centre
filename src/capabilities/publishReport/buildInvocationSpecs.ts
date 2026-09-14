@@ -82,12 +82,16 @@ export type BuilderParams = {
   input: Record<string, unknown>;
 };
 
-/** Ruling 2's cross-step lookup — see module header. Throws (fails closed) unless exactly one "report" Artifact is found. */
-async function findResearchReportArtifactId(
+/**
+ * Ruling 2's cross-step lookup — see module header. Throws (fails closed) unless
+ * exactly one "report" Artifact is found. Returns its content hash too, which is
+ * pinned into the Approval's snapshot (see `buildPublishReportInvocationSpecs`).
+ */
+async function findResearchReportArtifact(
   tx: DrizzleTransaction,
   workflowRunId: string,
   researchReportTaskDefinitionId: string
-): Promise<string> {
+): Promise<{ id: string; hash: string }> {
   const taskAInstance = await tx.query.taskInstances.findFirst({
     where: and(eq(taskInstances.workflowRunId, workflowRunId), eq(taskInstances.taskDefinitionId, researchReportTaskDefinitionId)),
   });
@@ -103,7 +107,7 @@ async function findResearchReportArtifactId(
   }
 
   const rows = await tx
-    .select({ id: artifacts.id })
+    .select({ id: artifacts.id, hash: artifacts.hash })
     .from(artifacts)
     .innerJoin(invocations, eq(artifacts.producingInvocationId, invocations.id))
     .where(and(eq(invocations.runId, taskARun.id), eq(artifacts.type, "report")));
@@ -113,7 +117,7 @@ async function findResearchReportArtifactId(
       `buildPublishReportInvocationSpecs: expected exactly one "report"-type Artifact for Task A's run "${taskARun.id}", found ${rows.length}.`
     );
   }
-  return rows[0]!.id;
+  return rows[0]!;
 }
 
 export async function buildPublishReportInvocationSpecs(
@@ -138,10 +142,19 @@ export async function buildPublishReportInvocationSpecs(
     );
   }
 
-  const artifactId = await findResearchReportArtifactId(tx, ownTaskInstance.workflowRunId, config.researchReportTaskDefinitionId);
+  const { id: artifactId, hash: artifactHash } = await findResearchReportArtifact(
+    tx,
+    ownTaskInstance.workflowRunId,
+    config.researchReportTaskDefinitionId
+  );
 
-  // Ruling 5: an ID REFERENCE, never the report's content itself.
-  const proposedActionSnapshot = { artifactId, destinationRelativePath: config.destinationRelativePath };
+  // Ruling 5: an ID REFERENCE, never the report's content itself — plus the
+  // content's HASH (2026-09-14), so the Approval is for these exact bytes and
+  // `publishReport` refuses anything else. Artifacts are immutable, so the hash
+  // is as deterministic across resumes as the id (the builder contract holds).
+  // An Approval created before this pin existed has no `artifactHash`; resuming
+  // it fails closed as `resume_spec_mismatch`.
+  const proposedActionSnapshot = { artifactId, artifactHash, destinationRelativePath: config.destinationRelativePath };
 
   const toolSpec: ToolInvocationSpec = {
     kind: "tool",
@@ -152,7 +165,7 @@ export async function buildPublishReportInvocationSpecs(
     toolBindingId: config.toolBindingId,
     estimatedCost: config.estimatedCost ?? 0.05,
     execute: async () => {
-      const { publishedPath } = await publishReport(tx, artifactId, config.destinationRelativePath);
+      const { publishedPath } = await publishReport(tx, artifactId, config.destinationRelativePath, artifactHash);
       return { publishedPath };
     },
   };

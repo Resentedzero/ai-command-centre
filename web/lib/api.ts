@@ -65,6 +65,28 @@ export type ApprovalData = {
   resolvedAt: string | null;
   resolvedBy: string | null;
   ttl: string | null;
+  /** What the approval gates and what it would act on, assembled by the API. Optional so older responses still type-check. */
+  context?: ApprovalContext;
+};
+
+export type ApprovalContext = {
+  capabilityName: string | null;
+  permission: string | null;
+  agent: { name: string; version: number } | null;
+  goal: { id: string; title: string } | null;
+  workflowRunId: string | null;
+  runId: string | null;
+  artifact: {
+    id: string;
+    type: string;
+    size: number;
+    hash: string;
+    /** Model output: always rendered as text, never HTML. */
+    preview: string | null;
+    truncated: boolean;
+    /** Whether the artifact's current content still matches the hash pinned in the snapshot; null when none is pinned. */
+    hashMatchesSnapshot: boolean | null;
+  } | null;
 };
 
 /**
