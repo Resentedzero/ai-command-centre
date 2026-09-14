@@ -20,6 +20,7 @@ Module-level contracts live in the header comment of each source file. The root 
 ## 3. Development records: phase closures and reviews
 - [`development/PHASE8_CLOSURE.md`](development/PHASE8_CLOSURE.md): Phase 8, runtime containment. Emergency stop, DAY budget, run budgets, quota telemetry, deferred decisions.
 - [`development/PHASE8_REVIEW.md`](development/PHASE8_REVIEW.md): independent review of Phase 8.
+- [`development/POST_PHASE9_CLOSURE.md`](development/POST_PHASE9_CLOSURE.md): Phase 9 durable execution and the hardening that followed. Lists the commits, decisions made, review dispositions, residuals, and decisions still required.
 
 ## 4. Planning and research (advisory, authorizes nothing)
 - [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
