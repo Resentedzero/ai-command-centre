@@ -113,6 +113,10 @@ Surfaced by the second round of spec-to-code audits (not decisions; recorded so 
 - **Packing to the chosen model's window** (§5.17, §10.7 Pass 2) needs each candidate's verified context window, which `tierConfig.ts` does not record; the Compiler packs to `maxInputTokens` alone. No effect at current budgets (8,000 input tokens). Needs verified model data, not a guess.
 - **`retrieval` Invocations reserve no budget** (Phase 4: the Governor is consulted for every Invocation). No plan emits one today. Either give `RetrievalInvocationSpec` an estimate and unit, or make `local_retrieval` free like `deterministic` in the spec; both change a contract, so it waits for the first retrieval Invocation.
 - **A deadline for executing an approved action.** Spec §9.5's TTL expires unresolved Approvals, and since 2026-09-14 an approved Approval keeps authorizing past it (a paused Workflow Run resumed later no longer fails). Nothing now limits how long after approval the action may run; the Grant, revocation, snapshot and Policy re-checks still apply at execution. Options: no limit (current), or a separate approved-to-execution deadline and its value.
+Surfaced by the third audit round (Phase 20, Phase 2/4/6, §9.6, §17):
+- **CI** (§17.1 "lightweight GitHub Actions (lint, typecheck, test on push)"). Not built: it is new infrastructure that only runs on push (both need authorization), and "lint" needs a linter chosen (none is installed). A workflow would run `npm ci`, `tsc --noEmit` and `npm test` against a Postgres service with `TEST_DATABASE_URL`.
+- **What "Elevated (Class 4) tier" means for an unverified binding** (Phase 6). `risk.ts` raises the risk tier one step; the spec never defines "Class 4", which could mean `highest`. Policy already requires approval for every unverified-binding action, so only the recorded `riskTier` would change.
+- Fixed in this round: failure-text redaction now removes every `sk-` key shape and bearer tokens (§9.8 note), not only `sk-ant-`/`sk-proj-`.
 
 ## 7. Handoffs and operator actions
 
@@ -125,3 +129,4 @@ UI workstream (APIs built, no UI):
 
 Operator:
 - Apply migrations 0014 (unique Definition versions and Capability names; fails if duplicates were hand-inserted), 0015 (`agent_performance`) and 0016 (events immutable) with `npm run db:migrate`. **All three applied to the local database 2026-09-14.**
+- Back up and prove the restore (spec Phase 20 #5: only a restored backup is a mitigation). The Postgres client tools are in `C:\Program Files\PostgreSQL\18\bin` (not on `PATH`). Dump: `pg_dump --dbname="<DATABASE_URL>" -Fc -f acc-YYYYMMDD.dump`, kept off this disk. Restore check: `psql "<server>/postgres" -c "create database ai_command_centre_restore_check"`, `pg_restore --no-owner --dbname="<server>/ai_command_centre_restore_check" acc-YYYYMMDD.dump`, compare `select count(*) from events` with the live database, then drop the scratch database. Run end to end against the local database 2026-09-14 (4 events restored, both immutability triggers present). How often, and where dumps are kept, is the operator's choice.

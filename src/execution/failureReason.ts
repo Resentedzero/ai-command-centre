@@ -25,7 +25,9 @@ export function redactFailureText(text: string): string {
   if (/\bFailed query:/i.test(text)) return DATABASE_ERROR_REASON;
 
   let out = text
-    .replace(/sk-(?:ant|proj)-[A-Za-z0-9_-]+/g, "[REDACTED-KEY]")
+    // Any sk- key (Anthropic, OpenAI project/service-account/admin/legacy) and bearer tokens.
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}/g, "[REDACTED-KEY]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [REDACTED-KEY]")
     // UNC paths: \\server\share\...
     .replace(/\\\\[^\s"'`]+/g, "<path>")
     // Drive-letter paths: C:\... or C:/...

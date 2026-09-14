@@ -26,6 +26,11 @@ describe("redactFailureText", () => {
 
   it("redacts key-shaped strings and caps length", () => {
     expect(redactFailureText("bad key sk-ant-api03-AbC_123-xyz used")).toBe("bad key [REDACTED-KEY] used");
+    for (const key of ["sk-proj-Ab12Cd34Ef56Gh78", "sk-svcacct-Ab12Cd34Ef56Gh78", "sk-admin-Ab12Cd34Ef56Gh78", "sk-Ab12Cd34Ef56Gh78Ij90"]) {
+      expect(redactFailureText(`Incorrect API key provided: ${key}.`)).toBe("Incorrect API key provided: [REDACTED-KEY].");
+    }
+    expect(redactFailureText("Authorization: Bearer eyJhbGciOi.J9-x_y/z+w==")).toBe("Authorization: Bearer [REDACTED-KEY]");
+    expect(redactFailureText("task-runner risk-assessment failed")).toBe("task-runner risk-assessment failed");
     const long = redactFailureText("x".repeat(2_000));
     expect(long.length).toBe(501);
     expect(long.endsWith("…")).toBe(true);
