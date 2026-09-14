@@ -30,7 +30,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { readFileSync, rmSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { closeTestDb, resetTestSchema, testDb, testPool } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
@@ -50,7 +50,15 @@ vi.mock("../../src/router/providers/claudeSubscription.js", () => ({
   callClaudeSubscriptionModel: vi.fn(),
 }));
 
+// Passes through to the real driver; one test overrides a single call to
+// simulate a transient failure after an Approval decision has committed.
+vi.mock("../../src/workflow/advanceWorkflowRunUntilBlocked.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/workflow/advanceWorkflowRunUntilBlocked.js")>();
+  return { ...actual, advanceWorkflowRunUntilBlocked: vi.fn(actual.advanceWorkflowRunUntilBlocked) };
+});
+
 import { callClaudeSubscriptionModel } from "../../src/router/providers/claudeSubscription.js";
+import { advanceWorkflowRunUntilBlocked } from "../../src/workflow/advanceWorkflowRunUntilBlocked.js";
 import { buildServer } from "../../src/api/server.js";
 import { V1_RESOLUTION_ACTOR } from "../../src/api/routes/approvals.js";
 
@@ -407,13 +415,12 @@ describe("POST /approvals/:id/reject", () => {
     expect(resolutionEvents(events).map((e) => e.eventType)).toEqual(["approval_granted"]);
   });
 
-  it("reports a recorded decision as recorded when advancing past it fails, instead of a 500", async () => {
-    const created = await driveToTaskBAwaitingApproval("Advance-fails Goal", "advance fails report content");
+  it("an approved step that cannot be built is settled: 200, workflow failed, hold released, nothing published", async () => {
+    const created = await driveToTaskBAwaitingApproval("Unbuildable-step Goal", "unbuildable step report content");
     const approvalId = await findPendingApprovalId(created.workflowRunId);
 
     // A second "report" Artifact on Task A's run makes the publish step's builder
-    // refuse to choose (it requires exactly one), so the advance after the
-    // decision throws.
+    // refuse to choose (it requires exactly one).
     const { taskA } = await findTaskInstances(created.workflowRunId);
     const runA = await testDb.query.runs.findFirst({ where: eq(schema.runs.taskInstanceId, taskA.id) });
     const runAInvocationIds = (await testDb.query.invocations.findMany({ where: eq(schema.invocations.runId, runA!.id) })).map((i) => i.id);
@@ -437,16 +444,54 @@ describe("POST /approvals/:id/reject", () => {
         approvalId,
         approvalStatus: "approved",
         workflowRunId: created.workflowRunId,
-        workflowStatus: null,
-        advanceError: expect.stringContaining(`POST /workflow-runs/${created.workflowRunId}/advance`),
+        workflowStatus: "failed",
       });
-      expect(consoleError).toHaveBeenCalled();
     } finally {
       consoleError.mockRestore();
     }
 
     const approvalRow = await testDb.query.approvals.findFirst({ where: eq(schema.approvals.id, approvalId) });
     expect(approvalRow?.status).toBe("approved");
+    const { taskB } = await findTaskInstances(created.workflowRunId);
+    expect(taskB.status).toBe("failed");
+    const runB = await testDb.query.runs.findFirst({ where: eq(schema.runs.taskInstanceId, taskB.id) });
+    const usd = await testDb.query.budgetCounters.findFirst({
+      where: and(eq(schema.budgetCounters.scopeRefId, runB!.id), eq(schema.budgetCounters.resourceUnit, "usd")),
+    });
+    expect(Number(usd!.reservedAmount)).toBeCloseTo(0, 10);
+    expect(existsSync(publishedPathFor(taskB.id))).toBe(false);
+  });
+
+  it("reports a recorded decision as recorded when advancing past it fails transiently, instead of a 500", async () => {
+    const created = await driveToTaskBAwaitingApproval("Advance-fails Goal", "advance fails report content");
+    const approvalId = await findPendingApprovalId(created.workflowRunId);
+
+    vi.mocked(advanceWorkflowRunUntilBlocked).mockRejectedValueOnce(
+      Object.assign(new Error("deadlock detected"), { code: "40P01" })
+    );
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const res = await app.inject({ method: "POST", url: `/approvals/${approvalId}/approve` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        approvalId,
+        approvalStatus: "approved",
+        workflowRunId: created.workflowRunId,
+        workflowStatus: null,
+        advanceError: expect.stringContaining(`POST /workflow-runs/${created.workflowRunId}/advance`),
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    const approvalRow = await testDb.query.approvals.findFirst({ where: eq(schema.approvals.id, approvalId) });
+    expect(approvalRow?.status).toBe("approved");
+    // The recovery route named in the response does complete the step.
+    const advance = await app.inject({ method: "POST", url: `/workflow-runs/${created.workflowRunId}/advance` });
+    expect(advance.statusCode).toBe(200);
+    expect(advance.json()).toMatchObject({ status: "completed" });
+    const { taskB } = await findTaskInstances(created.workflowRunId);
+    PUBLISHED_FILES.push(publishedPathFor(taskB.id));
   });
 });
 

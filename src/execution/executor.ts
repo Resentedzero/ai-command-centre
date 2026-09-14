@@ -72,7 +72,8 @@
  * anything extra there would break material-change detection.
  */
 import { isDeepStrictEqual } from "node:util";
-import { and, asc, eq, lt } from "drizzle-orm";
+import { and, asc, eq, inArray, lt } from "drizzle-orm";
+import { isTransientDatabaseError } from "../db/databaseErrors.js";
 import { approvals, artifacts, invocations, runs, taskInstances, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
@@ -941,6 +942,131 @@ export async function failInterruptedInvocation(tx: DrizzleTransaction, invocati
     payload: { reason: "invocation_interrupted", invocationId },
   });
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Step failure settlement (post-Phase 9)
+// ---------------------------------------------------------------------------
+
+/** The `runs.outcome.reason` of a Run failed because building or executing its step threw. */
+export const STEP_EXECUTION_ERROR_REASON = "execution_error";
+
+/**
+ * Whether a throw while building or executing a step may be recorded as that
+ * step's permanent failure (`settleRunAfterStepFailure`).
+ *
+ * Not for errors that say nothing about the step itself: a transient database
+ * error (the same work may succeed on the next advance), or a stop lookup that
+ * failed (the database is unreachable, and a stop must fail closed rather than
+ * be recorded as a step failure). Those propagate and roll back, as before.
+ */
+export function isSettleableStepFailure(error: unknown): boolean {
+  if (error instanceof ExecutionStoppedError && error.lookupFailed) return false;
+  return !isTransientDatabaseError(error);
+}
+
+export type StepFailureSettlement = { kind: "terminal"; status: "failed" | "completed" } | { kind: "in_flight" };
+
+/**
+ * Records that a Run's step could not be built or executed — for example its
+ * spec builder found ambiguous data, or a row it depends on is gone — so the
+ * Run cannot stay stuck, holding budget, with every later advance repeating the
+ * same throw.
+ *
+ * The caller rolled back the failed attempt (a savepoint), so nothing that
+ * attempt did is left behind, and this transaction is still usable. Settlement:
+ *   - A pending Approval for the Run is closed as `expired` (actor
+ *     `system:execution_error`): its action can no longer run. An Approval
+ *     already decided keeps its decision; the Invocation failure says why the
+ *     approved action did not run.
+ *   - An `awaiting_approval` Invocation never executed: its pre-approval hold
+ *     is RELEASED, and it fails with the (redacted) error as its reason.
+ *   - An `executing` Invocation this process is not dispatching is settled as
+ *     interrupted (charged at estimate, never re-dispatched), which also fails
+ *     the Run. One this process IS dispatching cannot be settled now: returns
+ *     `in_flight`, changing nothing, and the caller rethrows.
+ *   - Otherwise the Run fails with reason `execution_error`.
+ *
+ * Never performs or re-dispatches anything. A Run already terminal is left as
+ * it is and its status returned.
+ */
+export async function settleRunAfterStepFailure(
+  tx: DrizzleTransaction,
+  runId: string,
+  error: unknown
+): Promise<StepFailureSettlement> {
+  const runRow = await lockRun(tx, runId);
+  if (!runRow) throw error;
+  if (runRow.status === "failed" || runRow.status === "completed") {
+    return { kind: "terminal", status: runRow.status };
+  }
+
+  const open = await tx
+    .select()
+    .from(invocations)
+    .where(and(eq(invocations.runId, runId), inArray(invocations.status, ["proposed", "awaiting_approval", "executing"])))
+    .orderBy(asc(invocations.seqNo))
+    .for("update");
+  if (open.some((i) => i.status === "executing" && isDispatchInFlight(i.id))) {
+    return { kind: "in_flight" };
+  }
+
+  // Approvals first, before any event is written: `resolveApproval` takes the
+  // approval row and then the Run's event lock, so the reverse order here could
+  // deadlock with a concurrent decision (DURABLE_EXECUTION §6).
+  const approvalStatusByInvocation = new Map<string, string>();
+  for (const invocation of open.filter((i) => i.status === "awaiting_approval")) {
+    const approval = await tx.query.approvals.findFirst({ where: eq(approvals.invocationId, invocation.id) });
+    if (!approval) continue;
+    if (approval.status === "pending" && (await expirePendingApproval(tx, approval.id, "system:execution_error"))) {
+      approvalStatusByInvocation.set(invocation.id, "expired");
+    } else {
+      approvalStatusByInvocation.set(invocation.id, approval.status);
+    }
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  for (const invocation of open.filter((i) => i.status !== "executing")) {
+    const envelope = await getBudgetEnvelope(tx, runId);
+    const reservationId = envelope.pendingReservations?.[String(invocation.seqNo)];
+    let reservationSettlement = "none_recorded";
+    if (reservationId) {
+      if (isRealReservation(reservationId)) await releaseReservation(tx, reservationId);
+      await clearPendingReservation(tx, runId, invocation.seqNo);
+      reservationSettlement = "released";
+    }
+    await failInvocation(tx, {
+      invocationId: invocation.id,
+      runId,
+      taskInstanceId: runRow.taskInstanceId,
+      reason: `${STEP_EXECUTION_ERROR_REASON}: ${message}`,
+      error,
+      details: {
+        outcome: "not_performed",
+        reservationSettlement,
+        ...(approvalStatusByInvocation.has(invocation.id) ? { approvalStatus: approvalStatusByInvocation.get(invocation.id) } : {}),
+      },
+    });
+  }
+
+  const executing = open.find((i) => i.status === "executing");
+  if (executing) {
+    await failInterruptedInvocation(tx, executing.id);
+    return { kind: "terminal", status: "failed" };
+  }
+
+  await tx
+    .update(runs)
+    .set({ status: "failed", completedAt: new Date(), outcome: { status: "failed", reason: STEP_EXECUTION_ERROR_REASON } })
+    .where(eq(runs.id, runId));
+  await emitLifecycleEvent(tx, {
+    eventType: "run_failed",
+    subjectId: runId,
+    correlation: await correlationForRun(tx, runId),
+    producer: "executor",
+    payload: { reason: STEP_EXECUTION_ERROR_REASON },
+  });
+  return { kind: "terminal", status: "failed" };
 }
 
 // ---------------------------------------------------------------------------

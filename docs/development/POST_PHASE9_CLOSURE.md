@@ -36,6 +36,10 @@ No live Claude invocations were made. Every dispatch-capable test mocks all thre
 | `70b1346` | Final repository pass. **Approve/Reject never worked from a browser:** `apiFetch` sent a JSON Content-Type on body-less POSTs, which Fastify refuses with 400. Also: API errors surface their message; a decision whose advance fails is reported as recorded; missing seed is a 503 naming the fix; cross-site requests and HEAD routes refused (event-stream slot holding); SSE backlog bounds; no empty-state flash; feed de-duplicates |
 | `0128db9` | Final repository pass. OpenAI adapter no longer invents zero usage; a model's output mentioning quotas is no longer classified `quota_exhausted` (which released the reservation); `publishReport` records a relative path, not the host's absolute path |
 | `3b870d1` | Final repository pass. Structural invariant tests (no provider call in a transaction, single chokepoint, status changes recorded as events); stale pre-Phase-9 headers and docs corrected; two residuals recorded |
+| `6097bef` | This closure record: the final pass and its verification |
+| `4c590fa` | Provider error host paths redacted end to end (test) |
+
+Work after Phase 9's closure (execution recovery and idempotency) is recorded in [`EXECUTION_RECOVERY_CLOSURE.md`](EXECUTION_RECOVERY_CLOSURE.md).
 
 The authoritative write-ups are:
 - `docs/architecture/DURABLE_EXECUTION.md`;
@@ -70,7 +74,7 @@ Each follows the safer or more conservative reading. Say so if any should change
   - Fixed: see `70b1346` and `0128db9`. Every new test was confirmed to fail against the previous code.
   - Added: structural invariant tests (no provider call in a transaction, single chokepoint, status changes recorded as events), and stale headers and docs corrected. An end-to-end test that a provider error's host path is redacted in both `invocation_failed` and `GET /workflow-runs/:id`. The structural and redaction tests were each confirmed to fail against a deliberate mutation.
   - Untested: the SSE backlog bounds (`maxBufferedLiveEvents`, `maxPendingWriteBytes`), which only trigger for a stalled client.
-  - Documented as residuals: DURABLE_EXECUTION §7 #10 (a throw on resume leaves an approved hold) and #11 (a stop during context compilation).
+  - Documented as residuals: DURABLE_EXECUTION §7 #10 (a throw on resume leaves an approved hold; since resolved, §4.2) and #11 (a stop during context compilation).
   - Not acted on, low value or needing a decision: context "reference" mode inlines content (unreachable with the seeded budget); routing provider and excluded candidates are not on events; the tool-schema layer carries binding config (never sent today); unused exports; list paging.
 
 ## Residuals
@@ -83,7 +87,6 @@ These are known and documented; none has a safe unilateral fix.
 - **A lost recording becomes "unknown".** If recording a successful dispatch fails, the Invocation is later settled at estimate. (§7.5)
 - **The Claude CLI has no separate system channel.** The untrusted-data policy precedes the fenced data in the same stdin text. Changing this changes live-verified argv. (spec §5.15 note)
 - **An Approval can be refused just after it is granted.** If the resume happens after the TTL passes, re-authorization refuses it. This fails closed.
-- **A throw while resuming an approved step leaves its hold reserved.** It needs corrupted data and fails closed. (§7 #10)
 - **A stop committed during context compilation does not stop that one dispatch.** The next Invocation is refused. (§7 #11)
 
 ## Decisions required from you

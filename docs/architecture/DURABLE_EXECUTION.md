@@ -60,6 +60,7 @@ Tool (`spec.execute`), deterministic, and retrieval Invocations still execute in
 | `executing` | `completed` / `failed` | `completeModelDispatch` | B |
 | `executing` | `failed` (`interrupted_outcome_unknown`) | `failInterruptedInvocation` | recovery |
 | `awaiting_approval` | `completed` / `failed` | `resumeToolSpec` / stop handling | later request |
+| `proposed` / `awaiting_approval` / `executing` | `failed` (`execution_error`, or interrupted) | `settleRunAfterStepFailure` (§4.2) | the advance whose step threw |
 
 `executing` is the spec §3a lifecycle state (`proposed → authorized → executing → completed/failed`). `authorized` is not persisted, because it never survives its own transaction.
 
@@ -103,6 +104,36 @@ A dispatch that **returns** a failure gets the same treatment whenever its consu
 - **Everything else, including any new error code, reads as `unknown`.** This replaced Part 8's earlier "timeout → release" rule in SUBSCRIPTION_PROVIDER_DESIGN, which under-reported calls that almost certainly consumed tokens.
 
 **Exactly one terminal event.** `invocation_completed` is emitted only after the result is persisted, in the same transaction (`emitModelInvocationCompleted`). A failure after reconciliation therefore records `invocation_failed` alone, never both.
+
+### 4.2 Step failure settlement (post-Phase 9)
+
+**The problem.** A step's spec builder and `executeRun` ran directly in the advance transaction. If either threw — for example the publish builder found two report Artifacts, or a Tool Binding row was gone — the whole advance rolled back. A step waiting on an Approval kept its budget hold, and every later advance (the approve route, the TTL sweep, the startup re-drive) repeated the same throw. The Workflow Run could never leave `in_progress`.
+
+**The design.** `advanceWorkflowRun` runs the builder and `executeRun` for a step inside a **savepoint** (`executeStepSettlingFailures` in `interpreter.ts`). A throw rolls back exactly what that attempt did and leaves the transaction usable, so the failure can be recorded in it:
+
+| Error | Handling |
+|---|---|
+| Transient database error (SQLSTATE class 08, 40, 53, 57, or 55P03 — `src/db/databaseErrors.ts`) | **Rethrown**, nothing recorded. The next advance may succeed. |
+| A stop lookup that failed (`ExecutionStoppedError.lookupFailed`) | **Rethrown**. A stop fails closed; it is not a step failure. |
+| The Run has an `executing` Invocation this process is dispatching | **Rethrown**, nothing changed. The dispatch records its own outcome. |
+| Anything else | **Settled** by `settleRunAfterStepFailure` (`executor.ts`), and the step resolves as failed. |
+
+**Settlement** never performs or re-dispatches anything:
+
+| What | Resolution |
+|---|---|
+| A **pending** Approval for the Run | Closed as `expired`, actor `system:execution_error`, with its `approval_expired` event. Written before any other event (lock order, §6). |
+| An **approved** (or rejected) Approval | Kept as decided. The Invocation's failure states why the approved action did not run. |
+| An `awaiting_approval` (or stray `proposed`) Invocation | Its pre-approval hold is **released** (nothing ran); it fails with reason `execution_error: <redacted message>`, `errorCode` when the error has one, and `outcome: "not_performed"`, `reservationSettlement`, `approvalStatus`. |
+| An `executing` Invocation with no live dispatcher | Settled as interrupted (§4): charged at estimate, never re-dispatched. This also fails the Run. |
+| The Run | `failed`, outcome `{ reason: "execution_error" }`, with `run_failed`. |
+| Task Instance and Workflow Run | `failed`, through the ordinary step resolution. |
+
+An already-terminal Run is left as it is. The full error goes to the server log; events carry the redacted reason.
+
+**Why fail rather than wait.** A builder or Executor throw that is not transient comes from the step's own data or definitions, so it repeats on every advance. Failing makes the state honest and releases what the step held. A retry is a new Run, a decision the retry policy owns.
+
+**Tests:** `tests/workflow/stepFailureSettlement.test.ts` (approved and pending steps, a transient error, a live and a dead dispatch), and the approve route end to end in `tests/api/routes.integration.test.ts`.
 
 ## 5. Liveness: who owns an `executing` row
 
@@ -149,5 +180,5 @@ Once a request commits in several transactions, concurrent requests can interlea
 7. **Tools still hold locks while they execute.** A tool runs inside its transaction, holding the Run's usd counters, including the DAY usd counter once configured. A slow future tool would serialize usd reservations behind it. That is harmless while every tool is local.
 8. **The DAY ceiling is now unblocked.** Provider calls no longer hold budget locks, so Phase 8's deferred item #4 no longer depends on Phase 9. The ceiling values and timezone remain operator decisions.
 9. **The instance lock guards only `start.ts`.** Any other process that advances Runs against the same database, such as a future CLI script, must take the lock too, or it will settle the server's live dispatches as interrupted. If the lock connection is lost, the server exits.
-10. **A throw while resuming an approved step leaves its hold reserved** (found 2026-09-14). Examples: the step's spec builder cannot find exactly one report Artifact, or the Tool Binding row is missing. The whole transaction rolls back, so the Invocation stays `awaiting_approval` with an `approved` Approval and its pre-approval hold. Every later advance repeats the throw. The TTL sweep only expires `pending` Approvals, and a stop is never reached because the builder throws first. It needs corrupted or hand-edited data, and it fails closed: nothing runs. The approve route reports it as "decision recorded, advancing failed". A fix would settle a non-database error on the resume path like the existing refusals (release, fail the Invocation and Run). It is deferred because it turns data corruption into ordinary failures, a behaviour worth reviewing on its own.
+10. **A throw while resuming a step left its hold reserved (resolved).** See §4.2: the step now fails, its hold is released and its Approval state is recorded honestly. Only a transient database error still propagates, and the next advance retries it.
 11. **A stop committed during context compilation does not stop that dispatch.** The stop check runs at the top of each Invocation, before routing and context compilation. A stop that commits after that check, but before `dispatchModelCall` starts, lets that one call go out; the next Invocation is refused. The window is the compile time plus one commit. Closing it needs a second stop check at dispatch, which would settle as consuming nothing.

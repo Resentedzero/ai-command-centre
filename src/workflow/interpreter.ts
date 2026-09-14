@@ -39,13 +39,12 @@
  * `task_instances.status` after creation. The mapping from `RunOutcome`'s
  * status to the Task Instance's status is an EXPLICIT switch
  * (`mapRunOutcomeToTaskInstanceStatus` below), not a bare `outcome.status`
- * copy — even though the two vocabularies coincide today (both are exactly
- * `"completed" | "failed" | "awaiting_approval"`). `RunOutcome` is Unit 6's
- * type, not this unit's; a bare copy would silently forward whatever that
- * union becomes in the future. The explicit switch has no `default` case,
- * so — combined with `noImplicitReturns` in this project's tsconfig — a
- * future 4th `RunOutcome` status becomes a compile error here, not a
- * silently-written unknown `task_instances.status` value.
+ * copy. `RunOutcome` is the Executor's type, not this unit's, and the two
+ * vocabularies already differ: `dispatch_required` and `in_flight` both map to
+ * `active`. The explicit switch has no `default` case, so — combined with
+ * `noImplicitReturns` in this project's tsconfig — a new `RunOutcome` status
+ * becomes a compile error here, not a silently-written unknown
+ * `task_instances.status` value.
  *
  * Ruling 3 — `advanceWorkflowRun` takes a required `buildInvocationSpecs`
  * callback (type `InvocationSpecBuilder`) so it can obtain the
@@ -148,7 +147,7 @@ import { and, eq } from "drizzle-orm";
 import { goals, runs, taskInstances, workflowDefinitions, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { createWorkflowTaskInstance } from "../execution/taskInstance.js";
-import { executeRun } from "../execution/executor.js";
+import { executeRun, isSettleableStepFailure, settleRunAfterStepFailure } from "../execution/executor.js";
 import type { PendingModelDispatch, PlannedInvocationSpec, RunOutcome } from "../execution/types.js";
 import {
   emitLifecycleEvent,
@@ -487,6 +486,44 @@ export async function settleWorkflowStepForFailedRun(tx: DrizzleTransaction, run
   }
 }
 
+/**
+ * Builds a step's specs and executes its Run, recording a failure of either as
+ * the step's outcome instead of leaving the Workflow Run stuck.
+ *
+ * Without this, a builder or Executor throw rolled back the whole advance: a
+ * step waiting on an Approval kept its budget hold, and every later advance —
+ * including the approval, the TTL sweep and the startup re-drive — repeated the
+ * same throw forever (DURABLE_EXECUTION §4.2).
+ *
+ * The attempt runs in a SAVEPOINT, so a throw undoes exactly what the attempt
+ * did and leaves this transaction usable. A settleable error is then recorded
+ * by `settleRunAfterStepFailure` and the step resolves as failed; the Workflow
+ * Run fails with it. A transient database error, or a Run this process is still
+ * dispatching, is rethrown unchanged: the next advance may succeed.
+ */
+async function executeStepSettlingFailures(
+  tx: DrizzleTransaction,
+  step: StepRef,
+  isLastStep: boolean,
+  build: () => Promise<PlannedInvocationSpec[]>
+): Promise<AdvanceResult> {
+  let outcome: RunOutcome;
+  try {
+    // The outer `tx`, deliberately: the builder and the specs it returns close
+    // over it. A savepoint is scoped to the connection, so every statement on
+    // `tx` inside this callback is inside the savepoint all the same.
+    outcome = await tx.transaction(async () => executeRun(tx, step.runId, await build()));
+  } catch (error) {
+    if (!isSettleableStepFailure(error)) throw error;
+    const settlement = await settleRunAfterStepFailure(tx, step.runId, error);
+    if (settlement.kind === "in_flight") throw error;
+    // eslint-disable-next-line no-console
+    console.error(`advanceWorkflowRun: step for run "${step.runId}" failed and was settled:`, error);
+    outcome = { status: settlement.status, runId: step.runId };
+  }
+  return resolveStepOutcome(tx, step, isLastStep, outcome);
+}
+
 /** Algorithm step 5: create a NEW step's Task Instance + Run, then run it fresh. */
 async function createAndRunStep(
   tx: DrizzleTransaction,
@@ -536,19 +573,13 @@ async function createAndRunStep(
     })
     .where(eq(workflowRuns.id, workflowRun.id));
 
-  const specs = await buildInvocationSpecs({
-    taskDefinitionId: step.taskDefinitionId,
-    taskDefinitionVersion: step.taskDefinitionVersion,
-    taskInstanceId,
-    input: {},
-  });
-
-  const outcome = await executeRun(tx, runId, specs);
-  return resolveStepOutcome(
-    tx,
-    { workflowRunId: workflowRun.id, goalId: workflowRun.goalId, taskInstanceId, runId },
-    stepIndex === graph.steps.length - 1,
-    outcome
+  return executeStepSettlingFailures(tx, stepRef, stepIndex === graph.steps.length - 1, () =>
+    buildInvocationSpecs({
+      taskDefinitionId: step.taskDefinitionId,
+      taskDefinitionVersion: step.taskDefinitionVersion,
+      taskInstanceId,
+      input: {},
+    })
   );
 }
 
@@ -569,23 +600,21 @@ async function resumeStep(
     throw new Error(`advanceWorkflowRun: no task_instances row found for id "${taskInstanceId}"`);
   }
 
-  // Called again, deliberately, with the same params — see InvocationSpecBuilder's doc comment.
-  const specs = await buildInvocationSpecs({
-    taskDefinitionId: step.taskDefinitionId,
-    taskDefinitionVersion: step.taskDefinitionVersion,
-    taskInstanceId,
-    input: (taskInstance.input as Record<string, unknown> | null) ?? {},
-  });
-
   // Resuming the SAME runId stored at creation time (Ruling 1's
   // stepRunIds extension) — never re-derived via a taskInstanceId lookup,
   // which would be nondeterministic without a unique index. See module header.
-  const outcome = await executeRun(tx, runId, specs);
-  return resolveStepOutcome(
+  return executeStepSettlingFailures(
     tx,
     { workflowRunId: workflowRun.id, goalId: workflowRun.goalId, taskInstanceId, runId },
     stepIndex === graph.steps.length - 1,
-    outcome
+    // Called again, deliberately, with the same params — see InvocationSpecBuilder's doc comment.
+    () =>
+      buildInvocationSpecs({
+        taskDefinitionId: step.taskDefinitionId,
+        taskDefinitionVersion: step.taskDefinitionVersion,
+        taskInstanceId,
+        input: (taskInstance.input as Record<string, unknown> | null) ?? {},
+      })
   );
 }
 
