@@ -45,7 +45,7 @@ import type { EventEnvelope } from "../../src/events/types.js";
 import { publishLiveEvent } from "../../src/api/eventBus.js";
 import { rowToEventEnvelope } from "../../src/api/eventEnvelopeRow.js";
 import { buildServer } from "../../src/api/server.js";
-import { sseTestHooks } from "../../src/api/routes/events.js";
+import { sseLimits, sseTestHooks } from "../../src/api/routes/events.js";
 
 // Fix round 2, Important #2: mocked ONLY for the new "real relay path" test
 // below, which is the one test in this file that exercises POST /goals (and
@@ -378,6 +378,51 @@ describe("GET /events/stream — mid-replay race (subscribe-then-query correctne
 // exactly the case the relay design exists for), with nothing publishing
 // live events except the production relay code itself.
 // ---------------------------------------------------------------------------
+
+describe("GET /events/stream — resource bounds", () => {
+  const defaults = { ...sseLimits };
+  afterEach(() => {
+    Object.assign(sseLimits, defaults);
+  });
+
+  it("pages the replay: every event since the cursor still arrives, exactly once and in cursor order", async () => {
+    sseLimits.replayPageSize = 2; // 7 events -> pages of 2, 2, 2, 1
+    await seedEvents(7);
+
+    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=0`);
+    try {
+      await client.waitForCount(7);
+      const cursors = client.events.map((e) => e.eventCursor);
+      expect(cursors).toEqual([...cursors].sort((a, b) => a - b));
+      expect(new Set(client.events.map((e) => e.eventId)).size).toBe(7);
+    } finally {
+      client.close();
+    }
+  });
+
+  it("refuses a stream beyond the open-stream cap with 503, and frees the slot when a stream closes", async () => {
+    sseLimits.maxOpenStreams = 1;
+    const first = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=0`);
+    try {
+      const refused = await fetch(`${baseUrl}/events/stream?sinceEventCursor=0`);
+      expect(refused.status).toBe(503);
+    } finally {
+      first.close();
+    }
+
+    // The server observes the close asynchronously; retry briefly.
+    let status = 0;
+    for (let attempt = 0; attempt < 50 && status !== 200; attempt++) {
+      await new Promise((r) => setTimeout(r, 20));
+      const controller = new AbortController();
+      const res = await fetch(`${baseUrl}/events/stream?sinceEventCursor=0`, { signal: controller.signal });
+      status = res.status;
+      controller.abort();
+      if (status !== 200) await res.body?.cancel();
+    }
+    expect(status).toBe(200);
+  });
+});
 
 describe("GET /events/stream — events arrive live while a request is still running", () => {
   it("an operator sees the LLM step's events DURING its provider call, not only after the request returns", async () => {

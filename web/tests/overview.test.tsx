@@ -131,6 +131,9 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
   let originalEventSource: typeof EventSource | undefined;
 
   beforeEach(() => {
+    // Reconnects are scheduled with backoff (see RECONNECT_BASE_MS in
+    // ../lib/api), so these tests drive the clock explicitly.
+    vi.useFakeTimers();
     instances = [];
     originalEventSource = (globalThis as { EventSource?: typeof EventSource }).EventSource;
 
@@ -153,6 +156,7 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
 
   afterEach(() => {
     (globalThis as { EventSource: unknown }).EventSource = originalEventSource;
+    vi.useRealTimers();
   });
 
   /**
@@ -193,6 +197,9 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
     instances[0]!.onerror?.();
 
     expect(instances[0]!.closed).toBe(true);
+    // Not reconnected instantly: the reconnect waits out the backoff.
+    expect(instances).toHaveLength(1);
+    vi.advanceTimersByTime(real.RECONNECT_BASE_MS);
     expect(instances).toHaveLength(2);
     expect(instances[1]!.url).toContain("sinceEventCursor=7");
     expect(instances[1]!.url).not.toContain("sinceEventCursor=0");
@@ -233,6 +240,7 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
     expect(received.map((e) => e.eventCursor)).toEqual([5, 9, 7]);
 
     instances[0]!.onerror?.();
+    vi.advanceTimersByTime(real.RECONNECT_BASE_MS);
 
     expect(instances).toHaveLength(2);
     expect(instances[1]!.url).toContain("sinceEventCursor=9");
@@ -256,11 +264,47 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
     emit(instances[0]!, 3, 13);
 
     instances[0]!.onerror?.();
+    vi.advanceTimersByTime(real.RECONNECT_BASE_MS);
 
     expect(instances).toHaveLength(2);
     expect(instances[1]!.url).toContain("sinceEventCursor=13");
     expect(instances[1]!.url).not.toContain("sinceEventCursor=3");
 
     unsubscribe();
+  });
+
+  it("backs off exponentially on consecutive failures, resets after a healthy message, caps the delay, and never reconnects after unsubscribe", async () => {
+    const real = await vi.importActual<typeof import("../lib/api")>("../lib/api");
+    const unsubscribe = real.subscribeToActivity(null, () => {});
+
+    // Each consecutive failure waits twice as long before the next attempt.
+    let expectedDelay = real.RECONNECT_BASE_MS;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      instances[instances.length - 1]!.onerror?.();
+      vi.advanceTimersByTime(expectedDelay - 1);
+      expect(instances).toHaveLength(attempt); // not yet
+      vi.advanceTimersByTime(1);
+      expect(instances).toHaveLength(attempt + 1);
+      expectedDelay *= 2;
+    }
+
+    // A message proves the connection healthy: the next failure waits the base delay again.
+    emit(instances[instances.length - 1]!, 1, 1);
+    instances[instances.length - 1]!.onerror?.();
+    vi.advanceTimersByTime(real.RECONNECT_BASE_MS);
+    expect(instances).toHaveLength(5);
+
+    // The delay never exceeds the cap, however many failures in a row.
+    for (let i = 0; i < 10; i++) {
+      instances[instances.length - 1]!.onerror?.();
+      vi.advanceTimersByTime(real.RECONNECT_MAX_MS);
+    }
+    expect(instances).toHaveLength(15);
+
+    // Unsubscribing while a reconnect is pending cancels it.
+    instances[instances.length - 1]!.onerror?.();
+    unsubscribe();
+    vi.advanceTimersByTime(real.RECONNECT_MAX_MS * 2);
+    expect(instances).toHaveLength(15);
   });
 });

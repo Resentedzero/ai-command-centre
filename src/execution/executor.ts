@@ -264,6 +264,7 @@ async function executeToolAndFinalize(
       runId,
       taskInstanceId: runRow.taskInstanceId,
       reason: error instanceof Error ? error.message : String(error),
+      error,
     });
     await failRun(tx, runId);
     return { status: "failed", runId };
@@ -690,6 +691,7 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
       runId,
       taskInstanceId,
       reason: error instanceof Error ? error.message : String(error),
+      error,
     });
     await failRun(tx, runId);
     return { status: "failed", runId };
@@ -831,6 +833,7 @@ export async function completeModelDispatch(
       runId,
       taskInstanceId,
       reason: error instanceof Error ? error.message : String(error),
+      error,
       details: settlement,
     });
     await failRun(tx, runId);
@@ -973,6 +976,7 @@ async function processGenericSpec(
       runId,
       taskInstanceId: runRow.taskInstanceId,
       reason: error instanceof Error ? error.message : String(error),
+      error,
     });
     await failRun(tx, runId);
     return { status: "failed", runId };

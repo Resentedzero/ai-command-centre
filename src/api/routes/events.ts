@@ -87,6 +87,24 @@
  * connection's lifetime); the `eventId` de-dup set is the only filter they
  * need.
  */
+/*
+ * ---------------------------------------------------------------------------
+ * Resource bounds (hardening, 2026-09-14)
+ * ---------------------------------------------------------------------------
+ * The stream is reachable by anything that can reach the API, and it used to
+ * be unbounded in three ways. Each is now capped:
+ *   - REPLAY is paged (`replayPageSize` rows per query) instead of loading the
+ *     whole log since the cursor into memory, and waits for the socket to
+ *     drain between writes instead of buffering without limit.
+ *   - The per-connection de-dup set remembers at most `maxRememberedIds` ids,
+ *     evicting the oldest. Duplicates only ever arrive close together (a
+ *     replay/live overlap, or two requests relaying the same commit), so an
+ *     id that old can no longer be re-delivered.
+ *   - At most `maxOpenStreams` streams are open at once; further connections
+ *     get 503. A single-operator UI needs one or two.
+ * `sseLimits` is exported, like `sseTestHooks`, so tests can tighten them.
+ */
+import { once } from "node:events";
 import type { FastifyInstance } from "fastify";
 import { asc, gt } from "drizzle-orm";
 import { events } from "../../db/schema.js";
@@ -106,8 +124,17 @@ import type { WireEventEnvelope } from "../eventEnvelopeRow.js";
  * interleaving point exact and reproducible instead of timing-dependent.
  */
 export const sseTestHooks = {
-  afterReplayRow: null as ((rowIndex: number, totalRows: number) => void | Promise<void>) | null,
+  afterReplayRow: null as ((rowIndex: number) => void | Promise<void>) | null,
 };
+
+/** See the resource-bounds note above. Mutable only so tests can tighten them. */
+export const sseLimits = {
+  replayPageSize: 500,
+  maxRememberedIds: 10_000,
+  maxOpenStreams: 32,
+};
+
+let openStreams = 0;
 
 export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void {
   app.get<{ Querystring: { sinceEventCursor?: string } }>("/events/stream", async (request, reply) => {
@@ -117,6 +144,10 @@ export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void 
     if (!Number.isSafeInteger(sinceEventCursor) || sinceEventCursor < 0) {
       return reply.status(400).send({ error: "sinceEventCursor must be a non-negative integer" });
     }
+    if (openStreams >= sseLimits.maxOpenStreams) {
+      return reply.status(503).send({ error: "Too many open event streams; retry shortly." });
+    }
+    openStreams++;
 
     // Fastify won't try to manage/send a response after this — we own
     // `reply.raw` for the rest of the connection's lifetime.
@@ -143,10 +174,14 @@ export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void 
     const buffer: WireEventEnvelope[] = [];
     let closed = false;
 
-    function writeEvent(e: WireEventEnvelope): void {
-      if (closed || sentEventIds.has(e.eventId)) return;
+    /** Writes one event unless already sent. Returns false when the socket's buffer is full (caller may await drain). */
+    function writeEvent(e: WireEventEnvelope): boolean {
+      if (closed || sentEventIds.has(e.eventId)) return true;
       sentEventIds.add(e.eventId);
-      reply.raw.write(`data: ${JSON.stringify(e)}\n\n`);
+      if (sentEventIds.size > sseLimits.maxRememberedIds) {
+        sentEventIds.delete(sentEventIds.values().next().value!);
+      }
+      return reply.raw.write(`data: ${JSON.stringify(e)}\n\n`);
     }
 
     // Step 1: subscribe to live events FIRST, buffering — before any
@@ -163,6 +198,7 @@ export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void 
     const cleanup = () => {
       if (closed) return;
       closed = true;
+      openStreams--;
       unsubscribe();
     };
     request.raw.on("close", cleanup);
@@ -174,15 +210,27 @@ export function registerEventsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       // header) — `globalSeq` is unique by construction, so no tiebreak
       // column is needed and none is used: the order is total, and it is
       // the same order the client will resume from.
-      const rows = await deps.db.query.events.findMany({
-        where: gt(events.globalSeq, sinceEventCursor),
-        orderBy: [asc(events.globalSeq)],
-      });
-
-      for (let i = 0; i < rows.length; i++) {
-        if (closed) break;
-        writeEvent(rowToEventEnvelope(rows[i]!));
-        await sseTestHooks.afterReplayRow?.(i, rows.length);
+      //
+      // Paged by cursor (see the resource-bounds note). A row committed while
+      // paging either lands in a later page or was buffered live in step 1 —
+      // de-dup by eventId absorbs the overlap either way.
+      let cursor = sinceEventCursor;
+      let rowIndex = 0;
+      for (;;) {
+        const page = await deps.db.query.events.findMany({
+          where: gt(events.globalSeq, cursor),
+          orderBy: [asc(events.globalSeq)],
+          limit: sseLimits.replayPageSize,
+        });
+        for (const row of page) {
+          if (closed) break;
+          if (!writeEvent(rowToEventEnvelope(row)) && !closed) {
+            await Promise.race([once(reply.raw, "drain"), once(reply.raw, "close")]);
+          }
+          cursor = row.globalSeq;
+          await sseTestHooks.afterReplayRow?.(rowIndex++);
+        }
+        if (closed || page.length < sseLimits.replayPageSize) break;
       }
 
       // Step 3: flush buffered live events, de-duplicated by eventId.

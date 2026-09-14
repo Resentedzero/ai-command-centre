@@ -205,9 +205,21 @@ function toEventDisplayItem(raw: RawEventEnvelope): EventDisplayItem {
  *    since a sequence guarantees monotonic ASSIGNMENT, not monotonic COMMIT
  *    order. `Math.max` is correct under both, and never regresses.
  */
+/**
+ * Reconnect backoff: starts at `RECONNECT_BASE_MS`, doubles per consecutive
+ * failure up to `RECONNECT_MAX_MS`, and resets once a message proves the
+ * connection healthy. Reconnecting instantly on every error hammered a down
+ * or at-capacity API (which answers 503 past its open-stream cap) in a tight
+ * loop.
+ */
+export const RECONNECT_BASE_MS = 500;
+export const RECONNECT_MAX_MS = 15_000;
+
 export function subscribeToActivity(sinceEventCursor: number | null, onEvent: (e: EventDisplayItem) => void): () => void {
   let closed = false;
   let currentSource: EventSource | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let delayMs = RECONNECT_BASE_MS;
   let maxSeen = sinceEventCursor ?? 0;
 
   function connect(since: number): void {
@@ -217,6 +229,7 @@ export function subscribeToActivity(sinceEventCursor: number | null, onEvent: (e
     currentSource = source;
 
     source.onmessage = (message: MessageEvent<string>) => {
+      delayMs = RECONNECT_BASE_MS; // healthy again
       const raw = JSON.parse(message.data) as RawEventEnvelope;
       // The HIGHEST cursor seen so far — never merely the most recent one.
       maxSeen = Math.max(maxSeen, raw.eventCursor);
@@ -225,9 +238,13 @@ export function subscribeToActivity(sinceEventCursor: number | null, onEvent: (e
 
     source.onerror = () => {
       source.close();
-      if (!closed) {
+      if (closed) return;
+      const wait = delayMs;
+      delayMs = Math.min(delayMs * 2, RECONNECT_MAX_MS);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
         connect(maxSeen);
-      }
+      }, wait);
     };
   }
 
@@ -235,6 +252,7 @@ export function subscribeToActivity(sinceEventCursor: number | null, onEvent: (e
 
   return () => {
     closed = true;
+    if (reconnectTimer !== null) clearTimeout(reconnectTimer);
     currentSource?.close();
   };
 }

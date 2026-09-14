@@ -42,6 +42,7 @@ import type { CapabilityGrant, CapabilityPermission, PolicyDecision } from "../g
 import type { RiskTier } from "../governance/risk.js";
 import type { CostClass } from "../governance/costClass.js";
 import type { InvocationKind } from "./types.js";
+import { failureCode, redactFailureText } from "./failureReason.js";
 
 export function buildInvocationIdempotencyKey(runId: string, seqNo: number): string {
   return `run:${runId}:seq:${seqNo}`;
@@ -298,6 +299,8 @@ export type FailInvocationParams = {
   reason: string;
   /** Extra facts about the failure, recorded in the event payload alongside `reason` (which they cannot override). */
   details?: Record<string, unknown>;
+  /** The error that caused the failure, when there is one: source of a stable `errorCode` (see `./failureReason.ts`). */
+  error?: unknown;
 };
 
 /**
@@ -318,6 +321,16 @@ export async function markInvocationExecuting(tx: DrizzleTransaction, invocation
  * possibility of a duplicate here and no flag is needed.
  */
 export async function failInvocation(tx: DrizzleTransaction, params: FailInvocationParams): Promise<void> {
+  // The immutable, streamed event carries a REDACTED reason (no SQL, host
+  // paths or key-shaped strings — see ./failureReason.ts); the full text goes
+  // to the server log only.
+  const reason = redactFailureText(params.reason);
+  if (reason !== params.reason) {
+    // eslint-disable-next-line no-console
+    console.error(`failInvocation: full failure text for invocation "${params.invocationId}" (redacted in its event):`, params.reason);
+  }
+  const errorCode = params.error === undefined ? undefined : failureCode(params.error);
+
   await tx
     .update(invocations)
     .set({ status: "failed", completedAt: new Date() })
@@ -337,7 +350,7 @@ export async function failInvocation(tx: DrizzleTransaction, params: FailInvocat
     },
     actor: "system",
     producer: "executor",
-    payload: { ...(params.details ?? {}), reason: params.reason },
+    payload: { ...(params.details ?? {}), ...(errorCode ? { errorCode } : {}), reason },
     usage: null,
   });
 }

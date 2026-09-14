@@ -807,6 +807,19 @@ generalizes to multi-user later without rework.
 > - Wrong-state Workflow Run operations are 409s.
 > - 5xx bodies are generic. Database errors embed SQL text, so their details go to
 >   the server log only.
+>
+> **Failure text in events.** Failure text in immutable events is redacted at its
+> single write point, `failInvocation` (`src/execution/failureReason.ts`):
+> - **Removed:** SQL text, absolute host paths and key-shaped strings, which are
+>   also length-capped. Once an event is written it cannot be cleaned.
+> - **Kept:** reasons stay human-readable, and a stable `errorCode` is added when
+>   the error carries one.
+>
+> **Event stream bounds** (`src/api/routes/events.ts`):
+> - Replay is paged and respects socket backpressure.
+> - The per-connection de-dup set is bounded.
+> - Open streams are capped (503 past the cap), and the UI reconnects with
+>   exponential backoff.
 
 ## Phase 10 — Model Routing
 
