@@ -228,3 +228,21 @@ The final pixel screens moved to the `04 — Screens` pages; the sci-fi frames a
 - Run budget "limit": `run.budget.limitAmount` is real.
 
 **Finding for implementation:** `subscribeToActivity` exposes no connection status, so the connection chip has no client source yet (recorded in `runtime-truth.md`).
+
+## State frames: Goals, Events, Artifacts (2026-09-14)
+
+Seven more states: Goals (no goals yet, start goal failed), Events (feed reconnecting, no events received), Artifacts (content hash mismatch, artifact not found, agent has no outputs).
+
+**Critic scores:** goals empty 7, goals fail 6, events reconnecting 5, events empty 7, hash mismatch 7, not found 5, no outputs 6. **Verdict:** one more pass.
+
+**Accepted and applied:**
+1. **One connection state per screen.** On the reconnecting frame the top-bar chip reads "Reconnecting" (neutral) to match the header; it had stayed green "Live".
+2. **Routes and status codes are detail, not the message.** "Couldn't start the goal." and "This output's artifact wasn't found." are the messages; `POST /goals · · ·` and `GET /artifacts/:id · 404` sit on a dim detail line under them.
+3. **Recovery controls, neutral:** "Refresh goals" after a failed `createGoal` (it is non-idempotent, so refresh comes before any retry) and "Retry" on not found.
+4. **Operator words, not field names.** Event column headers read time / type / summary / cursor. The reconnect line is ink on parchment; the empty-log message is padded to the columns.
+5. **Known empties are values.** The no-outputs frame shows "outputs 0" and names the agent ("Researcher's vault is empty"); the not-found frame keeps the selection bracket on the chest that is still selected.
+
+**Rejected:**
+- The "Start a goal" tab reading as a button: it is the shared tab style on every board.
+- Keeping typed values after a failed `createGoal`: the inputs are client state and the frame is a template.
+- "Produced by" on dark vellum and the lower panels cut off at the frame edge: both belong to the approved base Artifacts screen, not to its states. Revisit in implementation.

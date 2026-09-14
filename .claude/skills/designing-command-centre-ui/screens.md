@@ -25,6 +25,9 @@ A world share below 65% is intentional for screens where exact text is the job.
 - **Agents:** execution stop active.
 - **Approvals:** nothing pending.
 - **Workflows:** step 2 failed.
+- **Goals:** no goals yet (counts of rows returned = 0); start goal failed (the `createGoal` error, with a non-idempotency hint: check the goal list before retrying).
+- **Events:** feed reconnecting (missed events replay from `sinceEventCursor`); no events received yet.
+- **Artifacts** (y 1300 and y 2500): content hash mismatch (`contentHashMatches` false: red marker, preview marked untrusted); artifact not found (`GET /artifacts/:id` 404); agent has no outputs (empty vault, no chests).
 
 State rules applied: unloaded or failed means no room is lit; zero counts and offline or connecting chips are neutral, never amber or green; a halted agent's status is a skeleton until the API returns it, never cyan "active" in an unlit room.
 
