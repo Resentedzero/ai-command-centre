@@ -12,7 +12,7 @@ They are **style references only**. Their agents, roles, metrics, tabs, graphs a
 - Floating name plates over characters
 - A narrow left roster and right inspector framing the world
 - Thin top telemetry strip; bottom world tools (zoom/pan/layers); a small legend
-- Near-black panels with hairline borders
+- Dark surroundings that let lit rooms read. The image's near-black hairline panels are superseded by D19 wood chrome.
 - The warm-torch plus cyan-tech lighting contrast
 
 **Don't take:** 12 or 16 agents, role names, "Tokens" beside "USD" in one bar, "System Healthy", the level selector as progression, model names, file-editing activity, sub-task counts. Mappings are in `runtime-truth.md`.
@@ -39,10 +39,9 @@ They are **style references only**. Their agents, roles, metrics, tabs, graphs a
 - Pixel display lettering
 - Readable pixel icons at whole-number scale
 
-These are used **inside the world only**: room name plates, station sigils, artifact shelves.
+Since D19 this kit's framing is **the chrome everywhere**: wood boards, parchment cards, header tabs, plaques and buttons, as well as room name plates and sigils inside the world.
 
 **Don't take:**
-- Parchment and wood panels as HUD chrome
 - Stars, score, win/try-again screens, inventory and equipment metaphors, crafting UI
 - The daylight farm palette
 

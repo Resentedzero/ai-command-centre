@@ -6,10 +6,10 @@ Visual decisions are recorded here with their status. Product or API proposals r
 
 | # | Decision | Status |
 |---|---|---|
-| D1 | Art direction: a dungeon-fantasy world that has evolved into sci-fi mission control ("the dungeon is the computer"). The Tile Pack is the core world asset library, and the world view shows agent activity. This supersedes the "sci-fi ops center" wording in spec §15.4 and closes TILE_PACK_INVENTORY's open next step 2. | **Decided** by the operator on 2026-09-14. Recorded in a §15.4 implementation note. |
+| D1 | Art direction: a dungeon-fantasy world that has evolved into sci-fi mission control ("the dungeon is the computer"). The Tile Pack is the core world asset library, and the world view shows agent activity. This supersedes the "sci-fi ops center" wording in spec §15.4 and closes TILE_PACK_INVENTORY's open next step 2. | **Decided** by the operator on 2026-09-14. Recorded in a §15.4 implementation note. **The sci-fi part is superseded by D19:** the chrome is pure pixel and sci-fi is optional. "The dungeon is the computer" stands. |
 | D2 | Reference images stay untracked in `assets/References for Ui/`, described in `references.md`. | **Decided** by the operator on 2026-09-14 |
 | D3 | The MVP's "plain inline styles, no design system" ruling (Unit 11, Ruling 4) ends when UI work begins. Its replacement: CSS custom properties plus CSS Modules, with no Tailwind or component library. Adding one needs a recorded reason. | Proposed |
-| D4 | Fonts: Pixelify Sans (world and titles), IBM Plex Sans (HUD), JetBrains Mono (telemetry), via `next/font`. | **Decided** by the operator on 2026-09-14 |
+| D4 | Fonts: Pixelify Sans (world and titles), IBM Plex Sans (HUD), JetBrains Mono (telemetry), via `next/font`. | **Decided** by the operator on 2026-09-14. **Amended by D19:** IBM Plex Sans is no longer used. Pixelify Sans is for titles, labels and buttons; JetBrains Mono is for API values and long reading. |
 | D5 | Figma is the visual source of truth: [AI Command Centre UI](https://www.figma.com/design/3Q5IMyXoPHDBFDv8vjS467/AI-Command-Centre-UI), file key `3Q5IMyXoPHDBFDv8vjS467`. | **Decided** by the operator on 2026-09-14 |
 | D6 | Station per Invocation kind: Alchemy = `llm`, Anvil/Workbench = `tool`, Furnace = `deterministic`. | Proposed (presentation only) |
 | D7 | Agent identity tints avoid state hues. Status is always an icon and a label, never colour alone. | Decided (accessibility) |

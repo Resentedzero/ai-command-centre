@@ -25,12 +25,12 @@ Sampled from the references, then assigned meaning. A hue carries one meaning on
 | Token | Value | Meaning |
 |---|---|---|
 | `--void` | `#01070E` | Page background, unlit space around the world |
-| `--panel` | `#040D15` | HUD panel fill (roughly 88% opaque over the world) |
-| `--panel-raised` | `#0A1824` | Inspector sections, hovered rows |
-| `--line` | `#15303F` | Hairline borders, dividers |
-| `--text` | `#E6EEF5` | Primary text |
-| `--text-dim` | `#7F93A6` | Labels, secondary text |
-| `--state-active` | `#08B8F9` | `active`, `executing`, live data beams |
+| `--panel` | `#040D15` | *Sci-fi era, unused in D19 chrome* (was HUD panel fill) |
+| `--panel-raised` | `#0A1824` | *Sci-fi era, unused* (was inspector sections) |
+| `--line` | `#15303F` | *Sci-fi era, unused* (was hairline borders) |
+| `--text` | `#E6EEF5` | *Sci-fi era, unused.* Text is `pixel/label` on wood, `pixel/ink` on parchment. |
+| `--text-dim` | `#7F93A6` | *Sci-fi era, unused.* Use `pixel/label-dim`. |
+| `--state-active` | `#08B8F9` | `active`, `executing`, the lit room of a working agent |
 | `--state-done` | `#0BC97F` | `completed`, approved, live connection |
 | `--state-wait` | `#F8A60F` | `awaiting_approval`, `paused`, pending approval |
 | `--state-fail` | `#FB5D42` | `failed`, rejected, execution stop, stop controls |
@@ -51,7 +51,7 @@ All of these tokens exist as Figma variables in the "Command Centre" collection 
 | `pixel/wood-edge` | `#6B4A2B` | 2 px bevel edge, bar borders |
 | `pixel/outline` | `#0B0705` | 2 px outer outline, ground shadows |
 | `pixel/parchment` | `#D8C49C` | Reading cards |
-| `pixel/parchment-shade` | `#B39E74` | Card edge, skeleton bars |
+| `pixel/parchment-shade` | `#B39E74` | Parchment card edge, disabled input fill. Never a skeleton bar. |
 | `pixel/ink` | `#3B2A1A` | Text on parchment |
 | `pixel/label` / `pixel/label-dim` | `#F3E3C3` / `#A58B63` | Text on wood |
 
@@ -71,7 +71,7 @@ All of these tokens exist as Figma variables in the "Command Centre" collection 
 
 **The void is world darkness only.** Navy-black appears only inside a bevel-framed world view. Reading areas, boards and screen backgrounds sit on wood.
 
-**Skeletons** (a value is still loading or absent from the mockup) are a "…" glyph in the surface's dim ink. Never draw a bar, which reads as a partly filled gauge (fake data).
+**Skeletons** (a value is still loading or absent from the mockup) are the "· · ·" glyph (three middle dots with spaces), in `pixel/ink` at 80% or more on parchment and `pixel/label-dim` on wood. Never draw a bar, which reads as a partly filled gauge (fake data).
 
 `--core-glow` cyan is retired as the runtime colour. The core is pale silver (`#DDE8FF`), so it never reads as a third active agent.
 
@@ -93,10 +93,7 @@ Figma text styles in the D5 file, where each `a/b` name becomes a `.a-b` class o
 |---|---|---|
 | `world/title` | Pixelify Sans SemiBold | 32/40 |
 | `world/label` | Pixelify Sans Medium | 16/20 |
-| `hud/heading` | IBM Plex Sans SemiBold | 16/24 |
-| `hud/body` | IBM Plex Sans Regular | 14/20 |
-| `hud/small` | IBM Plex Sans Regular | 12/16 |
-| `hud/section` | IBM Plex Sans SemiBold, uppercase, 8% tracking | 12/16 |
+| `hud/heading`, `hud/body`, `hud/small`, `hud/section` | IBM Plex Sans | *Sci-fi era, unused since D19.* Don't load IBM Plex in `web/`. |
 | `data/value` | JetBrains Mono Medium | 20/28 |
 | `data/body` | JetBrains Mono Regular | 13/20 |
 
@@ -114,7 +111,7 @@ These live in the Figma "Spacing" collection; CSS names follow the same rule (`s
 | `space/xl` | 24 | Between panel sections |
 | `space/2xl` | 32 | Between major regions |
 | `space/3xl` | 64 | Board and page margins |
-| `radius/none` | 0 | Default HUD corner |
+| `radius/none` | 0 | Every pixel bevel corner |
 | `radius/sm` | 2 | The most rounding allowed |
 
 ## Panels and chrome
@@ -128,9 +125,9 @@ These live in the Figma "Spacing" collection; CSS names follow the same rule (`s
   - **Selection:** a cream edge, never a state colour, since state colours mean runtime state. A pending row that is selected shows its amber marker plus the cream edge.
   - **Inputs:** focus is an ink edge plus the ring; an error is a red edge plus a red message on wood (5.3:1).
 - **Effects:** never put an effect on an image-filled sprite rectangle. It applies to the bounds and draws a box.
-- Group with hairlines and section labels, not with more boxes. One panel with dense rows beats a grid of cards.
+- Group with header tabs and a few bevel cards, not with hairlines or many boxes. One board with dense rows beats a grid of cards.
 - Pixel-GUI framing (the parchment/wood panels in reference image 2) is the chrome everywhere since D19: boards, cards, plaques, buttons. No sci-fi HUD panels remain.
-- Icons: a single-weight line set for the HUD, and 16 px pixel glyphs for the world. Never mix them in one component.
+- Icons: 16 px pixel glyphs at whole-number scale, in chrome and world alike (keys for grants, chests for artifacts, the outlined state marker). There is no line icon set since D19.
 
 ## Density and hierarchy
 
@@ -148,9 +145,9 @@ These live in the Figma "Spacing" collection; CSS names follow the same rule (`s
 | Needs attention | Slow pulse (1.6 s), amber |
 | Failure or stop | One sharp flash, then steady red. Never loop an alarm. |
 | Completion | A single green flash, then settle |
-| HUD transitions | 120–180 ms, ease-out, no bounce |
+| Chrome transitions (notice tabs, boards) | 120–180 ms, ease-out, no bounce |
 
-Respect `prefers-reduced-motion`: freeze sprites on a representative frame, and keep state legible through the sigil, lamp and label.
+Respect `prefers-reduced-motion`: stop every animation. Sprites hold their first frame, and pulses, flashes and slides don't play. State stays legible through the marker, room light and label, which never depend on motion.
 
 **Prototype:** `assets/gamification/adapted/motion-prototype.html`, served locally by the `motion-prototype` entry in `.claude/launch.json`. It runs the rules above over the real keep art with scripted demo states, and has been checked in the browser:
 - run loop: 6 frames at 100 ms (`steps(6)`, 0.6 s);

@@ -44,6 +44,8 @@ Figma never adds runtime behaviour. A frame showing a feature the API lacks is b
   | Map scale 2× (source art) | `29:2` | The same cuts plus `sprite/<character>-<pose>` at 2× (tile 96 px) | Source art (not a component) |
   | Sprites (source art) | `15:2` | Knight, Rogue and Wizard idle frame 1 at 4× | Source art (not a component) |
 
+  **Status in pixel (replaces `StatusLabel`):** the outlined `Pixel state marker` (10×10, fill in the state colour, 2 px `pixel/outline`) followed by the runtime word. The word is in the state colour on wood, and in `pixel/ink` on parchment (contrast rule). Unloaded status is a dimmed neutral marker plus "· · ·". It isn't a separate component yet; build it as `<StatusMark state="…" />` from `runtime-truth.md` vocabularies.
+
   **Sci-fi era, superseded by D19** (kept on `03` for reference; don't build these): `StatusLabel` `10:2`, `UnitGauge` `11:18`, `ConnectionIndicator` `12:17`, `CommandButton` `14:42`, `StateSigil` `27:14`, `Room` `30:154`. Their state lists still describe the runtime vocabulary correctly.
 
   Add a row whenever a component is built.

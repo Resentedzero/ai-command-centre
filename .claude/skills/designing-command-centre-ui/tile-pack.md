@@ -46,12 +46,12 @@ Assigning a station per Invocation kind is a presentation choice, recorded here 
 
 ## State treatments
 
-The pack has idle, run and death. Everything else is a designed overlay built from sci-fi chrome, light and tile sigils. Overlays are drawn in HUD colours, above the pixel layer.
+The pack has idle, run and death. Everything else is a designed overlay built from pixel chrome (D19), dithered state light and tile sigils. Overlays use the state tokens and sit above the static composite as live layers.
 
 | Runtime state | Character | Environment / overlay |
 |---|---|---|
 | Task Instance `pending` | Absent, or at the door | Room unlit, door closed |
-| `active`, Invocation `executing` | Run to the station, then Collect loop | Station animates, room lights at full, thin data beam to the hub |
+| `active`, Invocation `executing` | Run to the station, then Collect loop | Station animates, room lit cyan (dithered pool clipped to the floor) |
 | Invocation `proposed` | Idle facing the station | Station powers up (a single pulse) |
 | `awaiting_approval` | Idle, facing the viewer | **Designed:** amber seal or sigil over the station, pulsing slowly, with the risk tier. Links to that approval. |
 | Workflow Run `paused` | Idle | **Designed:** corridor lights dim amber, a held gate icon |
@@ -59,7 +59,7 @@ The pack has idle, run and death. Everything else is a designed overlay built fr
 | `completed` | Idle, or Carry_Idle when an artifact was produced | Station cools, one green completion flash, an artifact glyph on the room's shelf |
 | `failed` | Death, played once and held on the last frame | Red alarm lamp, sealed door, failure reason on inspect |
 | Approval `rejected` / `expired` | As `failed` | Seal breaks (rejected) or fades (expired) |
-| SSE offline | Unchanged | World desaturates about 30%, with a "telemetry lost" HUD strip |
+| SSE offline | Unchanged (last loaded state) | State light dims to about 45% because it may be stale. The connection chip reads a neutral "Offline", and the notice strip says the feed is offline with a neutral Reconnect button (Overview "live feed offline" state frame). |
 
 Other packs (see `design-decisions.md` D13–D15): Top Down Adventure and Pixel 16 Interiors supply props, and `tile-slices.json` → `extraSlices` lists the cuts. Cute Fantasy supplies the outdoor wilderness around the keep: a composed ground image from grass plus path and water 9-slices, and trees, lamps and scatter. Its licence is non-commercial only, so never put it in a public repo or bundle.
 
