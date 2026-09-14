@@ -1,0 +1,208 @@
+# Design review log
+
+Each refinement cycle runs: observe → independent critic sub-agent → reconcile → refine → re-compare. This log records what the critic found, what was accepted or rejected and why, so implementation doesn't have to reverse-engineer intent.
+
+## Reference grammar (what we translate, not copy)
+
+1. **Light is the information.** Rooms are pools of saturated light in near-darkness. Lit means working; dark means quiet. The core is the brightest thing on screen.
+2. **Radial composition.** Everything relates to a glowing core; corridors are spokes.
+3. **Rooms are dense workshops.** The environment tells the story; the character is small but lit.
+4. **Labels float in the world.** Glowing name tags sit over the thing they name, in its light colour. No caption strips.
+5. **The HUD frames the world and never covers it.** Rails on the edges; world tools (minimap, legend) sit at the world's edge.
+6. **Depth through contrast:** wall height, light falloff, edge vignette. No drop shadows.
+7. **One accent per meaning:** cyan = system core, warm torchlight = ambience (small and faint so it never reads as amber state), state hues reserved for state.
+
+## Cycle 1 (2026-09-14): Overview
+
+**Critic's top findings (ranked):**
+1. No lighting model; the world is evenly lit like a tile-set demo.
+2. Hub is a vector disc.
+3. System rooms read as a SaaS card row with caption strips.
+4. Daylight wilderness clashes with the mood.
+5. API field-path placeholders hijack the hierarchy.
+6. Design notes rendered inside UI frames.
+7. Agents hard to find.
+8. Square rune glows and a vector selection box.
+9. HUD too generic.
+10. Goals world is wallpaper.
+11. Pending approval shown blue.
+12. Raw snake_case in chips.
+
+**Accepted and applied:**
+- **Lighting layer** over the keep: darkness at 55% plus three-step, hard-edged light pools snapped to the 8 px grid.
+  - Pool colours come from real state: Researcher active is cyan, Publisher awaiting_approval is amber.
+  - The Approvals seal glows, with an amber spill into the corridor.
+  - The runtime core is the brightest cyan.
+  - Cyan conduits run from the hub along the corridors.
+- **Lit actors layer:** agent sprites, the seal and a new core crystal sit above the darkness, so characters read like the reference.
+- **Floating in-world tags** replace the room caption strips. They are bordered in the state colour for agents and amber for Approvals.
+- **Pixel corner brackets** replace the vector selection box. The 2× rune glow was removed.
+- **Wilderness** night-graded at 58%, with small warm lamp pools. The minimap is dimmed.
+- **Gated labels** (Registry, Cost) removed from the live map; those houses are now scenery.
+- **Inspector** field-path values replaced by skeleton bars, and in-frame spec text removed.
+
+**Rejected:**
+- **Characters at 3× on the 2× map.** Mixed pixel scales break the world's consistency, so lit pools and tags solve findability instead.
+- **Deleting the wilderness.** The operator approved it (night grade instead).
+
+**Deferred:** HUD chrome (emblem, highlight, active-tab glow), Goals war table, display labels for states, the amber approval-pending label, and in-frame notes on other screens.
+
+## Cycle 2 (2026-09-14): three directions and a varied-room world
+
+The operator made sci-fi optional ("the dungeon/village is the computer"), allowed varied rooms with their own architecture and mood, opened every pack regardless of licence (D18), and allowed asset adaptation. Three directions were built on one composed "varied rooms" keep (`assets/gamification/adapted/`) and judged by an independent critic against the references.
+
+**Critic scores (1–10):**
+
+| Direction | Distinctive | Cohesive | Immersive | Living computer | Not SaaS | Not forced | Faithful |
+|---|---|---|---|---|---|---|---|
+| A: pure pixel village/dungeon | **8** | **7** | **7** | 5 | **8** | **7** | 6 |
+| B: pixel + subtle instrumentation | 5 | 5 | 6 | 6 | 4 | 6 | 6 |
+| C: futuristic mission control | 5 | 4 | 5 | **7** | 4 | 3 | 7 |
+
+**Verdict: Direction A, taking only the detail panel's information structure from B.**
+- B reads as a SaaS dev tool with a game embedded in it.
+- C's holo brackets frame empty void.
+- In B and C, vector conduits break the pixel art, and the cyan core reads as a third active agent.
+
+**Accepted (building "A2"):**
+- **Lighting:** pixel-dithered light pools clipped inside room walls, replacing the vector ellipses. Ambient light is a dim neutral warm grey; amber is reserved for approval states.
+- **Core room is the heart:** an 8× crystal recoloured pale silver, never agent cyan, with rune channels carved from the core along the halls. The channels light only on real activity.
+- **One continuous building:** dark stone ground, full-width halls with candles, an outer wall ring, a south gate. The map pans (D16).
+- **Chrome:** pixel bevel frames (2 px outline plus highlight, square corners) for the bar, tags, board and buttons, with B's lineage rows on a parchment inset.
+- **Event ticker** as a notice-board strip.
+- **Text:** no duplicate tag text; "Live", not "Live telemetry".
+
+**Rejected:** agents one scale step larger (3× on a 2× world) was proposed again and rejected again. Mixed pixel scales break the art. A ground shadow, light and an anchored tag do the job.
+
+**Legibility call:** Pixelify for chrome, titles and labels; a mono face for raw state tokens and long reading text (Approvals, Events), because Pixelify is unreadable in dense passages.
+
+**Varied rooms versus uniform rooms:** room identity is clearly better (library, council hall, war room, forge, vault). Composition was worse as a 3×3 grid floating in void, which is now fixed with the continuous building.
+
+## Cycle 3 (2026-09-14): A2 critique, building A3
+
+**Critic scores, A → A2:**
+
+| Criterion | A | A2 |
+|---|---|---|
+| Distinctive | 6 | 7 |
+| Cohesive | 5 | 8 |
+| Immersive | 5 | 7 |
+| Living computer | 5 | 6 |
+| Not SaaS | 7 | 7 |
+| Not forced | 4 | 7 |
+| State at a glance | 6 | 7 |
+
+The critic judged lighting and chrome technique to be at diminishing returns, and named one big change left: a night value pass plus a non-grid layout.
+
+**Accepted and applied in A3** (frame "Direction A3", `compose-keep-v4.ps1`):
+1. **Night keep:** darkness at 68%, no ambient pools in stateless rooms. State light is the only bright thing.
+2. **Agent contrast:** a 1-logical-pixel dark outline baked into every 2× sprite (`adapted/sprites-outlined-2x/`), plus ground shadows. It was a contrast problem, not a scale problem.
+3. **Honest skeletons:** grey bars under "consumed" and "reserved" looked like half-full meters, which is visually fake data. They became "…" glyphs.
+4. **Dashes mean approval only:** the core's dashed ring became a groove of 4 px silver rune glyphs every 32 px.
+5. **Tighter layout:** a larger command room (240×176 source), 24 px halls, 16 px rim. The whole keep and every room carrying state is visible in the default viewport.
+6. **Crystal at 2×:** the 8× crystal broke the scale rule, so it became a hand-drawn faceted 2× crystal on a pedestal (`core-crystal-pedestal-2x.png`).
+7. **Plaques** anchored to each room's top-wall line, and notice-board events became pinned parchment tabs.
+
+**Rules for other screens (from the critic, accepted):**
+- No Pixelify for body text, ids, JSON or diffs.
+- Long reading goes on dark vellum, not cream parchment (glare). Parchment is for headers and summary cards.
+- Never put readable content over the map or its light.
+- Events is a real sortable log with state markers, plus at most a small keep thumbnail.
+- Goals lineage is a real list or tree; the war room only frames it.
+- Everything stays at whole-number 2× (4× only in dedicated close-ups).
+
+**Deferred as motion spec:** sprite loops while working, a channel pulse on live activity, and a brief room flash when an event for that room arrives.
+
+## Cycle 4 (2026-09-14): A3 critique, building A4
+
+**Critic scores, A2 → A3:**
+
+| Criterion | A2 | A3 |
+|---|---|---|
+| Distinctive | 7 | 7.5 |
+| Cohesive | 6 | 7 |
+| Immersive | 6.5 | 7 |
+| Living computer | 6 | 7 |
+| Not SaaS | 6 | 6 |
+| Not forced | 6 | 7 |
+| State at a glance | 7 | 8 |
+
+**Verdict:** the map is nearly done. The last high-impact change is making the chrome match the world.
+
+**Accepted (A4):**
+1. **Non-state light removed.** Hall candle halos and the forge glow broke "light = real state". The halos are removed, and the forge fire is dimmed to embers in the composite.
+2. **Minimap card removed** (redundant now that the whole keep is visible). A framed 4× portrait of the selected agent replaces it.
+3. **Stronger card chrome:**
+   - Cards get wood header tabs and a 2 px shadow bevel.
+   - Skeletons sit inline after their label ("· · ·" in ink).
+   - The active nav item is a bevelled tab.
+4. **Core rune dots replaced.** The dots read as runway lights, so there are now four faint cross glyphs inside the command room only.
+5. **Command room floor shifted teal → slate,** so cyan stays unique to "active".
+6. **Letterbox gutters filled.** The keep is 1440 px wide, with rampart columns in the rim. The notice board uses pinned, staggered notes.
+
+**Rejected:** none. All six findings were concrete and rule-consistent.
+
+## Propagation (2026-09-14)
+
+The pure-pixel language is applied to:
+- **Agents:** the 4× workshop close-up, a roster board with 2× portraits, and a two-column board of tabbed parchment and vellum cards.
+- **Approvals:** reading-first. A 2× council-hall vignette with amber light, seal and wizard; parchment request and artifact cards; vellum panels for the preview and JSON snapshot; bevelled Approve (dark green) and Reject (dark red).
+
+A cross-screen cohesion critique (cycle 5) is judging Overview A4 with Agents and Approvals before the remaining screens are built.
+
+## Cycle 5 (2026-09-14): cross-screen cohesion (Overview, Agents, Approvals)
+
+**Critic scores:**
+
+| Screen | Fits language | Composition | World presence | Legibility | Not SaaS |
+|---|---|---|---|---|---|
+| Overview | 8 | 7 | 9 | 7 | 8 |
+| Agents | 7 | 5 | 7 | 7 | 5 |
+| Approvals | 6 | 7 | 6 | 6 | 5 |
+
+**Verdict:** mostly one product. Stop the loop after these fixes, then do one quick pass.
+
+**Accepted and applied** (frames "Overview A5", "Agents v2", "Approvals v2"; component `PixelTopBar`):
+1. **Fake state and notes-to-self removed from UI:**
+   - A green "content matches" chip showed with no data; it is now a neutral hash-check skeleton.
+   - Resolved rows showed invented statuses; they are now neutral status skeletons.
+   - All design notes rendered as copy are gone.
+2. **One approval, one place.** An agent awaiting approval stands on the council-hall seal and its workshop goes dark; its plaque keeps the amber marker.
+3. **Fixed nav.** A shared `PixelTopBar` component with fixed 120 px tab slots, including Artifacts. The chips are text properties.
+4. **Navy void only inside bevel-framed world views.** Reading areas sit on wood.
+5. **Green/red rule written down:** decisions and controls only, never world light. "No stop" is neutral ink.
+6. **Chrome consistency:**
+   - A bevel frame on every world view.
+   - A global full-width notice strip.
+   - "· · ·" everywhere.
+   - A marker on Stop.
+   - A big name heading on Agents.
+7. **Per screen:**
+   - **Overview:** the stateless entrance is dimmed; recent events fill the board with Stop at the bottom.
+   - **Agents:** a single ordered board (lineage full width, then parchment summaries and wood lists).
+   - **Approvals:** the vignette is aligned with the request card, and the artifact strip is full width.
+
+**Modified:** "hide the Resolved group until real rows exist" became neutral skeleton rows, so the layout's structure stays documented without claiming statuses.
+
+**Rules for the remaining screens (from the critic, accepted):**
+- **Workflows:** a corridor of step rooms lit by step state, with wood reading below.
+- **Goals:** one war-room table with a banner per goal, a medium vignette and parchment summaries.
+- **Events:** almost no world (a thin scribe strip at most); a full-width, dense wood mono log.
+- **Artifacts:** chests in a grid, one per artifact, lit or gated by state; opening one shows a wood reading panel.
+
+**Lesson:** Warm torch pools must be tiny and faint. At normal strength they read as amber `wait` state and flood the map with noise. Light only real torches and lanterns, never candles or props.
+
+## Final quick pass (2026-09-14): all seven pixel screens
+
+**Critic scores:** Overview 8, Agents 8, Workflows 6, Goals 6, Approvals 9, Artifacts 6, Events 8. **Verdict:** close; one short pass on consistency bugs.
+
+**Accepted and applied:**
+1. **One state per screen set.** Workflows showed Publisher active in a cyan Step 2 while Overview and Approvals showed it awaiting approval on the seal. Step 2 is now unlit, empty, with an amber "awaiting approval" plaque.
+2. **Loading shows no sample data.** Real event-type names beside skeletons read as data; every loading event row is now "· · ·" with a dimmed neutral marker, so grey means only "not loaded".
+3. **Notes-to-self removed:** the "GET /artifacts/:id" tab title and "goals (capped 500 → 500+)". The cap rule lives in `runtime-truth.md`, not in copy.
+4. **Bevel frames** on the Overview keep and the Workflows corridor.
+5. **Goals warning** is label ink, not amber (amber means waiting).
+6. **Big name headings** on Goals and Artifacts, matching Agents.
+7. **Artifacts vault:** 4 chests, matching the 4 listed outputs (one per artifact).
+
+**Loop stopped: diminishing returns.** Remaining work is promotion and implementation, not direction.

@@ -26,6 +26,7 @@ If a lower tier disagrees with a higher one, the higher tier wins. The spec's da
   - the Claude Max (`claude -p`) provider adapter;
   - quota state and telemetry, and the disabled quota guardrail;
   - the tier ladder and candidate routing. (Phases 6–7H)
+- UI design language: the project skill [`.claude/skills/designing-command-centre-ui/`](../.claude/skills/designing-command-centre-ui/SKILL.md) covers the art direction (spec §15.4 note), runtime-to-visual mapping, Tile Pack state treatments, per-screen compositions and the Figma workflow. It is authoritative for visuals only. What the UI shows is set by the spec and API.
 
 Module-level contracts live in the header comment of each source file. The root `CLAUDE.md` is the orientation summary. Spec §17.2 anticipates per-module `CLAUDE.md` files, but none exist yet.
 

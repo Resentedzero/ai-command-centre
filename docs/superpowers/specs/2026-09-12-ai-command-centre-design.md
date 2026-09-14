@@ -1628,6 +1628,15 @@ runtime logic** of any kind. It consumes the same projections (including
 design is deferred to a dedicated pass once Phase 18's MVP is running against real
 data, rather than designed against imagined data now.
 
+> **Implementation note (2026-09-14): art direction decided.** "The dungeon/village is the
+> computer": a pixel-art keep of varied rooms is the primary view of agent activity, and
+> light carries real state. After a critiqued comparison, the UI uses pure pixel chrome
+> (wood and parchment boards, pixel bevel frames) rather than a sci-fi HUD; sci-fi is optional.
+> This replaces the plain "sci-fi ops center" framing above. The boundary in this section
+> is unchanged: the world renders projections and never holds runtime logic. The design
+> language, reference-image guidance and Figma workflow live in the project skill
+> `.claude/skills/designing-command-centre-ui/`.
+
 ---
 
 ## Phase 17 — Development Workflow
