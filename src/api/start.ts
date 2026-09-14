@@ -18,6 +18,7 @@ import { transactionRunner } from "../db/transactionRunner.js";
 import { acquireExecutorInstanceLock } from "../execution/executorInstanceLock.js";
 import { recoverInterruptedInvocations, redriveInProgressWorkflowRuns } from "../workflow/recoverInterruptedInvocations.js";
 import { findSeededPublishWorkflow } from "../definitions/lookupSeed.js";
+import { expireStaleApprovals } from "../workflow/expireStaleApprovals.js";
 import { buildInvocationSpecsForTaskDefinition } from "../workflow/buildInvocationSpecsForTaskDefinition.js";
 
 async function main() {
@@ -60,7 +61,31 @@ async function main() {
   // background so the API is available meanwhile. See the function's header.
   const seed = await runInTx((tx) => findSeededPublishWorkflow(tx));
   if (seed) {
-    redriveInProgressWorkflowRuns(runInTx, (tx) => buildInvocationSpecsForTaskDefinition(tx, seed))
+    const makeBuilder = (tx: Parameters<typeof buildInvocationSpecsForTaskDefinition>[0]) =>
+      buildInvocationSpecsForTaskDefinition(tx, seed);
+
+    // Approval TTL sweep (spec 9.5): expire and re-drive past-TTL Approvals —
+    // once now, then periodically. One sweep at a time; the timer never keeps
+    // the process alive on its own.
+    let sweeping = false;
+    const sweepApprovals = async () => {
+      if (sweeping) return;
+      sweeping = true;
+      try {
+        const report = await expireStaleApprovals(runInTx, makeBuilder);
+        if (report.expired.length > 0 || report.failed.length > 0) {
+          // eslint-disable-next-line no-console
+          console.log("Approval TTL sweep:", report);
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("Approval TTL sweep failed:", err);
+      } finally {
+        sweeping = false;
+      }
+    };
+
+    redriveInProgressWorkflowRuns(runInTx, makeBuilder)
       .then((report) => {
         if (report.redriven.length > 0 || report.failed.length > 0) {
           // eslint-disable-next-line no-console
@@ -70,9 +95,16 @@ async function main() {
       .catch((err) => {
         // eslint-disable-next-line no-console
         console.error("Startup re-drive of in-progress Workflow Runs failed:", err);
+      })
+      .finally(() => {
+        void sweepApprovals();
+        setInterval(() => void sweepApprovals(), APPROVAL_SWEEP_INTERVAL_MS).unref();
       });
   }
 }
+
+/** How often past-TTL Approvals are expired. A minute is ample against a TTL measured in hours. */
+const APPROVAL_SWEEP_INTERVAL_MS = 60_000;
 
 main().catch((err) => {
   // eslint-disable-next-line no-console

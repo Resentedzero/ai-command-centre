@@ -53,7 +53,7 @@
  * consult status" test in approvals.test.ts.
  */
 import { isDeepStrictEqual } from "node:util";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { approvals, capabilityGrants, invocations, runs } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
@@ -203,22 +203,32 @@ export async function resolveApproval(
   decision: "approved" | "rejected",
   resolvedBy: string
 ): Promise<{ id: string; status: "approved" | "rejected" }> {
+  const now = new Date();
   const [row] = await tx
     .update(approvals)
-    .set({ status: decision, resolvedAt: new Date(), resolvedBy })
-    .where(and(eq(approvals.id, approvalId), eq(approvals.status, "pending")))
+    .set({ status: decision, resolvedAt: now, resolvedBy })
+    // A pending Approval past its TTL is no longer resolvable (spec 9.5: it
+    // auto-resolves to reject, recorded as `expired`). Part of the SAME
+    // conditional UPDATE, so a human decision can never land on an expired
+    // Approval — previously it could, recording `approval_granted` for work
+    // `reauthorize` then refused on its TTL check.
+    .where(and(eq(approvals.id, approvalId), eq(approvals.status, "pending"), or(isNull(approvals.ttl), gt(approvals.ttl, now))))
     .returning();
 
   if (!row) {
     // Zero rows matched, which is genuinely ambiguous: either there is no such
-    // Approval, or there is one that is no longer `pending`. Read it back to
-    // tell the two apart — under READ COMMITTED this read takes a fresh
-    // snapshot, so it sees the winning transaction's committed status.
+    // Approval, or there is one that is no longer resolvable. Read it back to
+    // tell them apart — under READ COMMITTED this read takes a fresh snapshot,
+    // so it sees the winning transaction's committed status.
     const existing = await tx.query.approvals.findFirst({ where: eq(approvals.id, approvalId) });
     if (!existing) {
       throw new ApprovalNotFoundError(approvalId);
     }
-    throw new ApprovalAlreadyResolvedError(approvalId, existing.status);
+    // Still `pending` means its TTL has passed but the expiry sweep
+    // (`../workflow/expireStaleApprovals.ts`) has not recorded it yet. Report
+    // it as what it effectively is. Not recorded here: this throw rolls the
+    // caller's transaction back, and the sweep owns the expiry and its re-drive.
+    throw new ApprovalAlreadyResolvedError(approvalId, existing.status === "pending" ? "expired" : existing.status);
   }
 
   const invocation = await tx.query.invocations.findFirst({ where: eq(invocations.id, row.invocationId) });

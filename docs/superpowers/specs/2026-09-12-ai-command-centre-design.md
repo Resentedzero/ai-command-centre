@@ -692,6 +692,23 @@ Invocation proposed -> Policy = REQUIRE_APPROVAL
   -> Invocation proceeds (approve) or fails/cancels (reject)
 ```
 
+> **Implementation note (2026-09-14): TTL expiry.** Three places enforce it:
+> - **Resolution.** `resolveApproval`'s conditional UPDATE refuses any Approval past
+>   its TTL, and reports it as `expired` (409). A human decision therefore never
+>   lands on an expired Approval.
+> - **Listing.** `GET /approvals` hides past-TTL Approvals.
+> - **Sweep.** `expireStaleApprovals` runs at startup and then every minute. It
+>   records `approval_expired` (actor `system:approval_ttl`) and re-drives the
+>   Workflow Run. The expired Approval is then handled like a rejection: the budget
+>   hold is released, and the Invocation, Run and Workflow Run fail with their
+>   events.
+>
+> The TTL is the documented MVP default, one hour (`APPROVAL_TTL_SECONDS`).
+>
+> **Tool binding re-check on resume.** On resume, Policy is re-evaluated against the
+> Tool Binding persisted with the Invocation. A binding whose trust has fallen
+> below the Grant's bar is denied before execution.
+
 Any parameter change after Approval creation invalidates it; execution must match the
 snapshot exactly. Unresolved Approvals past a TTL auto-resolve to reject
 (`expired`). **Immediately before execution of a high-risk side effect, Grant

@@ -19,6 +19,9 @@ export default function ApprovalsPage() {
   const [approvals, setApprovals] = useState<ApprovalData[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  // A refused decision (e.g. 409: already resolved, or expired past its TTL)
+  // must be visible, not swallowed — and the list refetched, since it is stale.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     try {
@@ -34,30 +37,31 @@ export default function ApprovalsPage() {
     refetch();
   }, [refetch]);
 
-  async function handleApprove(id: string): Promise<void> {
+  async function resolve(id: string, action: (id: string) => Promise<void>): Promise<void> {
     setPendingActionId(id);
+    setActionError(null);
     try {
-      await approveApproval(id);
-      await refetch();
+      await action(id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
     } finally {
+      await refetch();
       setPendingActionId(null);
     }
   }
 
-  async function handleReject(id: string): Promise<void> {
-    setPendingActionId(id);
-    try {
-      await rejectApproval(id);
-      await refetch();
-    } finally {
-      setPendingActionId(null);
-    }
-  }
+  const handleApprove = (id: string) => resolve(id, approveApproval);
+  const handleReject = (id: string) => resolve(id, rejectApproval);
 
   return (
     <main>
       <h1>Approvals</h1>
       {loadError && <p style={{ color: "#b00020" }}>Failed to load approvals: {loadError}</p>}
+      {actionError && (
+        <p role="alert" style={{ color: "#b00020" }}>
+          Could not resolve approval: {actionError}
+        </p>
+      )}
       {!loadError && approvals.length === 0 && <p>No pending approvals.</p>}
 
       {approvals.map((approval) => (

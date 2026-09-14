@@ -14,7 +14,7 @@
  * Workflow Run to advance.
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { eq } from "drizzle-orm";
+import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { approvals, invocations, runs, taskInstances } from "../../db/schema.js";
 import type { ApiDeps } from "../server.js";
 import { resolveApproval, ApprovalAlreadyResolvedError, ApprovalNotFoundError } from "../../governance/approvals.js";
@@ -164,8 +164,11 @@ function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "ap
 
 export function registerApprovalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
   app.get("/approvals", async (_request, reply) => {
+    // Past-TTL Approvals are excluded even before the expiry sweep records
+    // them: they can no longer be resolved, so showing them as actionable
+    // would only invite a refused click.
     const pending = await deps.db.query.approvals.findMany({
-      where: eq(approvals.status, "pending"),
+      where: and(eq(approvals.status, "pending"), or(isNull(approvals.ttl), gt(approvals.ttl, new Date()))),
       orderBy: (a, { asc }) => asc(a.createdAt),
     });
     return reply.send({ approvals: pending });
