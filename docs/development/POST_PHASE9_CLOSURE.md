@@ -3,10 +3,10 @@
 **Date:** 2026-09-14.
 **Status:** local commits on `main` after `7648cc2`, none pushed. The table below lists them; later work appends rows.
 
-**Verification at `b76aa6b`:**
+**Verification at `3b870d1`:**
 - backend `tsc --noEmit` clean;
-- backend vitest: 39 files, 625 passed, 2 skipped (both are the gated live-CLI smoke tests);
-- web `tsc` clean, web vitest 26 passed;
+- backend vitest: 41 files, 637 passed, 2 skipped (both are the gated live-CLI smoke tests);
+- web `tsc` clean, web vitest 6 files, 33 passed;
 - `git diff --check` clean.
 
 No live Claude invocations were made. Every dispatch-capable test mocks all three provider adapters.
@@ -35,6 +35,7 @@ No live Claude invocations were made. Every dispatch-capable test mocks all thre
 | `8810d3e` | This closure record: `b76aa6b` and its verification |
 | `70b1346` | Final repository pass. **Approve/Reject never worked from a browser:** `apiFetch` sent a JSON Content-Type on body-less POSTs, which Fastify refuses with 400. Also: API errors surface their message; a decision whose advance fails is reported as recorded; missing seed is a 503 naming the fix; cross-site requests and HEAD routes refused (event-stream slot holding); SSE backlog bounds; no empty-state flash; feed de-duplicates |
 | `0128db9` | Final repository pass. OpenAI adapter no longer invents zero usage; a model's output mentioning quotas is no longer classified `quota_exhausted` (which released the reservation); `publishReport` records a relative path, not the host's absolute path |
+| `3b870d1` | Final repository pass. Structural invariant tests (no provider call in a transaction, single chokepoint, status changes recorded as events); stale pre-Phase-9 headers and docs corrected; two residuals recorded |
 
 The authoritative write-ups are:
 - `docs/architecture/DURABLE_EXECUTION.md`;
