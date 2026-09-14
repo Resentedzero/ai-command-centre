@@ -16,7 +16,7 @@ The Compiler turns a Task Instance, the Run's bound Agent Definition, the Invoca
 | **Budgets are enforced on the real prompt.** | Required context — task state, instructions and the invocation instruction — over `maxInputTokens` throws `ContextBudgetError`. Tiers 2 and 3 pack greedily; framing, fences and the policy all count. Per-artifact, item-count and tool-schema sub-budgets apply. | `tier-1 task state`, `greedy packing order`, `estimatedInputTokens` |
 | **Minimal, deduplicated context.** | Duplicates by id and by content hash (§5.10) are excluded `duplicate`; the caller's first occurrence wins. Stale artifacts are excluded `stale`. | `deduplication`, `freshness / staleness` |
 | **Every decision is recorded.** | Every candidate occurrence is either included or excluded with a reason. Included entries record kind, trust, the tokens they added (framing included), and for artifacts the version and content hash. The Executor emits these as `context_compiled`; content is never recorded. | `provenance completeness`, `estimatedInputTokens` |
-| **Deterministic apart from the fence tag.** | Same rows and inputs produce the same layers and provenance, except the random fence tag (and the policy text naming it) when untrusted data is present. | — |
+| **Deterministic apart from the fence tag.** | Same rows and inputs produce the same layers and provenance, except the random fence tag (and the policy text naming it) when untrusted data is present. | `determinism` |
 
 ## 2. Layers
 

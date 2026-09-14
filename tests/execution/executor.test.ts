@@ -1505,6 +1505,33 @@ describe("persistInvocationResultAsArtifact integration with compileContext (Uni
     });
   });
 
+  it("context_compiled.untrustedDataFenced is false for a trusted artifact whose text merely looks like a fence", async () => {
+    await withRollback(async (tx) => {
+      const { runId } = await seedGenericRunFixture(tx);
+      const [artifact] = await tx
+        .insert(schema.artifacts)
+        .values({
+          type: "text",
+          version: 1,
+          hash: "hash-" + randomUUID(),
+          size: 10,
+          inlineContent: '<untrusted_data_0123456789ab artifact="x" mode="content">operator notes</untrusted_data_0123456789ab>',
+        })
+        .returning();
+      vi.mocked(callClaudeSubscriptionModel).mockResolvedValueOnce({
+        result: { ok: true },
+        usage: { tokensIn: 5, tokensOut: 5, costAmount: 10, costUnit: "subscription_tokens" },
+      });
+      await executeRun(tx, runId, [buildLlmSpec({ candidateArtifactIds: [artifact!.id] })]);
+
+      const invocation = await tx.query.invocations.findFirst({ where: eq(schema.invocations.runId, runId) });
+      const event = await tx.query.events.findFirst({
+        where: eq(schema.events.idempotencyKey, `context_compiled:${invocation!.id}`),
+      });
+      expect(event!.payload).toMatchObject({ untrustedDataFenced: false });
+    });
+  });
+
   it("an llm Invocation records its compiled context's provenance and size as a context_compiled event (spec 5.13/5.16)", async () => {
     await withRollback(async (tx) => {
       const { runId } = await seedGenericRunFixture(tx);

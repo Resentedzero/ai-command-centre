@@ -1022,6 +1022,33 @@ describe("untrusted-candidate handling", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Deterministic compilation.
+// ---------------------------------------------------------------------------
+
+describe("determinism", () => {
+  it("compiles the same rows and inputs to an identical context (no untrusted fence present)", async () => {
+    await withRollback(async (tx) => {
+      const taskInstance = await seedTaskInstance(tx, { question: "q" });
+      const a = await seedArtifact(tx, { inlineContent: "alpha" });
+      const b = await seedArtifact(tx, { inlineContent: "b".repeat(10_000), summary: "b summary" });
+      const { capability } = await seedCapability(tx, { bindings: 2 });
+      const { run } = await seedGrantedRun(tx, taskInstance.id, [capability.id]);
+      const compile = () =>
+        compileContext(tx, {
+          intent: "synthesize",
+          expectedOutputShape: { report: "string" },
+          taskInstanceId: taskInstance.id,
+          runId: run.id,
+          candidateArtifactIds: [b.id, a.id, a.id],
+          candidateToolCapabilityIds: [capability.id],
+          budget: defaultBudget(),
+        });
+      expect(await compile()).toEqual(await compile());
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Invocation instruction (spec 5.14 layer 7).
 // ---------------------------------------------------------------------------
 

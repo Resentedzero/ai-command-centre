@@ -26,6 +26,7 @@ Module-level contracts live in the header comment of each source file. The root 
 - [`development/PHASE8_REVIEW.md`](development/PHASE8_REVIEW.md): independent review of Phase 8.
 - [`development/POST_PHASE9_CLOSURE.md`](development/POST_PHASE9_CLOSURE.md): Phase 9 durable execution and the hardening that followed. Lists the commits, decisions made, review dispositions, residuals, and decisions still required.
 - [`development/EXECUTION_RECOVERY_CLOSURE.md`](development/EXECUTION_RECOVERY_CLOSURE.md): the milestone after Phase 9 — step failure settlement, crash-safe tool side effects, and the recovery/concurrency review.
+- [`development/CONTEXT_COMPILER_CLOSURE.md`](development/CONTEXT_COMPILER_CLOSURE.md): Context Compiler hardening — grant-scoped minimal tool schemas, hash dedup, provenance, the budgeted invocation instruction layer.
 
 ## 4. Planning and research (advisory, authorizes nothing)
 - [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.

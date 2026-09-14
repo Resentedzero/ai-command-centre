@@ -75,7 +75,7 @@ Each follows the safer or more conservative reading. Say so if any should change
   - Added: structural invariant tests (no provider call in a transaction, single chokepoint, status changes recorded as events), and stale headers and docs corrected. An end-to-end test that a provider error's host path is redacted in both `invocation_failed` and `GET /workflow-runs/:id`. The structural and redaction tests were each confirmed to fail against a deliberate mutation.
   - Untested: the SSE backlog bounds (`maxBufferedLiveEvents`, `maxPendingWriteBytes`), which only trigger for a stalled client.
   - Documented as residuals: DURABLE_EXECUTION §7 #10 (a throw on resume leaves an approved hold; since resolved, §4.2) and #11 (a stop during context compilation).
-  - Not acted on, low value or needing a decision: context "reference" mode inlines content (unreachable with the seeded budget); routing provider and excluded candidates are not on events; the tool-schema layer carries binding config (never sent today); unused exports; list paging.
+  - Not acted on, low value or needing a decision: context "reference" mode inlines content (unreachable with the seeded budget); routing provider and excluded candidates are not on events; the tool-schema layer carries binding config (never sent today; resolved in `52603fa`, see [`CONTEXT_COMPILER_CLOSURE.md`](CONTEXT_COMPILER_CLOSURE.md)); unused exports; list paging.
 
 ## Residuals
 
