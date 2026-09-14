@@ -62,7 +62,9 @@ Authoritative write-up: `docs/architecture/CAPABILITY_PLATFORM.md`.
 
 Goal: an operator extends and edits the system through the API, not SQL (spec §15.1 screen 6: "editing creates a new Definition version, never mutates history"; where `autonomy_state` changes happen). Versioned, explicit, locked creates of every Definition type and of Grants, validated with the same checks the runtime applies, each audited by an event. Authoritative write-up: `docs/architecture/CAPABILITY_PLATFORM.md` §5.1.
 
-**Not next, and why.** Memory (V3) is gated on "a concrete gap that appears in practice" and variable passing / branching on "a real workflow that needs it" (`NEXT_PHASE_PLAN.md` §10–11). Autonomy (V4/V5) needs `agent_performance` and a threshold nobody has set. The V2 `agent_performance` projection is the next decision-free, spec-defined item (spec §8.3, §12); it pairs with Context Compiler §5.16.
+**Not next, and why.** Memory (V3) is gated on "a concrete gap that appears in practice" and variable passing / branching on "a real workflow that needs it" (`NEXT_PHASE_PLAN.md` §10–11). Autonomy (V4/V5) needs the sample criterion (§6).
+
+**Position after 2026-09-14.** `agent_performance` and the Cost/Budget read API followed (§3). No decision-free, evidence-backed item remains: every open item is a decision in §6 or a handoff in §7. The Artifact browser API (`NEXT_PHASE_PLAN.md` §8) is small and ungated by stage but waits for "a concrete need to browse Artifacts outside" the views that already show them (Agent Detail outputs, Approval previews); none has appeared.
 
 ## 6. Decisions required (governance, not engineering)
 
