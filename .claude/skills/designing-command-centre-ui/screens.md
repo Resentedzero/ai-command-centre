@@ -42,7 +42,17 @@ State rules applied: unloaded or failed means no room is lit; zero counts and of
   - The reading area becomes a vertical stack with wrapping rows, so the request card drops under the vignette and still ends above the fold (578 px, within 704 / 604).
   - Previews and the snapshot scroll inside the area.
   - Approve and Reject stay pinned in the action bar at every size.
-- **Other screens** follow the same pattern: world-first screens pan and narrow their board; reading-first screens stack and scroll with their act-now controls pinned. Below 1280 × 800 is not designed.
+- **The other five screens** have "@1280×800" variants on their `04` pages, measured the same way:
+
+  | Screen | Laptop layout | Above the fold (of 700 px) |
+  |---|---|---|
+  | **Agents** | 240 px roster; a 400 px world column shows a centred crop of the 4× room; the detail board's columns wrap and scroll. | Stop ends at 120 px. |
+  | **Workflows** | 280 px runs board. The corridor pans so the step needing attention is centred (clamped at both ends); step detail wraps below. | Step 2 plaque at x 380–621 of 32–968. |
+  | **Goals** | 320 px start-goal form; war room, summary and projects wrap and scroll. | Start goal ends at 404 px. |
+  | **Events** | The library strip keeps 356 px and the header card fills the rest. The log fills the height; the summary column shrinks and truncates (976 → 360 px) so the cursor column stays visible. Filter chips wrap to a second row and the header card grows to hold them (140 → 170 px). | 14 of 20 rows; the log scrolls. |
+  | **Artifacts** | 280 px output list; vault, metadata and reading panels wrap and scroll. | Heading ends at 336 px, hash check at 476 px. |
+
+- **Pattern:** world-first screens pan or crop their world and narrow their board; reading-first screens stack and scroll with act-now controls pinned. A world view pans to the element that needs attention, never just to its left edge. Below 1280 × 800 is not designed.
 
 The frame names below are the pre-promotion names used on page 05:
 - **Overview:** "Overview A5 — pixel keep (cycle 5 cohesion fixes)". Earlier A–A4 frames are the review trail.

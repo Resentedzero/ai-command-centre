@@ -311,4 +311,20 @@ Every pixel control had only a resting look: no hover, pressed, keyboard focus o
 
 **Verified:** screenshots of all four sets and the Approvals screen.
 
-**Follow-up for implementation:** `PixelTopBar` still draws its slots directly. When built, its slots should use `PixelTab`, so the top bar gets hover and focus.
+**Follow-up (done the same day):** `PixelTopBar` drew its slots directly. All 7 variants now use `PixelTab` instances (active for their own page, inactive otherwise) at the same 120×40 slot size, so the top bar gets hover and focus, and every screen picked the change up through the component.
+
+## Laptop sizes for the other five screens (2026-09-14)
+
+Built "@1280×800" variants of Agents, Workflows, Goals, Events and Artifacts (the worst case; 1440 × 900 has more room), measured each screen's act-now element by script, then checked screenshots.
+
+**Found and fixed:**
+1. **Workflows: the step needing attention was off-screen.** The corridor is 1496 px wide in a 936 px view, and a left-aligned pan hid Step 2. The corridor now pans to centre that step (clamped at both ends). It then drew outside its bevel frame, so it now sits in a clipping viewport the size of the bevel.
+2. **Events: the cursor column was cut off.** Fixed-width columns summed to 1828 px in a 1212 px log. The summary column shrinks and truncates (976 → 360 px). The filter chips also overflowed the header card and now wrap.
+3. **Goals: the start-goal warning was clipped.** It kept a fixed 356 px width inside the 320 px form, and now fills the form width.
+
+**Already fine:**
+- Agents: Stop ends at 120 px; the room is a centred crop.
+- Artifacts: the heading ends at 336 px and the hash check at 476 px of 700, with reading panels scrolling.
+- Goals: the Start goal button ends at 404 px.
+
+**Rule added to `screens.md`:** a world view pans to the element that needs attention, never just to its left edge.
