@@ -20,7 +20,7 @@ From here on, work is named by roadmap stage and a descriptive milestone name. E
 |---|---|---|
 | **V1** (spec Phase 18 MVP) | **Complete.** Both workflows, the full governance chain, pause/resume, minimal UI. Hardened well beyond MVP scope: durable execution, crash recovery, idempotent tool side effects, emergency stops, approval TTL, context compilation. | `POST_PHASE9_CLOSURE.md`, `EXECUTION_RECOVERY_CLOSURE.md`, `CONTEXT_COMPILER_CLOSURE.md` |
 | **V1 success criterion** (spec §18.3) | **Met.** A new Capability, Tool Binding, Agent, Task Definition and Workflow run end to end as data plus a registered adapter and plan, with no core change (acceptance test through the HTTP API; structural test). | `CAPABILITY_PLATFORM_CLOSURE.md` |
-| **V1.1** | **Partial.** Built: Agent Detail view, Workflow/Task view (an ordered step list, not a graph), Registry read API and grant revocation route. Not built: Registry write routes (new Definition versions, Grants, bindings), Registry UI, NSSM service wrapping. | spec §15.1 note; `CAPABILITY_PLATFORM.md` §5 |
+| **V1.1** | **Partial.** Built: Agent Detail view, Workflow/Task view (an ordered step list, not a graph), the Registry API (reads, versioned creates of Capabilities, Tool Bindings, Agent/Task/Workflow Definitions and Grants; grant revocation). Not built: Registry UI (UI workstream), a Policies editor (needs the `policies` decision, §6), NSSM service wrapping (installing a service is deployment). | spec §15.1 note; `CAPABILITY_PLATFORM.md` §5 |
 | **V2** | Not started. No `agent_performance` / `agent_xp_projection`, no async projection loop, no cost dashboard. | `schema.ts` header |
 | **V3** | Not started. Linear graphs only; no memory (`memory_items` does not exist); two capabilities. | — |
 | **V4** | Not started. No escalation loop; `CONDITIONAL` autonomy behaves as `ALWAYS_APPROVE`; no evaluation. | `policy.ts` |
@@ -35,6 +35,7 @@ From here on, work is named by roadmap stage and a descriptive milestone name. E
 | Execution recovery and idempotency | V1 hardening | Closed | `development/EXECUTION_RECOVERY_CLOSURE.md` |
 | Context Compiler hardening | V1 hardening | **Closed** (see §4) | `development/CONTEXT_COMPILER_CLOSURE.md` |
 | Capability Platform (spec §18.3 conformance) | V1 success criterion → V1.1 Registry API | **Closed** | `development/CAPABILITY_PLATFORM_CLOSURE.md` |
+| Registry writes | V1.1 Registry (API half) | **Closed** | `development/REGISTRY_WRITES_CLOSURE.md` |
 
 ## 4. Why the Context Compiler phase is closed with §5.16 open
 
@@ -54,6 +55,12 @@ Goal: make spec §18.3 true — a new Capability, Tool Binding, Task Definition,
 Authoritative write-up: `docs/architecture/CAPABILITY_PLATFORM.md`.
 
 **Known decision boundary:** a real external search provider for `research.retrieve` needs a provider choice, credentials and spend authorization.
+
+## 5a. Registry writes (closed)
+
+Goal: an operator extends and edits the system through the API, not SQL (spec §15.1 screen 6: "editing creates a new Definition version, never mutates history"; where `autonomy_state` changes happen). Versioned, explicit, locked creates of every Definition type and of Grants, validated with the same checks the runtime applies, each audited by an event. Authoritative write-up: `docs/architecture/CAPABILITY_PLATFORM.md` §5.1.
+
+**Not next, and why.** Memory (V3) is gated on "a concrete gap that appears in practice" and variable passing / branching on "a real workflow that needs it" (`NEXT_PHASE_PLAN.md` §10–11). Autonomy (V4/V5) needs `agent_performance` and a threshold nobody has set. The V2 `agent_performance` projection is the next decision-free, spec-defined item (spec §8.3, §12); it pairs with Context Compiler §5.16.
 
 ## 6. Decisions required (governance, not engineering)
 

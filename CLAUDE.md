@@ -40,10 +40,17 @@ contains no workflow topology, context compilation, model routing, policy,
 or tool-implementation logic itself — those are separate modules it calls
 out to. The Workflow Interpreter never calls an LLM.
 
+Tool code is resolved from the persisted `tool_bindings` row through the
+adapter registry (`src/capabilities/toolAdapters.ts`), and a step's plan from
+its Task Definition `kind` (`src/capabilities/taskPlans.ts`). Definitions,
+Grants and bindings are created through the Registry API
+(`src/definitions/registryWrites.ts`) and never updated: an edit is a new
+version. See `docs/architecture/CAPABILITY_PLATFORM.md`.
+
 ## Per-module CLAUDE.md files
 
 None exist yet (`web/CLAUDE.md` only points at the Next.js version notes in
 `web/AGENTS.md`). Module contracts live in each source file's header comment.
 Architecture invariants that can be checked statically — no provider call or
 tool side effect inside a transaction, the single chokepoint, status changes
-recorded as events — are enforced by `tests/execution/structuralInvariants.test.ts`.
+recorded as events, core code naming no capability — are enforced by `tests/execution/structuralInvariants.test.ts`.

@@ -98,6 +98,8 @@ describe("migration 0012: definition-driven step plans", () => {
   it("leaves the graph alone when its Agents cannot be resolved unambiguously", async () => {
     await withRollback(async (tx) => {
       const seed = await oldShapeSeed(tx);
+      // A database from before migration 0014 could hold this; drop its index inside the rolled-back transaction.
+      await tx.execute(sql`DROP INDEX agent_definitions_name_version_unique`);
       await tx.insert(schema.agentDefinitions).values({ name: "Researcher", version: 1, role: "r", objective: "o", instructions: "i" });
       await replay(tx);
       const row = await tx.query.workflowDefinitions.findFirst({ where: eq(schema.workflowDefinitions.id, seed.workflow.id) });

@@ -2,15 +2,24 @@
  * Registry control plane (roadmap V1.1; spec §15.1 screen 6 reads, §9.7 revocation).
  *
  *   GET  /registry                          — every Definition, read-only
+ *   POST /capabilities                      — create a Capability
+ *   POST /tool-bindings                     — create a Capability's next Tool Binding version
+ *   POST /agent-definitions                 — create an Agent Definition or its next version
+ *   POST /task-definitions                  — create a Task Definition or its next version
+ *   POST /workflow-definitions              — create a Workflow Definition or its next version
+ *   POST /capability-grants                 — create one Capability Grant
  *   POST /capability-grants/:id/revoke      — revoke one Capability Grant
  *
  * `GET /registry` returns Agent Definitions, Capabilities with their Tool
  * Bindings, Capability Grants, Task Definitions and Workflow Definitions. A Tool
  * Binding's `config` is NEVER returned: it is adapter configuration and may hold
  * endpoints or credentials (spec §9.6). Only an internal binding's function name
- * is shown. Writes that create or edit Definitions are not built yet: editing
- * creates a new version (spec §15.1), and binding rows are immutable
- * (`docs/architecture/CAPABILITY_PLATFORM.md`).
+ * is shown.
+ *
+ * Creates validate and version in `../../definitions/registryWrites.ts`; nothing is
+ * ever updated (spec §15.1: editing creates a new version). A refused write is 400
+ * or 409, a transient database conflict 503. Each commits its row and event in one
+ * transaction, then relays the event. The actor is the server-side operator constant.
  *
  * Revocation commits first, on its own, and only then re-drives each affected
  * Workflow Run, exactly as `revokeCapabilityGrant`'s contract requires: driving
@@ -41,6 +50,27 @@ import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRu
 import { buildInvocationSpecsFromDefinitions } from "../../workflow/buildInvocationSpecsFromDefinitions.js";
 import { createWorkflowRelay, relayCommittedEvent } from "../liveEventRelay.js";
 import { V1_RESOLUTION_ACTOR } from "./approvals.js";
+import { sqlStateOf } from "../../db/databaseErrors.js";
+import type { DrizzleTransaction } from "../../events/emit.js";
+import {
+  RegistryWriteError,
+  createAgentDefinition,
+  createCapability,
+  createCapabilityGrant,
+  createTaskDefinition,
+  createToolBinding,
+  createWorkflowDefinition,
+  type Created,
+} from "../../definitions/registryWrites.js";
+
+const CREATE_ROUTES: [string, (tx: DrizzleTransaction, body: Record<string, unknown>, actor: string) => Promise<Created>][] = [
+  ["/capabilities", createCapability],
+  ["/tool-bindings", createToolBinding],
+  ["/agent-definitions", createAgentDefinition],
+  ["/task-definitions", createTaskDefinition],
+  ["/workflow-definitions", createWorkflowDefinition],
+  ["/capability-grants", createCapabilityGrant],
+];
 
 export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): void {
   app.get("/registry", async (_request, reply) => {
@@ -60,6 +90,9 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
         version: a.version,
         role: a.role,
         objective: a.objective,
+        instructions: a.instructions,
+        memoryPolicy: a.memoryPolicy,
+        escalationPolicy: a.escalationPolicy,
         createdAt: a.createdAt,
       })),
       capabilities: capabilityRows.map((c) => ({
@@ -67,6 +100,7 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
         name: c.name,
         description: c.description,
         staticRiskTag: c.staticRiskTag,
+        costProfile: c.costProfile,
         toolBindings: bindingRows
           .filter((b) => b.capabilityId === c.id)
           .map((b) => ({
@@ -85,6 +119,7 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
         permissions: g.permissions,
         autonomyState: g.autonomyState,
         maxTrustLevelRequired: g.maxTrustLevelRequired,
+        scope: g.scope,
         createdAt: g.createdAt,
         revokedAt: g.revokedAt,
       })),
@@ -94,6 +129,9 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
         kind: t.kind,
         version: t.version,
         planRegistered: hasTaskPlan(t.kind),
+        inputSchema: t.inputSchema,
+        outputSchema: t.outputSchema,
+        defaultContextBudget: t.defaultContextBudget,
       })),
       workflowDefinitions: workflowRows.map((w) => ({
         id: w.id,
@@ -104,6 +142,29 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
       })),
     });
   });
+
+  for (const [url, create] of CREATE_ROUTES) {
+    app.post(url, async (request, reply) => {
+      const body = request.body;
+      if (body === null || typeof body !== "object" || Array.isArray(body)) {
+        return reply.status(400).send({ error: "The request body must be a JSON object." });
+      }
+      let created: Created;
+      try {
+        created = await deps.db.transaction((tx) => create(tx, body as Record<string, unknown>, V1_RESOLUTION_ACTOR));
+      } catch (error) {
+        if (error instanceof RegistryWriteError) return reply.status(error.status).send({ error: error.message });
+        // The unique (capability_id, version) index backs the version lock for Tool Bindings.
+        if (sqlStateOf(error) === "23505") return reply.status(409).send({ error: "A concurrent write created this version first; re-read and retry." });
+        if (isTransientDatabaseError(error)) {
+          return reply.status(503).send({ error: "The write conflicted with concurrent work and was not applied; retry." });
+        }
+        throw error;
+      }
+      await relayCommittedEvent(deps.db, created.eventIdempotencyKey);
+      return reply.status(201).send({ id: created.id, name: created.name, version: created.version });
+    });
+  }
 
   app.post<{ Params: { id: string } }>("/capability-grants/:id/revoke", async (request, reply) => {
     const grantId = request.params.id;

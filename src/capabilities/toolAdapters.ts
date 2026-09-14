@@ -101,20 +101,29 @@ registerInternalToolFunction(RESEARCH_RETRIEVE_SYNTHETIC, researchRetrieveSynthe
 registerInternalToolFunction(RESEARCH_RETRIEVE_LOCAL_CORPUS, researchRetrieveLocalCorpus);
 registerInternalToolFunction(PUBLISH_REPORT_FILESYSTEM, publishReportFilesystem);
 
-function adapterFor(binding: ToolBindingRow, capabilityName: string): InternalToolFunction {
+/**
+ * The adapter a binding selects, or throws if it has none here. Also the Registry's
+ * write-time check (`../definitions/registryWrites.ts`), so a binding that would
+ * fail at resolution is refused before it exists.
+ */
+export function adapterFor(
+  binding: Pick<ToolBindingRow, "kind" | "config"> & { id?: string },
+  capabilityName: string
+): InternalToolFunction {
+  const label = binding.id ?? "(new)";
   const name = binding.config?.function;
   if (binding.kind !== "internal") {
-    throw new Error(`Tool Binding "${binding.id}" has kind "${binding.kind}", which has no adapter (fail closed).`);
+    throw new Error(`Tool Binding "${label}" has kind "${binding.kind}", which has no adapter (fail closed).`);
   }
   const fn = typeof name === "string" ? internalFunctions.get(name) : undefined;
   if (!fn) {
     throw new Error(
-      `Tool Binding "${binding.id}" names internal function ${JSON.stringify(name ?? null)}, which is not registered (fail closed).`
+      `Tool Binding "${label}" names internal function ${JSON.stringify(name ?? null)}, which is not registered (fail closed).`
     );
   }
   if (fn.capabilityName !== capabilityName) {
     throw new Error(
-      `Tool Binding "${binding.id}" of capability "${capabilityName}" names internal function "${String(name)}", ` +
+      `Tool Binding "${label}" of capability "${capabilityName}" names internal function "${String(name)}", ` +
         `which belongs to capability "${fn.capabilityName}" (fail closed).`
     );
   }

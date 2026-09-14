@@ -5,7 +5,7 @@
  * falling back to an older binding; and a function only fulfils its own Capability.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { closeTestDb, resetTestSchema, withRollback } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
@@ -129,6 +129,8 @@ describe("resolveToolInvocation", () => {
       await expect(resolveToolInvocation(tx, request("test.capability.missing"))).rejects.toThrow(/found 0/);
     });
     await withRollback(async (tx) => {
+      // Unrepresentable since migration 0014; drop its index inside the rolled-back transaction.
+      await tx.execute(sql.raw('DROP INDEX "capabilities_name_unique"'));
       const a = await seedCapability(tx);
       await seedCapability(tx);
       await seedBinding(tx, a.id, 1, { function: "test.fixture.v1" });

@@ -21,7 +21,7 @@
  */
 export type RiskTier = "low" | "medium" | "high" | "highest";
 
-const TIER_ORDER: readonly RiskTier[] = ["low", "medium", "high", "highest"];
+export const TIER_ORDER: readonly RiskTier[] = ["low", "medium", "high", "highest"];
 
 const AMOUNT_ESCALATION_THRESHOLD = 1000;
 

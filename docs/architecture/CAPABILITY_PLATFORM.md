@@ -1,6 +1,6 @@
 # Capability Platform
 
-**Implements:** spec §3c (Capability / Grant / Tool Binding / Policy / Approval), Phase 4 "Tool Adapters", Phase 6 (binding kinds and trust), §18.2 (the binding must be replaceable), §18.3 (the V1 success criterion). **Status:** in progress — see `docs/roadmap/ROADMAP_STATUS.md` §5.
+**Implements:** spec §3c (Capability / Grant / Tool Binding / Policy / Approval), Phase 4 "Tool Adapters", Phase 6 (binding kinds and trust), §18.2 (the binding must be replaceable), §18.3 (the V1 success criterion). **Status:** built. Milestones closed: Capability Platform (`docs/development/CAPABILITY_PLATFORM_CLOSURE.md`) and Registry writes (`docs/development/REGISTRY_WRITES_CLOSURE.md`).
 
 ## 1. Chain
 
@@ -74,12 +74,32 @@ Migration `0012` gives Definitions seeded before this the new kinds (`research_r
 
 | Route | Behaviour | Test |
 |---|---|---|
-| `GET /registry` | Agent Definitions, Capabilities with their Tool Bindings (`kind`, `version`, `trustLevel`, internal function name), Capability Grants (incl. `revokedAt`), Task Definitions (`kind`, whether a plan is registered), Workflow Definitions. **Binding `config` is never returned.** | `tests/api/registryRoutes.test.ts` |
+| `GET /registry` | Every field an edit surface needs: Agent Definitions (incl. instructions and policies), Capabilities with their Tool Bindings (`kind`, `version`, `trustLevel`, internal function name), Capability Grants (incl. `scope`, `revokedAt`), Task Definitions (`kind`, whether a plan is registered, schemas, context budget), Workflow Definitions. **Binding `config` is never returned.** | `tests/api/registryRoutes.test.ts` |
+| `POST /capabilities`, `/tool-bindings`, `/agent-definitions`, `/task-definitions`, `/workflow-definitions`, `/capability-grants` | Create one row and its event in one transaction (§5.1). 201 `{id, name, version}`; a refused write is 400 or 409; a transient conflict 503. | `tests/api/registryWrites.test.ts` |
 | `POST /capability-grants/:id/revoke` | `revokeCapabilityGrant` commits first: the Grant is revoked and pending Approvals no surviving Grant covers are closed as `expired`. Then each affected Workflow Run is re-driven, which releases the hold and fails the step. Re-drive failures are reported per Workflow Run beside the committed revocation (the TTL sweep also settles them). A transient conflict on the revocation is a 503, not retried. Actor: the server-side operator constant. Idempotent. | same |
 
 Revocation expires candidate Approvals in `(runId, approvalId)` order, so concurrent revocations take the per-Run event locks in one order (PHASE8_CLOSURE Risk 3, which this route made reachable). Like that record's lock-ordering fix, this rests on reasoning, not a test: nothing forces two transactions to interleave at the lock.
 
-Not built: creating or editing Definitions, Grants or Tool Bindings (editing creates a new version, spec §15.1; binding rows are immutable, §2), and a Policies editor (no `policies` table; ROADMAP_STATUS §6).
+### 5.1 Registry writes (`src/definitions/registryWrites.ts`)
+
+| Rule | Detail | Test |
+|---|---|---|
+| **Nothing is updated.** | An edit is a new row: same `name` (the logical identity), `version = latest + 1`. Grants, Runs and graph steps pin `(id, version)`, so older versions keep working. There is no update or delete route. | `registryWrites.test.ts` (versioning) |
+| **Versioning is explicit.** | The caller names `previousVersion`. Omitted, the name must be new; given, it must equal the latest version; otherwise 409. A name collision never becomes a version, and two concurrent edits cannot both win. | same; mutation-checked |
+| **Allocation is locked per name.** | `pg_advisory_xact_lock(20260914, hashtext('registry:<table>:<name>'))`, a lock class of its own (the executor holds `(20260912, 1)` for its life). Tool Binding versions are also backed by the unique `(capability_id, version)` index. | same (the test holds the lock and the write waits); mutation-checked |
+| **Tool Binding: checked with resolution's own check.** | `adapterFor`: a kind with an adapter (`internal`), a registered function, of this Capability. Trust level 0–2 (`mapTrustLevel`'s three categories). Config is neither echoed nor put in the event. A new version is selected from the next resolution on; an Approval pending across it fails closed on resume (§2 "Deterministic"). | same; mutation-checked |
+| **Task Definition.** | `kind` has a registered plan; a supplied `defaultContextBudget` is complete. A plan's own parameter requirements are still checked when it runs. | same |
+| **Workflow Definition.** | A valid linear graph; every step binds an existing Agent version and an existing Task Definition version whose kind has a plan. | same; mutation-checked |
+| **Capability.** | Unique name, because resolution requires exactly one; `staticRiskTag` from the risk tier order. | same |
+| **A Grant only for an Agent version not yet in use.** | Spec §9.2: "A Grant is static, versioned alongside its Agent Definition — changing authorization is a new Agent Definition version, never a silent runtime mutation." A version bound by a Run or named by a Workflow Definition gets no new Grant (409); the edit is a new Agent version, its Grants, then a new Workflow version naming it. Revocation (§9.7) stays available on any version. The Grant create locks the Agent row (`FOR NO KEY UPDATE`) and a Workflow create share-locks its step Agents, so a graph cannot start naming a version while a Grant is added to it. | same; mutation-checked |
+| **Capability Grant.** | Omitted `autonomyState` is `ALWAYS_APPROVE` (§9.4 default). `validateCapabilityGrant` (the §9.4 autonomy ceiling); the Agent version and Capability exist; distinct known permissions; **no `scope`** (stored but never evaluated, so a scoped Grant would promise a restriction nothing enforces); **no unrevoked Grant on the same Agent version and Capability sharing a permission** (409), because `resolveCapabilityGrant` would pick between them arbitrarily. | same; mutation-checked |
+| **Autonomy changes are individual, versioned acts.** | For an Agent version in use, a new Agent version with the new Grant (§9.2, §9.4 "explicit, logged human edit"). Before first use, revoke and create. One Grant per request; a new Agent version inherits no Grants. | same |
+| **Uniqueness in the database.** | Migration `0014`: unique `(name, version)` on Agent, Task and Workflow Definitions and unique `capabilities.name`, so the invariant holds for every writer, not only the locked routes. A concurrent violation is a 409. | `registryWrites.test.ts` |
+| **Seed defaults follow versions.** | `POST /goals` without ids runs the latest "Research-and-Publish" version; versioning a seeded name no longer makes the seed lookup ambiguous. | same (found by review, H1) |
+| **Audited.** | `definition_version_created` (`definitionType`, `id`, `name`, `version`; a Tool Binding's also `capabilityId`, `kind`, `function`, `trustLevel`, never config) and `capability_granted` (spec §8.2), in the write's transaction, actor `human:operator`, then relayed live. | same |
+| **§18.3 without SQL.** | A Capability, binding, Agent, Grant, Task Definition and Workflow created only through these routes run end to end through `POST /goals`. | same |
+
+Not built: a Policies editor (no `policies` table; ROADMAP_STATUS §6), Grant `scope` (undefined semantics), and per-function config validation at write time (a binding whose config its function rejects fails closed when it runs).
 
 ## 6. Binding config isolation (spec §9.6)
 
@@ -95,5 +115,7 @@ A binding's `config` reaches its adapter's `prepare` and `execute` and nothing e
 - **Corpus root read at execute time.** `RESEARCH_CORPUS_ROOT` is read when the tool runs, not when it is proposed. Prepared inputs are never compared on resume, so reading it earlier would not change what an approval pins. Only relevant if a READ Grant ever requires approval.
 - **Migration 0012 fixes Agent versions at 1.** It binds only when exactly one `Researcher` v1 and `Publisher` v1 exist and the graph's steps are the seeded Task Definitions in order. Otherwise the graph is left unbound and its steps fail closed ("binds no Agent Definition").
 - **Unique binding versions are assumed.** Migration 0013 fails on a database that already has two bindings with the same `(capability, version)`. The seed never creates one.
+- **Unique Definition versions and Capability names are assumed.** Migration 0014 likewise fails on a database holding a duplicate `(name, version)` or Capability name. The seed never creates one; hand-inserted duplicates must be resolved first.
+- **A Grant create reads Workflow graphs by JSON containment** (`graph_definition->'steps' @> …`), a sequential scan over Workflow Definitions. Fine at operator scale.
 
 **Decision boundary:** a real external search binding for `research.retrieve` needs a provider choice, credentials and spend authorization. Nothing here selects one.

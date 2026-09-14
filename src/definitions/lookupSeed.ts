@@ -15,9 +15,10 @@
  *     persisted Definitions (`../workflow/buildInvocationSpecsFromDefinitions.ts`),
  *     never from these refs.
  *
- * Returns `null` if the workflow has never been seeded. Fails closed
- * (throws) on an ambiguous match — more than one row sharing the same
- * well-known name — or on a partially-seeded state (some but not all
+ * Returns `null` if the workflow has never been seeded. Versioned Definitions
+ * resolve to their latest version (the Registry versions them under the same
+ * name). Fails closed (throws) on an ambiguous match — two capabilities or
+ * projects sharing a name, or two rows sharing a name and version — or on a partially-seeded state (some but not all
  * expected rows present), consistent with this codebase's established
  * "never silently pick an arbitrary match" convention (e.g.
  * `buildPublishReportInvocationSpecs`'s own `findResearchReportArtifactId`,
@@ -85,26 +86,36 @@ async function findOneByName<T>(rows: T[], label: string): Promise<T | null> {
   return rows[0]!;
 }
 
+/**
+ * The latest version of a versioned Definition. The Registry creates new versions
+ * under the same name (`./registryWrites.ts`), so several rows per name is normal;
+ * a default Goal runs the latest Workflow Definition version.
+ */
+async function findLatestByName<T extends { version: number }>(rows: T[], label: string): Promise<T | null> {
+  const latest = Math.max(...rows.map((r) => r.version));
+  return findOneByName(rows.filter((r) => r.version === latest), label);
+}
+
 export async function findSeededPublishWorkflow(tx: DrizzleTransaction): Promise<SeededWorkflowRefs | null> {
-  const workflowDefinition = await findOneByName(
+  const workflowDefinition = await findLatestByName(
     await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, WORKFLOW_DEFINITION_NAME) }),
     `workflow_definitions named "${WORKFLOW_DEFINITION_NAME}"`
   );
   if (!workflowDefinition) return null;
 
-  const researchTaskDefinition = await findOneByName(
+  const researchTaskDefinition = await findLatestByName(
     await tx.query.taskDefinitions.findMany({ where: eq(taskDefinitions.name, RESEARCH_TASK_DEFINITION_NAME) }),
     `task_definitions named "${RESEARCH_TASK_DEFINITION_NAME}"`
   );
-  const reviewAndPublishTaskDefinition = await findOneByName(
+  const reviewAndPublishTaskDefinition = await findLatestByName(
     await tx.query.taskDefinitions.findMany({ where: eq(taskDefinitions.name, REVIEW_AND_PUBLISH_TASK_DEFINITION_NAME) }),
     `task_definitions named "${REVIEW_AND_PUBLISH_TASK_DEFINITION_NAME}"`
   );
-  const researcherAgent = await findOneByName(
+  const researcherAgent = await findLatestByName(
     await tx.query.agentDefinitions.findMany({ where: eq(agentDefinitions.name, RESEARCHER_AGENT_NAME) }),
     `agent_definitions named "${RESEARCHER_AGENT_NAME}"`
   );
-  const publisherAgent = await findOneByName(
+  const publisherAgent = await findLatestByName(
     await tx.query.agentDefinitions.findMany({ where: eq(agentDefinitions.name, PUBLISHER_AGENT_NAME) }),
     `agent_definitions named "${PUBLISHER_AGENT_NAME}"`
   );

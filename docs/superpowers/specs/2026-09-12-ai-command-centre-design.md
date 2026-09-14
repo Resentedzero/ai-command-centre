@@ -615,7 +615,10 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 >
 > **Governance and accounting:**
 > - `approval_required/granted/rejected/expired`
-> - `capability_grant_revoked`
+> - `capability_granted`, `capability_grant_revoked`
+> - `definition_version_created` (additive, 2026-09-14): a Registry write created a
+>   Capability, Tool Binding, or Agent/Task/Workflow Definition version. Payload
+>   `definitionType`, `id`, `name`, `version`; never a binding's config.
 > - `execution_stop_engaged/lifted`
 > - `budget_consumed`, one per reconciled reservation, so each counter's
 >   `consumed_amount` equals the sum of its events. Its `basis` is:
@@ -646,7 +649,7 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 > - `tool_called`, `tool_result_received` (covered by the invocation events)
 > - `artifact_updated/referenced`
 > - the Memory events
-> - `capability_granted`, `policy_evaluated`, `budget_denied`
+> - `policy_evaluated`, `budget_denied`
 > - `agent_paused/resumed`
 
 ### 8.3 Projections — the general pattern
@@ -722,6 +725,14 @@ If two permissions on the same Capability need different scopes, that's two sepa
 Grant rows, never mixed encoding in one field. A Grant is static, versioned alongside
 its Agent Definition — changing authorization is a new Agent Definition version, never
 a silent runtime mutation.
+
+> **Implementation note (2026-09-14): Registry Grant writes.** `POST /capability-grants`
+> creates a Grant only for an Agent Definition version not yet in use (bound by no Run,
+> named by no Workflow Definition). Changing an in-use Agent's authorization, including
+> its `autonomy_state` (§9.4), is a new Agent Definition version with its Grants, then a
+> new Workflow Definition version naming it. Revocation (§9.7) applies to any version.
+> An omitted `autonomy_state` is `ALWAYS_APPROVE`. `scope` is refused until its semantics
+> are defined. `docs/architecture/CAPABILITY_PLATFORM.md` §5.1.
 
 ### 9.3 Policy engine
 
@@ -1485,7 +1496,14 @@ provenance chains visible (Phase 5.13/7).
 >     Artifact browser (screen 8) is not built.
 >   - **Performance:** shown as unavailable, because the `agent_performance`
 >     projection is V2 and not built.
-> - **Not built:** screens 6, 7 and 8.
+> - **Screen 6 (Registry), API only.** `GET /registry` reads every Definition (never
+>   a Tool Binding's config). Versioned creates of Capabilities, Tool Bindings,
+>   Agent/Task/Workflow Definitions and Capability Grants never update a row: an
+>   edit is a new version naming the version it supersedes. A Grant's autonomy
+>   changes by revoking it and creating another, one Grant per request.
+>   `docs/architecture/CAPABILITY_PLATFORM.md` §5. No UI yet; no Policies editor
+>   (no `policies` table).
+> - **Not built:** screens 7 and 8.
 
 ### 15.2 UI commands vs. Invocations — not the same model
 

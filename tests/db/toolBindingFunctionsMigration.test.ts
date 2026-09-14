@@ -37,6 +37,8 @@ async function bindingFor(tx: DrizzleTransaction, name: string, config: Record<s
 describe("migration 0011: tool binding adapter functions", () => {
   it("names the function on pre-registry seeded bindings, and leaves configured or non-internal rows alone", async () => {
     await withRollback(async (tx) => {
+      // Pre-registry databases predate migration 0014; drop its index inside the rolled-back transaction.
+      await tx.execute(sql.raw('DROP INDEX "capabilities_name_unique"'));
       const research = await bindingFor(tx, "research.retrieve", {});
       const publish = await bindingFor(tx, "publish.report", null);
       const configured = await bindingFor(tx, "research.retrieve", { function: "something.else" });
