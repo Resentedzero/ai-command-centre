@@ -3,10 +3,10 @@
 **Date:** 2026-09-14.
 **Status:** local commits on `main` after `7648cc2`, none pushed. The table below lists them; later work appends rows.
 
-**Verification at `cc168eb`:**
+**Verification at `b76aa6b`:**
 - backend `tsc --noEmit` clean;
 - backend vitest: 39 files, 625 passed, 2 skipped (both are the gated live-CLI smoke tests);
-- web `tsc` clean, web vitest 24 passed;
+- web `tsc` clean, web vitest 26 passed;
 - `git diff --check` clean.
 
 No live Claude invocations were made. Every dispatch-capable test mocks all three provider adapters.
@@ -31,6 +31,7 @@ No live Claude invocations were made. Every dispatch-capable test mocks all thre
 | `d2377dc` | Workflow/Task view (spec §15.1 screen 3): read API plus `/workflows` list and detail pages |
 | `d9ebb69` | Goals & Projects view (spec §15.1 screen 5), with start-a-goal |
 | `cc168eb` | Agent Detail view (spec §15.1 screen 2), with the agent-scope stop control; performance shown as unavailable |
+| `b76aa6b` | Fixes from the adversarial review of the three UI commits: goal-failure copy, unfinished runs always shown, stop is per version and lifted by id, live refresh, read-model hardening |
 
 The authoritative write-ups are:
 - `docs/architecture/DURABLE_EXECUTION.md`;
