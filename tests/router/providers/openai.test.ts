@@ -23,7 +23,7 @@ const PRICING = { unit: "usd", pricing: { inputPerToken: 0.000001, outputPerToke
 
 function buildCompiledContext(): CompiledContext {
   return {
-    layers: { instructions: "I", constraints: "C", taskState: "T", memory: "M", artifacts: "A", toolSchemas: [] },
+    layers: { instructions: "I", constraints: "C", taskState: "T", memory: "M", artifacts: "A", toolSchemas: [], invocationInstruction: "N" },
     provenance: { included: [], excluded: [] },
     estimatedInputTokens: 1,
   };

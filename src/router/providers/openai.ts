@@ -57,7 +57,8 @@ function assertReportedTokenCount(value: unknown, field: string, modelId: string
 export async function callOpenAiModel(
   modelId: string,
   compiledContext: CompiledContext,
-  expectedOutputShape: Record<string, unknown>,
+  // The shape reaches the model through the Compiler's invocation-instruction layer.
+  _expectedOutputShape: Record<string, unknown>,
   accounting: TierAccounting
 ): Promise<ProviderCallResult> {
   const pricing = assertUsdAccounting(accounting, modelId);
@@ -76,7 +77,7 @@ export async function callOpenAiModel(
     model: modelId,
     messages: [
       { role: "system", content: buildSystemPrompt(compiledContext) },
-      { role: "user", content: buildUserMessage(compiledContext, expectedOutputShape) },
+      { role: "user", content: buildUserMessage(compiledContext) },
     ],
   });
 

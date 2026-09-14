@@ -1485,6 +1485,7 @@ describe("persistInvocationResultAsArtifact integration with compileContext (Uni
 
       const compiled = await compileContext(tx, {
         intent: "summarize",
+        expectedOutputShape: {},
         taskInstanceId,
         candidateArtifactIds: [artifact!.id],
         candidateToolCapabilityIds: [],

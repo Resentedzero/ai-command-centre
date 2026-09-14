@@ -4,6 +4,7 @@ import { resetTestSchema, closeTestDb, withRollback } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
 import {
+  buildInvocationInstruction,
   compileContext,
   ContextBudgetError,
   decideArtifactMode,
@@ -12,6 +13,9 @@ import {
 } from "../../src/context/compiler.js";
 import { estimateTokens } from "../../src/context/tokenEstimate.js";
 import type { ContextBudget } from "../../src/context/types.js";
+
+/** What the invocation-instruction layer (spec 5.14 layer 7) adds for `intent: "classify"` with shape `{}`. */
+const CLASSIFY_INSTRUCTION_TOKENS = estimateTokens(buildInvocationInstruction("classify", {}));
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -173,6 +177,7 @@ describe("persisted-record validation", () => {
       await expect(
         compileContext(tx, {
           intent: "classify",
+          expectedOutputShape: {},
           taskInstanceId: taskInstance.id,
           candidateArtifactIds: [bogusId],
           candidateToolCapabilityIds: [],
@@ -189,6 +194,7 @@ describe("persisted-record validation", () => {
       await expect(
         compileContext(tx, {
           intent: "classify",
+          expectedOutputShape: {},
           taskInstanceId: taskInstance.id,
           candidateArtifactIds: [],
           candidateToolCapabilityIds: [bogusId],
@@ -204,6 +210,7 @@ describe("persisted-record validation", () => {
       await expect(
         compileContext(tx, {
           intent: "classify",
+          expectedOutputShape: {},
           taskInstanceId: bogusId,
           candidateArtifactIds: [],
           candidateToolCapabilityIds: [],
@@ -221,6 +228,7 @@ describe("persisted-record validation", () => {
       await expect(
         compileContext(tx, {
           intent: "classify",
+          expectedOutputShape: {},
           taskInstanceId: taskInstance.id,
           candidateArtifactIds: [artifact.id, bogusId],
           candidateToolCapabilityIds: [],
@@ -245,6 +253,7 @@ describe("tier-1 task state", () => {
       await expect(
         compileContext(tx, {
           intent: "classify",
+          expectedOutputShape: {},
           taskInstanceId: taskInstance.id,
           candidateArtifactIds: [artifact.id],
           candidateToolCapabilityIds: [],
@@ -256,14 +265,15 @@ describe("tier-1 task state", () => {
       const taskStateTokens = estimateTokens(JSON.stringify(bigInput));
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [artifact.id],
         candidateToolCapabilityIds: [],
-        budget: defaultBudget({ maxInputTokens: taskStateTokens }),
+        budget: defaultBudget({ maxInputTokens: taskStateTokens + CLASSIFY_INSTRUCTION_TOKENS }),
       });
       expect(result.provenance.included).toContainEqual(expect.objectContaining({ id: taskInstance.id, tier: 1 }));
       expect(result.provenance.excluded).toContainEqual({ id: artifact.id, reason: "budget" });
-      expect(result.estimatedInputTokens).toBe(taskStateTokens);
+      expect(result.estimatedInputTokens).toBe(taskStateTokens + CLASSIFY_INSTRUCTION_TOKENS);
     });
   });
 
@@ -300,6 +310,7 @@ describe("tier-1 task state", () => {
 
       const result = await compileContext(tx, {
         intent: "synthesize",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance!.id,
         candidateArtifactIds: [],
         candidateToolCapabilityIds: [],
@@ -326,6 +337,7 @@ describe("tier-1 task state", () => {
 
       const result = await compileContext(tx, {
         intent: "synthesize",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run!.id,
         candidateArtifactIds: [],
@@ -341,6 +353,7 @@ describe("tier-1 task state", () => {
       const taskInstance = await seedTaskInstance(tx, null);
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [],
         candidateToolCapabilityIds: [],
@@ -367,11 +380,12 @@ describe("greedy packing order", () => {
       // Budget fits task state + exactly one 50-token artifact INCLUDING its
       // header (both headers are the same length: UUIDs are fixed-width).
       const framingTokens = estimateTokens(`[artifact:${artifactB.id} mode=content]\n`);
-      const budget = defaultBudget({ maxInputTokens: taskTokens + 50 + framingTokens });
+      const budget = defaultBudget({ maxInputTokens: taskTokens + CLASSIFY_INSTRUCTION_TOKENS + 50 + framingTokens });
 
       // ...but the caller lists B before A.
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [artifactB.id, artifactA.id],
         candidateToolCapabilityIds: [],
@@ -394,6 +408,7 @@ describe("greedy packing order", () => {
       // Generous budget: both fit. Caller lists B before A.
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [artifactB.id, artifactA.id],
         candidateToolCapabilityIds: [],
@@ -419,12 +434,13 @@ describe("greedy packing order", () => {
       // Enough room for task state + instructions + ONE of {artifact (with its header), tool schema}, not both.
       const framingTokens = estimateTokens(`[artifact:${artifact.id} mode=content]\n`);
       const budget = defaultBudget({
-        maxInputTokens: taskTokens + instructionsTokens + 50 + framingTokens,
+        maxInputTokens: taskTokens + instructionsTokens + CLASSIFY_INSTRUCTION_TOKENS + 50 + framingTokens,
         maxToolSchemaTokens: 1_000, // not the limiting factor here
       });
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: [artifact.id],
@@ -498,6 +514,7 @@ describe("reference-vs-content threshold, end to end", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [small.id, oversized.id, filesystemOnly.id],
         candidateToolCapabilityIds: [],
@@ -525,6 +542,7 @@ describe("reference-vs-content threshold, end to end", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [hopeless.id],
         candidateToolCapabilityIds: [],
@@ -548,6 +566,7 @@ describe("deduplication", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [artifact.id, artifact.id],
         candidateToolCapabilityIds: [],
@@ -568,6 +587,7 @@ describe("deduplication", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: [],
@@ -590,6 +610,7 @@ describe("deduplication", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [second.id, first.id],
         candidateToolCapabilityIds: [],
@@ -618,6 +639,7 @@ describe("freshness / staleness", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [old.id],
         candidateToolCapabilityIds: [],
@@ -639,6 +661,7 @@ describe("freshness / staleness", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [old.id],
         candidateToolCapabilityIds: [],
@@ -665,6 +688,7 @@ describe("maxRetrievedItems", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [a1.id, a2.id, a3.id],
         candidateToolCapabilityIds: [],
@@ -691,6 +715,7 @@ describe("tool_schema candidates", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: [],
@@ -712,6 +737,7 @@ describe("tool_schema candidates", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: [],
@@ -748,6 +774,7 @@ describe("tool_schema candidates", () => {
       // need to re-derive the per-candidate estimate directly instead.
       const probe = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: [],
@@ -758,6 +785,7 @@ describe("tool_schema candidates", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: [],
@@ -784,6 +812,7 @@ describe("tool-schema authorization", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [],
         candidateToolCapabilityIds: [capability.id],
@@ -813,6 +842,7 @@ describe("tool-schema authorization", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: [],
@@ -838,6 +868,7 @@ describe("tool-schema authorization", () => {
       await expect(
         compileContext(tx, {
           intent: "classify",
+          expectedOutputShape: {},
           taskInstanceId: taskInstance.id,
           runId: run.id,
           candidateArtifactIds: [],
@@ -863,6 +894,7 @@ describe("tool-schema authorization", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: [],
@@ -899,6 +931,7 @@ describe("untrusted-candidate handling", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [untrusted.id],
         candidateToolCapabilityIds: [],
@@ -929,6 +962,7 @@ describe("untrusted-candidate handling", () => {
       const compile = () =>
         compileContext(tx, {
           intent: "classify",
+          expectedOutputShape: {},
           taskInstanceId: taskInstance.id,
           candidateArtifactIds: [untrusted.id],
           candidateToolCapabilityIds: [],
@@ -951,6 +985,7 @@ describe("untrusted-candidate handling", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [hostile.id],
         candidateToolCapabilityIds: [],
@@ -974,6 +1009,7 @@ describe("untrusted-candidate handling", () => {
       const trusted = await seedArtifact(tx, { inlineContent: "operator notes" });
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [trusted.id],
         candidateToolCapabilityIds: [],
@@ -981,6 +1017,46 @@ describe("untrusted-candidate handling", () => {
       });
       expect(result.layers.artifacts).toBe(`[artifact:${trusted.id} mode=content]\noperator notes`);
       expect(result.layers.constraints).toBe("");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invocation instruction (spec 5.14 layer 7).
+// ---------------------------------------------------------------------------
+
+describe("invocation instruction layer", () => {
+  it("states the declared intent and the expected output shape", async () => {
+    await withRollback(async (tx) => {
+      const taskInstance = await seedTaskInstance(tx);
+      const result = await compileContext(tx, {
+        intent: "synthesize",
+        expectedOutputShape: { report: "string" },
+        taskInstanceId: taskInstance.id,
+        candidateArtifactIds: [],
+        candidateToolCapabilityIds: [],
+        budget: defaultBudget(),
+      });
+      expect(result.layers.invocationInstruction).toBe('Intent: synthesize.\nRespond with JSON matching this shape: {"report":"string"}');
+    });
+  });
+
+  it("is required context like tier 1: a budget with no room for it is a configuration error", async () => {
+    await withRollback(async (tx) => {
+      const taskInstance = await seedTaskInstance(tx);
+      const shape = { report: "string", sources: ["string"] };
+      const required = estimateTokens("{}") + estimateTokens(buildInvocationInstruction("synthesize", shape));
+      const compile = (maxInputTokens: number) =>
+        compileContext(tx, {
+          intent: "synthesize",
+          expectedOutputShape: shape,
+          taskInstanceId: taskInstance.id,
+          candidateArtifactIds: [],
+          candidateToolCapabilityIds: [],
+          budget: defaultBudget({ maxInputTokens }),
+        });
+      await expect(compile(required - 1)).rejects.toBeInstanceOf(ContextBudgetError);
+      expect((await compile(required)).estimatedInputTokens).toBe(required);
     });
   });
 });
@@ -995,6 +1071,7 @@ describe("fixed layer order", () => {
       const taskInstance = await seedTaskInstance(tx);
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [],
         candidateToolCapabilityIds: [],
@@ -1007,6 +1084,7 @@ describe("fixed layer order", () => {
         "memory",
         "artifacts",
         "toolSchemas",
+        "invocationInstruction",
       ]);
     });
   });
@@ -1018,6 +1096,7 @@ describe("fixed layer order", () => {
       const { capability } = await seedCapability(tx);
       const result = await compileContext(tx, {
         intent: "synthesize",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         candidateArtifactIds: [artifact.id],
         candidateToolCapabilityIds: [capability.id],
@@ -1053,6 +1132,7 @@ describe("provenance completeness", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: candidateArtifactIdsUsed,
@@ -1100,6 +1180,7 @@ describe("estimatedInputTokens", () => {
 
       const result = await compileContext(tx, {
         intent: "classify",
+        expectedOutputShape: {},
         taskInstanceId: taskInstance.id,
         runId: run.id,
         candidateArtifactIds: [artifact.id],
@@ -1125,7 +1206,12 @@ describe("estimatedInputTokens", () => {
       const expectedFramingTokens = estimateTokens(`[artifact:${artifact.id} mode=content]\n`);
 
       expect(result.estimatedInputTokens).toBe(
-        instructionsTokens + expectedTaskTokens + expectedArtifactTokens + expectedFramingTokens + expectedToolTokens
+        instructionsTokens +
+          CLASSIFY_INSTRUCTION_TOKENS +
+          expectedTaskTokens +
+          expectedArtifactTokens +
+          expectedFramingTokens +
+          expectedToolTokens
       );
 
       // Provenance (spec 5.13) records what each entry added, and which artifact
@@ -1145,7 +1231,7 @@ describe("estimatedInputTokens", () => {
         { id: capability.id, tier: 3, kind: "tool_schema", trusted: true, estimatedTokens: expectedToolTokens },
       ]);
       const provenanceTotal = result.provenance.included.reduce((sum, e) => sum + e.estimatedTokens, 0);
-      expect(provenanceTotal + instructionsTokens).toBe(result.estimatedInputTokens);
+      expect(provenanceTotal + instructionsTokens + CLASSIFY_INSTRUCTION_TOKENS).toBe(result.estimatedInputTokens);
     });
   });
 });

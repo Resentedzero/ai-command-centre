@@ -61,7 +61,10 @@
  *    filesystem-read capability.
  *
  * 4. LAYER ASSEMBLY (fixed order: instructions, constraints, taskState,
- *    memory, artifacts, toolSchemas).
+ *    memory, artifacts, toolSchemas, invocationInstruction).
+ *      - `invocationInstruction`: the intent and expected output shape
+ *        (`buildInvocationInstruction`), required like tier 1 and counted in
+ *        the budget.
  *      - `instructions`: the Run's bound Agent Definition (role, objective,
  *        instructions) when `runId` is given; `""` otherwise.
  *      - `constraints`: `UNTRUSTED_DATA_POLICY` when any untrusted artifact is
@@ -267,6 +270,19 @@ export function fenceUntrusted(artifactId: string, mode: "content" | "ref", text
   return `<${tag} artifact="${artifactId}" mode="${mode}">\n${neutralized}\n</${tag}>`;
 }
 
+/**
+ * Spec §5.14 layer 7, this Invocation's specific instruction: its declared
+ * intent and the JSON shape it must return. Built only from the Invocation
+ * spec (trusted), last in the prompt, and counted with tier 1: without it the
+ * model is not told what to produce, so it is never dropped.
+ */
+export function buildInvocationInstruction(
+  intent: CompileContextInput["intent"],
+  expectedOutputShape: Record<string, unknown>
+): string {
+  return `Intent: ${intent}.\nRespond with JSON matching this shape: ${JSON.stringify(expectedOutputShape)}`;
+}
+
 function trustedArtifactHeader(artifactId: string, mode: "content" | "ref"): string {
   return `[artifact:${artifactId} mode=${mode}]\n`;
 }
@@ -404,7 +420,7 @@ export async function compileContext(
   tx: DrizzleTransaction,
   input: CompileContextInput
 ): Promise<CompiledContext> {
-  const { taskInstanceId, candidateArtifactIds, candidateToolCapabilityIds, budget, runId } = input;
+  const { intent, expectedOutputShape, taskInstanceId, candidateArtifactIds, candidateToolCapabilityIds, budget, runId } = input;
 
   // --- Steps 1-3: resolve + validate every id up front, before any packing ---
 
@@ -449,10 +465,13 @@ export async function compileContext(
   // budget, and together they are what tier 1 may never be truncated for.
   const instructionsText = await resolveInstructions(tx, runRow);
   const instructionsTokens = estimateTokens(instructionsText);
-  if (taskStateTokens + instructionsTokens > budget.maxInputTokens) {
+  const invocationInstructionText = buildInvocationInstruction(intent, expectedOutputShape);
+  const invocationInstructionTokens = estimateTokens(invocationInstructionText);
+  if (taskStateTokens + instructionsTokens + invocationInstructionTokens > budget.maxInputTokens) {
     throw new ContextBudgetError(
       `compileContext: the task's required context (~${taskStateTokens} tokens of task state + ` +
-        `~${instructionsTokens} of instructions) exceeds maxInputTokens (${budget.maxInputTokens}). ` +
+        `~${instructionsTokens} of instructions + ~${invocationInstructionTokens} of invocation instruction) ` +
+        `exceeds maxInputTokens (${budget.maxInputTokens}). ` +
         "Tier-1 input is never dropped or truncated (spec 5.4); raise the Context Budget or shrink the input."
     );
   }
@@ -605,7 +624,7 @@ export async function compileContext(
 
   // Tier 1: always included (its fit was checked up front, with instructions).
   included.push({ id: taskStateCandidate.id, tier: 1, kind: "task_state", trusted: true, estimatedTokens: taskStateTokens });
-  runningTotal += taskStateCandidate.estimatedTokens + instructionsTokens;
+  runningTotal += taskStateCandidate.estimatedTokens + instructionsTokens + invocationInstructionTokens;
 
   // Tier 2: greedy, in caller-supplied array order (already reflected by
   // iteration order of preparedArtifacts/withinCountCap).
@@ -677,6 +696,7 @@ export async function compileContext(
       })
       .join("\n\n"),
     toolSchemas: packedToolSchemas.flatMap((t) => t.entries),
+    invocationInstruction: invocationInstructionText,
   };
 
   // --- Step 10: provenance + estimatedInputTokens ---

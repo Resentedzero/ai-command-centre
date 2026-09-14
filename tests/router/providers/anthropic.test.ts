@@ -107,6 +107,7 @@ function buildCompiledContext(overrides: Partial<CompiledContext["layers"]> = {}
       memory: "MEMORY_LAYER",
       artifacts: "ARTIFACTS_LAYER",
       toolSchemas: [{ name: "TOOL_SCHEMA_LEAK_CANARY", input_schema: { type: "object" } }],
+      invocationInstruction: "INVOCATION_INSTRUCTION_LAYER",
       ...overrides,
     },
     provenance: {
@@ -353,7 +354,7 @@ describe("no tool access is ever granted to the model", () => {
 // ---------------------------------------------------------------------------
 
 describe("context boundary", () => {
-  it("sends only the prompt layers the Context Compiler produced, plus the expected output shape", async () => {
+  it("sends only the prompt layers the Context Compiler produced, ending with its invocation instruction", async () => {
     messagesCreate.mockResolvedValueOnce(buildProviderResponse());
     await callAnthropicModel("model-x", buildCompiledContext(), { report: "string" }, CHEAP_PRICING);
 
@@ -362,8 +363,7 @@ describe("context boundary", () => {
     expect(body.messages).toEqual([
       {
         role: "user",
-        content:
-          'TASK_STATE_LAYER\n\nMEMORY_LAYER\n\nARTIFACTS_LAYER\n\nRespond with JSON matching this shape: {"report":"string"}',
+        content: "TASK_STATE_LAYER\n\nMEMORY_LAYER\n\nARTIFACTS_LAYER\n\nINVOCATION_INSTRUCTION_LAYER",
       },
     ]);
   });

@@ -350,11 +350,8 @@ export function buildClaudeArgs(modelId: string, expectedOutputShape: Record<str
 }
 
 /** The prompt handed to the child on stdin — compiled context only, no credentials. */
-export function buildStdinPayload(
-  compiledContext: CompiledContext,
-  expectedOutputShape: Record<string, unknown>
-): string {
-  return `${buildSystemPrompt(compiledContext)}\n\n${buildUserMessage(compiledContext, expectedOutputShape)}`;
+export function buildStdinPayload(compiledContext: CompiledContext): string {
+  return `${buildSystemPrompt(compiledContext)}\n\n${buildUserMessage(compiledContext)}`;
 }
 
 /**
@@ -764,7 +761,7 @@ export async function callClaudeSubscriptionModel(
     );
   }
 
-  const stdinPayload = buildStdinPayload(compiledContext, expectedOutputShape);
+  const stdinPayload = buildStdinPayload(compiledContext);
   const payloadBytes = Buffer.byteLength(stdinPayload, "utf8");
   if (payloadBytes > MAX_STDIN_BYTES) {
     throw new ClaudeSubscriptionError(

@@ -13,14 +13,18 @@ The Compiler turns a Task Instance, the Run's bound Agent Definition, the Invoca
 | **Context never widens authorization.** | A tool schema is eligible only if the Run's Agent Definition version holds an unrevoked Grant for its capability with at least one permission. No Run or no bound Agent → every tool schema is excluded `unauthorized` (fail closed). Execution still authorizes each use through Policy. | `tool-schema authorization` (mutation-checked: fail-open mutant fails 3 tests) |
 | **Credentials and adapter configuration never enter context.** | Tool schemas use the minimal variant `{capabilityId, capabilityName, description, toolBindingId, kind}`. Binding `config` is never read into a layer. API keys live only in the Model Router adapters. | `never places a Tool Binding's config…` (mutation-checked) |
 | **Trusted and untrusted data are separated.** | Artifacts produced by a prior Invocation are fenced in an unguessable per-compilation tag; the constraints layer carries the policy naming that tag exactly when a fence is present. Instructions come only from the Agent Definition. | `untrusted-candidate handling` |
-| **Budgets are enforced on the real prompt.** | Tier 1 (task state + instructions) over `maxInputTokens` throws `ContextBudgetError`. Tiers 2 and 3 pack greedily; framing, fences and the policy all count. Per-artifact, item-count and tool-schema sub-budgets apply. | `tier-1 task state`, `greedy packing order`, `estimatedInputTokens` |
+| **Budgets are enforced on the real prompt.** | Required context — task state, instructions and the invocation instruction — over `maxInputTokens` throws `ContextBudgetError`. Tiers 2 and 3 pack greedily; framing, fences and the policy all count. Per-artifact, item-count and tool-schema sub-budgets apply. | `tier-1 task state`, `greedy packing order`, `estimatedInputTokens` |
 | **Minimal, deduplicated context.** | Duplicates by id and by content hash (§5.10) are excluded `duplicate`; the caller's first occurrence wins. Stale artifacts are excluded `stale`. | `deduplication`, `freshness / staleness` |
 | **Every decision is recorded.** | Every candidate occurrence is either included or excluded with a reason. Included entries record kind, trust, the tokens they added (framing included), and for artifacts the version and content hash. The Executor emits these as `context_compiled`; content is never recorded. | `provenance completeness`, `estimatedInputTokens` |
 | **Deterministic apart from the fence tag.** | Same rows and inputs produce the same layers and provenance, except the random fence tag (and the policy text naming it) when untrusted data is present. | — |
 
 ## 2. Layers
 
-Fixed order (§5.14): `instructions` (Agent Definition) → `constraints` (untrusted-data policy, when present) → `taskState` → `memory` (always empty; memory is not built) → `artifacts` → `toolSchemas`.
+Fixed order (§5.14): `instructions` (Agent Definition) → `constraints` (untrusted-data policy, when present) → `taskState` → `memory` (always empty; memory is not built) → `artifacts` → `toolSchemas` → `invocationInstruction`.
+
+`invocationInstruction` (layer 7) is `Intent: <intent>.` plus `Respond with JSON matching this shape: <shape>`, built by `buildInvocationInstruction` from the Invocation spec. It is required context and counted in the budget. `promptBuilder` renders it last in the user message, so the adapters send exactly the text the Compiler budgeted; they previously appended an uncounted suffix of their own. The Claude CLI adapter still also passes the shape as `--json-schema` (argv unchanged).
+
+**Output budget.** `expectedOutputTokens` is not used by the Compiler. The Model Router uses it for the reservation estimate (`maxInputTokens + expectedOutputTokens`, priced per model).
 
 `toolSchemas` is compiled, budgeted and recorded, but no adapter sends it: tool execution belongs to the Tool Adapter + Capability/Policy chain, never to model-native tool calling. No current spec passes tool candidates (`candidateToolCapabilityIds` is `[]` everywhere), so the Grant check guards a latent path.
 

@@ -467,6 +467,9 @@ enforcement point.
 > - **§5.10.** Artifacts are also deduplicated by content hash.
 > - **§5.13.** Included entries record kind, trust, tokens added, and artifact
 >   version and hash.
+> - **§5.14 layer 7.** The Compiler builds the invocation instruction (intent and
+>   expected output shape) and counts it in the budget. The provider adapters
+>   render that layer last instead of appending their own uncounted suffix.
 
 ### 5.16 Measuring context efficiency
 

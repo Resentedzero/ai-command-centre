@@ -179,6 +179,7 @@ function buildCompiledContext(): CompiledContext {
       memory: "",
       artifacts: "",
       toolSchemas: [],
+      invocationInstruction: "INVOCATION_INSTRUCTION_LAYER",
     },
     provenance: { included: [], excluded: [] },
     estimatedInputTokens: 100,

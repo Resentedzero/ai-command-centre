@@ -19,10 +19,12 @@ export function buildSystemPrompt(compiledContext: CompiledContext): string {
     .join("\n\n");
 }
 
-/** Concatenates the task-state/memory/artifact layers into the user message body. */
-export function buildUserMessage(compiledContext: CompiledContext, expectedOutputShape: Record<string, unknown>): string {
-  const body = [compiledContext.layers.taskState, compiledContext.layers.memory, compiledContext.layers.artifacts]
-    .filter((layer) => layer.length > 0)
-    .join("\n\n");
-  return `${body}\n\nRespond with JSON matching this shape: ${JSON.stringify(expectedOutputShape)}`;
+/**
+ * Concatenates the task-state/memory/artifact layers, then the invocation
+ * instruction (spec §5.14 layer 7), into the user message body. The instruction
+ * text is the Compiler's, so what is sent is exactly what was budgeted.
+ */
+export function buildUserMessage(compiledContext: CompiledContext): string {
+  const { taskState, memory, artifacts, invocationInstruction } = compiledContext.layers;
+  return [taskState, memory, artifacts, invocationInstruction].filter((layer) => layer.length > 0).join("\n\n");
 }

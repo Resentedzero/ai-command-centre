@@ -49,6 +49,8 @@ export type CompiledContext = {
     memory: string;
     artifacts: string;
     toolSchemas: Record<string, unknown>[];
+    /** Spec §5.14 layer 7: this Invocation's declared intent and required output shape. */
+    invocationInstruction: string;
   };
   provenance: {
     included: IncludedProvenance[];
@@ -74,6 +76,8 @@ export type CompileContextInput = {
    * every tool schema is excluded as `unauthorized`.
    */
   runId?: string;
+  /** The JSON shape the Invocation must return; rendered into the invocation-instruction layer and counted in the budget. */
+  expectedOutputShape: Record<string, unknown>;
   candidateArtifactIds: string[];
   candidateToolCapabilityIds: string[];
   budget: ContextBudget;

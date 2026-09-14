@@ -662,6 +662,7 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
   try {
     compiledContext = await compileContext(tx, {
       intent: spec.intent,
+      expectedOutputShape: spec.expectedOutputShape,
       taskInstanceId,
       runId,
       candidateArtifactIds: spec.candidateArtifactIds,

@@ -29,6 +29,7 @@ function buildCompiledContext(overrides: Partial<CompiledContext["layers"]> = {}
       memory: "memory-layer",
       artifacts: "artifacts-layer",
       toolSchemas: [],
+      invocationInstruction: "INVOCATION_INSTRUCTION_LAYER",
       ...overrides,
     },
     provenance: { included: [], excluded: [] },
@@ -42,16 +43,14 @@ describe("promptBuilder", () => {
     expect(buildSystemPrompt(buildCompiledContext({ constraints: "" }))).toBe("instructions-layer");
   });
 
-  it("buildUserMessage joins taskState + memory + artifacts and appends the expected-output-shape instruction", () => {
-    const message = buildUserMessage(buildCompiledContext(), { foo: "bar" });
-    expect(message).toBe(
-      'task-state-layer\n\nmemory-layer\n\nartifacts-layer\n\nRespond with JSON matching this shape: {"foo":"bar"}'
-    );
+  it("buildUserMessage joins taskState + memory + artifacts, then the Compiler's invocation instruction last", () => {
+    const message = buildUserMessage(buildCompiledContext());
+    expect(message).toBe("task-state-layer\n\nmemory-layer\n\nartifacts-layer\n\nINVOCATION_INSTRUCTION_LAYER");
   });
 
   it("buildUserMessage skips empty layers", () => {
-    const message = buildUserMessage(buildCompiledContext({ memory: "", artifacts: "" }), {});
-    expect(message).toBe('task-state-layer\n\nRespond with JSON matching this shape: {}');
+    const message = buildUserMessage(buildCompiledContext({ memory: "", artifacts: "" }));
+    expect(message).toBe("task-state-layer\n\nINVOCATION_INSTRUCTION_LAYER");
   });
 });
 

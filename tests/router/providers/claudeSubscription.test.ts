@@ -155,6 +155,7 @@ function buildCompiledContext(overrides: Partial<CompiledContext["layers"]> = {}
       memory: "MEMORY_LAYER",
       artifacts: "ARTIFACTS_LAYER",
       toolSchemas: [],
+      invocationInstruction: "INVOCATION_INSTRUCTION_LAYER",
       ...overrides,
     },
     provenance: { included: [], excluded: [] },
@@ -560,6 +561,7 @@ describe("subprocess configuration", () => {
     const payload = stdinChunks.join("");
     expect(payload).toContain("INSTRUCTIONS_LAYER");
     expect(payload).toContain("TASK_STATE_LAYER");
+    expect(payload.endsWith("INVOCATION_INSTRUCTION_LAYER")).toBe(true);
     expect(payload).not.toContain("sk-ant-live-key");
   });
 

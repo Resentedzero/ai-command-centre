@@ -114,7 +114,8 @@ function assertReportedTokenCount(value: unknown, field: string, modelId: string
 export async function callAnthropicModel(
   modelId: string,
   compiledContext: CompiledContext,
-  expectedOutputShape: Record<string, unknown>,
+  // The shape reaches the model through the Compiler's invocation-instruction layer.
+  _expectedOutputShape: Record<string, unknown>,
   accounting: TierAccounting
 ): Promise<ProviderCallResult> {
   const pricing = assertUsdAccounting(accounting, modelId);
@@ -133,7 +134,7 @@ export async function callAnthropicModel(
     model: modelId,
     max_tokens: 4096,
     system: buildSystemPrompt(compiledContext),
-    messages: [{ role: "user", content: buildUserMessage(compiledContext, expectedOutputShape) }],
+    messages: [{ role: "user", content: buildUserMessage(compiledContext) }],
   });
 
   const tokensIn = assertReportedTokenCount(response.usage?.input_tokens, "input_tokens", modelId);
