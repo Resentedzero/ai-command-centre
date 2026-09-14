@@ -756,6 +756,8 @@ describe("authorizeRoute invocation_started event", () => {
         taskDifficulty: "complex",
         riskTier: "medium",
         contextBudgetMaxInputTokens: req.contextBudget.maxInputTokens,
+        defaultTier: "STRONG",
+        historicalPerformance: { consulted: false, reason: "no_criterion" },
         resultingTier: route.tier,
         resultingModelId: route.modelId,
       });

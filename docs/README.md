@@ -20,7 +20,8 @@ If a lower tier disagrees with a higher one, the higher tier wins. The spec's da
   - the Registry read API and grant revocation. (Phases 3c, 6, 18.3)
 - [`architecture/AGENT_PERFORMANCE.md`](architecture/AGENT_PERFORMANCE.md) covers:
   - the V2 `agent_performance` projection: sample, tier, retry and per-unit cost rules;
-  - the full-rebuild in-process loop, and the firewall keeping Policy and the Router off it. (Phases 8.8, 12, 19)
+  - the full-rebuild in-process loop, the minimum sample criterion, and the firewall keeping Policy off it;
+  - the Model Router's measured tier preference. (Phases 8.8, 10.5, 12, 19)
 - [`architecture/SUBSCRIPTION_PROVIDER_DESIGN.md`](architecture/SUBSCRIPTION_PROVIDER_DESIGN.md) covers:
   - the Claude Max (`claude -p`) provider adapter;
   - quota state and telemetry, and the disabled quota guardrail;
@@ -40,6 +41,7 @@ Module-level contracts live in the header comment of each source file. The root 
 - [`development/AGENT_PERFORMANCE_CLOSURE.md`](development/AGENT_PERFORMANCE_CLOSURE.md): the V2 agent performance projection — rules, rebuild loop, firewall, review dispositions.
 - [`development/COST_VIEWS_CLOSURE.md`](development/COST_VIEWS_CLOSURE.md): the Cost/Budget read API (`GET /costs`, spec screen 7) — counters by scope, per-unit totals, cost-vs-success; review dispositions.
 - [`development/OBSERVABILITY_CLOSURE.md`](development/OBSERVABILITY_CLOSURE.md): spec-conformance batch after the V2 read APIs — `policy_evaluated`, `budget_denied`, the Run trace and Artifact read APIs, the approved-Approval TTL and revocation-relay fixes, the pre-dispatch stop check.
+- [`development/TIER_PREFERENCE_CLOSURE.md`](development/TIER_PREFERENCE_CLOSURE.md): the minimum sample criterion (N unset) and the Model Router's measured tier preference (§10.5); why `CONDITIONAL` autonomy is not built; review dispositions.
 ## 4. Planning and research (advisory, authorizes nothing)
 - [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
 - [`roadmap/ROADMAP_STATUS.md`](roadmap/ROADMAP_STATUS.md): **where the implementation actually is**, by roadmap stage (V1–V6); what the phase labels mean; current milestone; open governance decisions. Status only, not an authorization.

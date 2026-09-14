@@ -36,9 +36,9 @@
  * Run's events. No event records the binding itself.
  *
  * NOT YET: average duration and approval-rejection rate (§8.8 lists them; Phase 12's
- * table has no columns), and the minimum sample-size/confidence criterion Policy and
- * the Model Router must wait for (ROADMAP_STATUS §6). Nothing outside the read API
- * may read this table; `tests/execution/structuralInvariants.test.ts` enforces it.
+ * table has no columns). Decisions read this table only through the minimum sample
+ * criterion (`../governance/performanceEligibility.ts`), and only the Model Router's
+ * tier preference does; `tests/execution/structuralInvariants.test.ts` enforces it.
  */
 import { sql } from "drizzle-orm";
 import { agentPerformance } from "../db/schema.js";

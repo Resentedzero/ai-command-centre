@@ -772,6 +772,13 @@ authorize anything.** SPEND/TRADE/PUBLISH/DELETE default to a policy-enforced ce
 of `CONDITIONAL` at most; reaching `AUTONOMOUS` for these always requires an explicit
 human policy change, never earned automatically.
 
+> **Implementation note (2026-09-14): `CONDITIONAL` still requires approval.** The
+> minimum sample criterion now exists (Phase 12 note), but the rule above needs values
+> the spec does not give: which instances are "below threshold", what performance
+> leans toward `ALLOW`, and which tier's row a tool action (which has no tier)
+> consults. Those are governance decisions (`docs/roadmap/ROADMAP_STATUS.md` §6), so
+> `evaluatePolicy` is unchanged and reads no performance.
+
 ### 9.5 Approval workflow
 
 ```
@@ -960,6 +967,17 @@ Phase 8.8's projection is per (task type, model tier): success rate, retry rate,
 *total* cost including retries — the concrete mechanism for discovering when a
 cheaper tier's retry rate makes its total cost per successful outcome higher than a
 stronger tier's.
+
+> **Implementation note (2026-09-14): tier preference built, inert until N is set.**
+> After the difficulty/risk default (§10.2), `preferTier` moves an LLM Invocation to a
+> stronger tier only when that tier and the default each have an eligible sample for
+> the Run's own Agent Definition version and Task Definition, and the stronger one
+> costs strictly less per successful outcome (`avg_cost / success_rate`) in some
+> resource unit and no more in any. Units are never combined. Upward only: moving below
+> the default is a decision (`ROADMAP_STATUS.md` §6). The preferred tier is then
+> reserved and candidate-checked like any other, with no fallback to the default, and
+> the snapshot consulted is recorded on `invocation_started` (§10.7). Confidence-based
+> escalation (§10.4) is not built.
 
 ### 10.6 Development-time vs. runtime (AMENDED 2026-09-13)
 
@@ -1170,12 +1188,16 @@ Grouped by role.
 > via a watermark, because `global_seq` values can commit out of order. Average
 > duration and approval-rejection rate (§8.8) have no Phase 12 columns and are not
 > built. Samples exclude operator stops and governance, budget, Approval-expiry and
-> crash outcomes; a human rejection counts as a failure. **Not yet conformant with
-> Phase 19 V2:** the minimum sample-size/confidence criterion it requires "as part of
-> V2's implementation work" is not defined, because its form and values are a
-> governance decision (`docs/roadmap/ROADMAP_STATUS.md` §6). Until then the
-> projection is display-only and a structural test keeps Policy and the Router from
-> reading it. `docs/architecture/AGENT_PERFORMANCE.md`.
+> crash outcomes; a human rejection counts as a failure.
+>
+> **Minimum sample criterion (decided 2026-09-14, Phase 19 V2/V4).** A group (Agent
+> Definition version, Task Definition, model tier) is eligible to influence a decision
+> only when its `sample_count` is at least N. N is a governance value, deliberately
+> unset (`MIN_PERFORMANCE_SAMPLES`, `src/governance/performanceEligibility.ts`), so
+> nothing is eligible until an operator sets it. Rows stay displayable whatever the
+> count. Decisions read the projection only through that gate, and only the Model
+> Router's tier preference (§10.5 note) does; a structural test keeps Policy off it.
+> `docs/architecture/AGENT_PERFORMANCE.md`.
 
 ### Idempotency, including external side effects
 

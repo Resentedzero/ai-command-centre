@@ -16,7 +16,8 @@
  * `authorizeRoute` (Pass 1) has NO knowledge of Policy's decision and makes
  * no authorization claim of its own beyond "is there budget for this tier" —
  * it only ever answers "which model, and is there budget for it." It:
- *   1. Selects a tier (`selectTier`, below).
+ *   1. Selects a tier (`selectTier`, below), then applies measured tier
+ *      preference (`preferTier`), which only an eligible performance sample can move.
  *   2. Estimates worst-case cost (`estimateCost`, below) from
  *      `contextBudget.maxInputTokens + contextBudget.expectedOutputTokens`.
  *   3. Reserves that estimate via Unit 2's `reserveBudget` against scope
@@ -69,7 +70,8 @@ import type {
   RouteResult,
   TierAccounting,
 } from "./types.js";
-import { quotaObservationFrom } from "./types.js";
+import { MODEL_TIERS, quotaObservationFrom } from "./types.js";
+import { readTierPerformance, type TierPerformanceRow, type TierPerformanceSnapshot } from "../governance/performanceEligibility.js";
 
 /**
  * Provider dispatch table. DELIBERATELY a total map keyed by `ProviderName`,
@@ -266,8 +268,8 @@ export async function selectCandidates(
  *     `taskDifficulty` — the brief's explicit quality-floor rule.
  *   - Otherwise the three difficulty levels map 1:1 onto the three tiers:
  *     "simple" -> CHEAP, "standard" -> MID, "complex" -> STRONG. A simple,
- *     deterministic difficulty->tier mapping — not a confidence- or
- *     performance-driven one (both explicitly out of scope).
+ *     deterministic difficulty->tier mapping. Measured performance may then move
+ *     it up (`preferTier`); confidence-based escalation (§10.4) is not built.
  *
  * PHASE 7H: "standard" previously mapped to CHEAP, because MID did not exist
  * and the ladder had nowhere else to put it. It now maps to MID, which is the
@@ -291,6 +293,54 @@ function selectTier(req: RouteRequest): ModelTier {
   // A total map, like the provider dispatch table: adding a difficulty level
   // becomes a compile error rather than a silent fall-through to a default.
   return DIFFICULTY_TIER[req.taskDifficulty];
+}
+
+/**
+ * Tier preference from measured performance (spec §10.2, §10.5). An efficiency
+ * choice, never an authorization: the result is still reserved and
+ * candidate-checked exactly like the default, and a refusal at the preferred tier
+ * fails the Invocation rather than falling back to the default.
+ *
+ * Deterministic and conservative where the spec leaves the rule open:
+ *   - Only rows eligible under the minimum sample criterion count, and the default
+ *     tier's own row must be eligible: nothing is compared against unknown data.
+ *   - Upward only. The default already carries the risk floor, and §10.5's case is a
+ *     cheaper tier costing more per success; moving below the default is undecided.
+ *   - Cost per successful outcome is `avg_cost / success_rate` per resource unit
+ *     (retries are already inside `avg_cost`). Units are never summed or converted, so
+ *     a tier wins only if it is cheaper per success in some unit and dearer in none;
+ *     an absent unit is a cost of 0, and a success rate of 0 costs infinitely much.
+ *   - Strictly cheaper, and the nearest such tier above the default wins. Ties keep
+ *     the default, including ties that differ only by the projection's decimal
+ *     rounding (a relative tolerance of 1e-9).
+ */
+export function preferTier(defaultTier: ModelTier, performance: TierPerformanceSnapshot): ModelTier {
+  if (!performance.consulted) return defaultTier;
+  const eligible = new Map(performance.rows.filter((row) => row.eligibility.eligible).map((row) => [row.tier, row]));
+  const current = eligible.get(defaultTier);
+  if (!current) return defaultTier;
+  for (const tier of MODEL_TIERS.slice(MODEL_TIERS.indexOf(defaultTier) + 1)) {
+    const row = eligible.get(tier);
+    if (row && cheaperPerSuccess(row, current)) return tier;
+  }
+  return defaultTier;
+}
+
+function costPerSuccess(row: TierPerformanceRow, unit: string): number {
+  const rate = Number(row.successRate);
+  return rate === 0 ? Infinity : Number(row.avgCost[unit] ?? "0") / rate;
+}
+
+function cheaperPerSuccess(candidate: TierPerformanceRow, current: TierPerformanceRow): boolean {
+  const units = [...new Set([...Object.keys(candidate.avgCost), ...Object.keys(current.avgCost)])];
+  // No consumption recorded in either: compare on success rate alone, as a cost of 0.
+  const pairs = (units.length > 0 ? units : [""]).map((unit) => [costPerSuccess(candidate, unit), costPerSuccess(current, unit)] as const);
+  return pairs.every(([c, d]) => !clearlyLess(d, c)) && pairs.some(([c, d]) => clearlyLess(c, d));
+}
+
+/** `a < b` beyond rounding, for non-negative costs (Infinity included). */
+function clearlyLess(a: number, b: number): boolean {
+  return a < b && (b === Infinity || b - a > 1e-9 * b);
 }
 
 /**
@@ -319,11 +369,23 @@ function estimateCost(accounting: TierAccounting, contextBudget: RouteRequest["c
   return contextBudget.maxInputTokens + contextBudget.expectedOutputTokens;
 }
 
+export type AuthorizeRouteOptions = {
+  /**
+   * The minimum sample criterion's N. Omitted: the configured value
+   * (`MIN_PERFORMANCE_SAMPLES`, unset by default, so performance moves nothing).
+   * Production never passes it.
+   */
+  minPerformanceSamples?: number | null;
+};
+
 export async function authorizeRoute(
   tx: DrizzleTransaction,
-  req: RouteRequest
+  req: RouteRequest,
+  options: AuthorizeRouteOptions = {}
 ): Promise<RouteResult | { authorized: false; reason: AuthorizationFailure }> {
-  const tier = selectTier(req);
+  const defaultTier = selectTier(req);
+  const historicalPerformance = await readTierPerformance(tx, req.runId, options.minPerformanceSamples);
+  const tier = preferTier(defaultTier, historicalPerformance);
 
   // Step 1 — ROUTING (Phase 7D): which candidates are eligible, in what order.
   // Advisory only; it reserves nothing, so ranking a candidate never costs
@@ -391,6 +453,9 @@ export async function authorizeRoute(
       taskDifficulty: req.taskDifficulty,
       riskTier: req.riskTier,
       contextBudgetMaxInputTokens: req.contextBudget.maxInputTokens,
+      // §10.7 "the historical-performance snapshot consulted", and the tier before it.
+      defaultTier,
+      historicalPerformance,
       resultingTier: tier,
       resultingModelId: modelId,
     },

@@ -48,9 +48,11 @@ Grants and bindings are created through the Registry API
 version. See `docs/architecture/CAPABILITY_PLATFORM.md`.
 
 Asynchronous projections (`src/projections/`) are rebuilt from Events by an
-in-process loop, never on the execution path. `agent_performance` is
-display-only until a minimum sample criterion is decided: Policy and the
-Model Router must not read it. See `docs/architecture/AGENT_PERFORMANCE.md`.
+in-process loop, never on the execution path. `agent_performance` reaches a
+decision only through its minimum sample criterion
+(`src/governance/performanceEligibility.ts`; N is unset, so nothing is
+eligible) and only in the Model Router's tier preference. Policy must not read
+it. See `docs/architecture/AGENT_PERFORMANCE.md`.
 
 ## Per-module CLAUDE.md files
 
@@ -59,4 +61,4 @@ None exist yet (`web/CLAUDE.md` only points at the Next.js version notes in
 Architecture invariants that can be checked statically — no provider call or
 tool side effect inside a transaction, the single chokepoint, status changes
 recorded as events, core code naming no capability, `agent_performance` read
-only by its projector and read APIs — are enforced by `tests/execution/structuralInvariants.test.ts`.
+only by its projector, read APIs and eligibility gate (imported only by the Router) — are enforced by `tests/execution/structuralInvariants.test.ts`.

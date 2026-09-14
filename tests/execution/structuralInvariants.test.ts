@@ -155,15 +155,36 @@ describe("core names no capability (spec 18.3)", () => {
   });
 });
 
-describe("agent_performance is display-only until its sample criterion exists (spec Phase 19 V2, 16.2)", () => {
-  // Policy, the Model Router, the Executor and every other module must not read the
-  // projection before a minimum sample-size/confidence criterion is defined. Only
-  // its schema, its projector, the startup loop that runs it and the read API may.
+describe("agent_performance reaches decisions only through its sample criterion (spec Phase 19 V2/V4, 16.2)", () => {
+  // Only its schema, its projector, the startup loop that runs it, the read APIs and
+  // the eligibility gate (governance/performanceEligibility.ts) may reference the
+  // projection. Decisions read it only through the gate, and only the Model Router's
+  // tier preference does: Policy's CONDITIONAL rule is undecided (ROADMAP_STATUS §6).
+  // Also a tripwire: the snapshot recorded on `invocation_started` (§10.7) is readable
+  // from `events`, and re-exports or dynamic imports would pass the importer check.
   // A tripwire, not a guarantee: a table name assembled at run time, iteration over
   // the schema object, or an HTTP call to the read API would pass. Migrations are
   // checked in tests/projections/agentPerformance.test.ts.
   // api/routes/costs.ts joined 2026-09-14: the screen 7 cost-vs-success display.
-  const ALLOWED = ["api/routes/agents.ts", "api/routes/costs.ts", "api/start.ts", "db/schema.ts", "projections/agentPerformance.ts"];
+  const ALLOWED = [
+    "api/routes/agents.ts",
+    "api/routes/costs.ts",
+    "api/start.ts",
+    "db/schema.ts",
+    "governance/performanceEligibility.ts",
+    "projections/agentPerformance.ts",
+  ];
+
+  it("only the Model Router imports the eligibility gate (never Policy, Approvals or the Executor)", () => {
+    const importers = sourceFiles()
+      .filter((file) =>
+        parse(file).statements.some(
+          (s) => ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && /\/performanceEligibility\.js$/.test(s.moduleSpecifier.text)
+        )
+      )
+      .map(rel);
+    expect(importers).toEqual(["router/modelRouter.ts"]);
+  });
 
   it("only the schema, projector, startup loop and read APIs reference agent_performance", () => {
     const referencing = new Set<string>();

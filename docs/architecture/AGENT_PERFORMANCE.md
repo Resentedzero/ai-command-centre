@@ -4,7 +4,11 @@
 
 ## 1. What it is
 
-A read-side aggregate over Events, per **Agent Definition version × Task Definition × model tier**: sample count, success rate, average retries and average cost per resource unit. It is governance-facing data, but in V2 it is **display-only**: Policy's `CONDITIONAL` logic and Model Router tier adaptation may not read it until a minimum sample-size/confidence criterion is defined (Phase 19 V2, Phase 20 Risk #10). That criterion is an open decision (`ROADMAP_STATUS.md` §6).
+A read-side aggregate over Events, per **Agent Definition version × Task Definition × model tier**: sample count, success rate, average retries and average cost per resource unit. It is governance-facing data, displayed whatever the sample count, and it reaches a decision only through the **minimum sample criterion** (Phase 19 V2/V4, Phase 20 Risk #10), decided 2026-09-14:
+
+- A group is eligible only when its `sample_count` is at least N. The count is samples as defined in §2 (finished Runs attributable to the agent), not successes only.
+- N is a governance value and is **unset** (`MIN_PERFORMANCE_SAMPLES = null` in `src/governance/performanceEligibility.ts`, the `dailyBudgetPolicy.ts` pattern). Unset means nothing is eligible. A zero, negative or fractional N fails closed.
+- The one consumer is the Model Router's tier preference (§5). Policy's `CONDITIONAL` rule (spec §9.4) needs thresholds that are not decided, so Policy reads no performance (`ROADMAP_STATUS.md` §6).
 
 It is not XP. `agent_xp_projection` (§16) is not built, and only this projection may ever feed Policy or the Router (§16.2).
 
@@ -29,7 +33,22 @@ Not built: average duration and approval-rejection rate (§8.8 names them; Phase
 
 ## 4. Firewall
 
-`tests/execution/structuralInvariants.test.ts` ("agent_performance is display-only…") fails if any source file other than the schema, the projector, the startup loop and the two read routes (`api/routes/agents.ts`, `api/routes/costs.ts`) references the table, its identifier or the projector. Consuming it from Policy or the Router is a deliberate edit to that allowlist, which should come with the sample criterion.
+`tests/execution/structuralInvariants.test.ts` fails if any source file other than the schema, the projector, the startup loop, the two read routes (`api/routes/agents.ts`, `api/routes/costs.ts`) and the eligibility gate references the table, its identifier or the projector, and if any file other than `router/modelRouter.ts` imports the gate. Letting Policy consume it is a deliberate edit to both, which should come with the `CONDITIONAL` decision.
+
+## 5. Tier preference (spec §10.2, §10.5)
+
+`authorizeRoute` computes the default tier (difficulty, risk floor), reads the Run's own group rows through the gate (`readTierPerformance`, one statement: a concurrent rebuild is seen whole or not at all), then `preferTier`:
+
+| Rule | Why |
+|---|---|
+| Nothing moves unless N is set, the Run is bound to an Agent, and the default tier's own row is eligible | Below-N or missing data never influences routing, including as the baseline |
+| Only a stronger tier with an eligible row may be chosen | The default carries the risk floor; §10.5's case is a cheaper tier costing more per success. Moving below the default is a decision (§6) |
+| It must cost strictly less per successful outcome (`avg_cost / success_rate`) in some resource unit and no more in any; an absent unit is 0; a 0 success rate is infinitely expensive | Units are never summed or converted (§12 note); ties keep the default |
+| The nearest such tier wins | Least change from the default |
+
+The chosen tier is reserved and candidate-checked like the default. A refusal fails the Invocation; it never falls back to the default. `invocation_started` records `defaultTier` and `historicalPerformance` (the rows consulted, each with its eligibility, or why nothing was consulted), per §10.7. Stale rows are used as they are: the projection lags by up to a refresh interval, and the spec sets no freshness bound. Tests: `tests/router/tierPreference.test.ts`.
+
+With static difficulty tags a group usually has data for one tier only, so preference rarely has anything to compare until something else (the risk floor, a definition change, §10.4 escalation) produces samples on a second tier.
 
 ## 5. Residuals
 
@@ -37,5 +56,7 @@ Not built: average duration and approval-rejection rate (§8.8 names them; Phase
 - **Not fully event-sourced.** The Agent binding is read from `runs` and the Task Definition from `task_instances` (written in the same transaction as the Run's events); no event records the binding.
 - **Retries split across tiers.** Once retries exist, a retry on a different tier puts one Task Instance in two groups, each showing no retry.
 - **One malformed event stops every refresh.** A non-numeric `budget_consumed.amount` fails the rebuild each minute; the previous rows stay and `updated_at` stops advancing, which is the only signal.
-- **The firewall is a tripwire.** A table name assembled at run time, iterating the schema object, or calling the read API over HTTP would pass it.
+- **The firewall is a tripwire.** A table name assembled at run time, iterating the schema object, calling the read API over HTTP, a re-export or dynamic import of the gate, or reading the `historicalPerformance` snapshot off `invocation_started` events would pass it.
+- **A Run-level measurement drives an Invocation-level choice.** A Run's samples and whole cost (tool estimates included) go to its last model tier, and tier preference applies that group to every LLM Invocation of the Task. The approved criterion is at that granularity; per-call cost per tier would need a projection change.
+- **A malformed N fails every LLM route** rather than reading as ineligible. N is a code constant, so a bad value is a code change that the eligibility tests catch.
 - **The UI types `performance` as `null`** (`web/lib/api.ts`) and shows "not available". Rendering the rows is the UI workstream's change; the API change is compatible with the current page.
