@@ -21,8 +21,7 @@ import { resolveApproval, ApprovalAlreadyResolvedError, ApprovalNotFoundError } 
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
 import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
 import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
-import { runWorkflowMutationAndRelay } from "../liveEventRelay.js";
-import { transactionRunner } from "../../db/transactionRunner.js";
+import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
 
 /**
@@ -128,8 +127,10 @@ function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "ap
 
     const workflowRunId = lookup.workflowRunId;
     try {
-      const runInTx = transactionRunner(deps.db);
-      const result = await runWorkflowMutationAndRelay(deps.db, workflowRunId, async () => {
+      const relay = createWorkflowRelay(deps.db);
+      await relay.track(workflowRunId);
+      const runInTx = relay.runInTx;
+      const result = await (async () => {
         // Checked BEFORE resolving: the resolution commits on its own, so a
         // missing seed must not leave a decided Approval with nothing to act on.
         const seed = await runInTx((tx) => findSeededPublishWorkflow(tx));
@@ -153,7 +154,7 @@ function registerResolveRoute(app: FastifyInstance, deps: ApiDeps, decision: "ap
           workflowRunId,
           workflowStatus: advanceResult.status,
         };
-      });
+      })();
 
       return reply.send(result);
     } catch (error) {

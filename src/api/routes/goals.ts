@@ -27,8 +27,7 @@ import { startWorkflowRun } from "../../workflow/interpreter.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
 import { buildInvocationSpecsForTaskDefinition } from "../../workflow/buildInvocationSpecsForTaskDefinition.js";
 import { findSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
-import { runWorkflowMutationAndRelay } from "../liveEventRelay.js";
-import { transactionRunner } from "../../db/transactionRunner.js";
+import { createWorkflowRelay } from "../liveEventRelay.js";
 import { emitLifecycleEvent, NO_CORRELATION } from "../../events/lifecycle.js";
 
 type CreateGoalBody = { title?: string; description?: string };
@@ -40,11 +39,12 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
       return reply.status(400).send({ error: "title is required" });
     }
 
-    const runInTx = transactionRunner(deps.db);
-    const result = await runWorkflowMutationAndRelay(deps.db, null, async () => {
+    const relay = createWorkflowRelay(deps.db);
+    const result = await (async () => {
       // Goal + Workflow Run commit first, as one unit; the driver then advances
-      // in its own short transactions (Phase 9 — see the driver's header).
-      const { seed, goalId, workflowRunId } = await runInTx(async (tx) => {
+      // in its own short transactions (Phase 9 — see the driver's header),
+      // each relayed to live subscribers as it commits.
+      const { seed, goalId, workflowRunId } = await deps.db.transaction(async (tx) => {
         const seed = await findSeededPublishWorkflow(tx);
         if (!seed) {
           throw new Error('No seeded Workflow Definition found — run "npm run seed" before creating Goals.');
@@ -69,13 +69,15 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
         const { workflowRunId } = await startWorkflowRun(tx, seed.workflowDefinitionId, goalId);
         return { seed, goalId, workflowRunId };
       });
+      await relay.track(workflowRunId, { fresh: true });
+      await relay.flush();
 
-      const advanceResult = await advanceWorkflowRunUntilBlocked(runInTx, workflowRunId, (tx) =>
+      const advanceResult = await advanceWorkflowRunUntilBlocked(relay.runInTx, workflowRunId, (tx) =>
         buildInvocationSpecsForTaskDefinition(tx, seed)
       );
 
       return { goalId, workflowRunId, status: advanceResult.status };
-    });
+    })();
 
     return reply.status(201).send(result);
   });

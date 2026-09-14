@@ -396,6 +396,35 @@ describe("POST /approvals/:id/reject", () => {
 // Independent-review Important 1 — concurrent approve/reject of ONE Approval
 // ---------------------------------------------------------------------------
 
+describe("POST /workflow-runs/:id/advance", () => {
+  it("re-drives an in_progress run without changing anything when it is genuinely waiting on a human", async () => {
+    const created = await createGoal("Advance-while-waiting Goal", "advance report");
+    const before = await testDb.query.taskInstances.findMany({
+      where: eq(schema.taskInstances.workflowRunId, created.workflowRunId),
+    });
+
+    const res = await app.inject({ method: "POST", url: `/workflow-runs/${created.workflowRunId}/advance` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ workflowRunId: created.workflowRunId, status: "in_progress" });
+
+    const after = await testDb.query.taskInstances.findMany({
+      where: eq(schema.taskInstances.workflowRunId, created.workflowRunId),
+    });
+    expect(after).toHaveLength(before.length);
+    expect(callClaudeSubscriptionModel).toHaveBeenCalledTimes(1); // only the POST /goals dispatch
+  });
+
+  it("is 404 for an unknown run and 409 for a run that is not in_progress", async () => {
+    const unknown = await app.inject({ method: "POST", url: "/workflow-runs/00000000-0000-0000-0000-000000000000/advance" });
+    expect(unknown.statusCode).toBe(404);
+
+    const created = await createGoal("Advance-while-paused Goal", "paused advance report");
+    await app.inject({ method: "POST", url: `/workflow-runs/${created.workflowRunId}/pause` });
+    const paused = await app.inject({ method: "POST", url: `/workflow-runs/${created.workflowRunId}/advance` });
+    expect(paused.statusCode).toBe(409);
+  });
+});
+
 describe("POST /approvals/:id/approve + /reject concurrently (independent-review Important 1)", () => {
   /**
    * Reproduces the exact race the review found, DETERMINISTICALLY rather than

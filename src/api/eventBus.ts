@@ -11,8 +11,12 @@
  *
  * WHO CALLS `publishLiveEvent`, AND WHY (the design question the brief poses
  * explicitly — task-10-brief.md's "SSE replay-then-live implementation"
- * section): `../liveEventRelay.ts`'s `runWorkflowMutationAndRelay`, and
- * ONLY that module.
+ * section): `../liveEventRelay.ts` (`createWorkflowRelay`, which relays after
+ * every committed transaction of a workflow request, and `relayCommittedEvent`
+ * for control-plane events such as emergency stops), and ONLY that module.
+ * The history below describes the original per-request design; the
+ * mechanism — observe committed rows, never publish from inside a
+ * transaction — is unchanged.
  *
  * The problem: `emitEvent` (`../events/emit.ts`) is frozen/unmodifiable
  * (Unit 1), and it is called from deep inside Units 2-9 — e.g.

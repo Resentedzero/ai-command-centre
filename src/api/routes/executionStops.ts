@@ -26,12 +26,15 @@ import type { FastifyInstance } from "fastify";
 import type { ApiDeps } from "../server.js";
 import {
   engageStop,
+  EXECUTION_STOP_ENGAGED,
+  EXECUTION_STOP_LIFTED,
   liftStop,
   listActiveStops,
   normalizeStopTarget,
   recordStopEvent,
   type ExecutionStopScope,
 } from "../../governance/executionStop.js";
+import { relayCommittedEvent } from "../liveEventRelay.js";
 
 const SCOPES: readonly ExecutionStopScope[] = [
   "global",
@@ -89,8 +92,10 @@ export function registerExecutionStopsRoutes(app: FastifyInstance, deps: ApiDeps
       })
     );
 
-    // 2. The audit event, afterwards. Idempotent on the stop id.
+    // 2. The audit event, afterwards. Idempotent on the stop id. Relayed live
+    // once committed: a stop is exactly the event an operator watches for.
     await deps.db.transaction((tx) => recordStopEvent(tx, stop, "engaged"));
+    await relayCommittedEvent(deps.db, `${EXECUTION_STOP_ENGAGED}:${stop.id}`);
 
     return reply.status(201).send({ stop });
   });
@@ -111,6 +116,7 @@ export function registerExecutionStopsRoutes(app: FastifyInstance, deps: ApiDeps
     }
 
     await deps.db.transaction((tx) => recordStopEvent(tx, lifted, "lifted"));
+    await relayCommittedEvent(deps.db, `${EXECUTION_STOP_LIFTED}:${lifted.id}`);
     return reply.send({ stop: lifted });
   });
 }

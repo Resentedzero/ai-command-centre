@@ -379,7 +379,51 @@ describe("GET /events/stream — mid-replay race (subscribe-then-query correctne
 // live events except the production relay code itself.
 // ---------------------------------------------------------------------------
 
-describe("GET /events/stream — real relay path (runWorkflowMutationAndRelay, not test-simulated)", () => {
+describe("GET /events/stream — events arrive live while a request is still running", () => {
+  it("an operator sees the LLM step's events DURING its provider call, not only after the request returns", async () => {
+    await testDb.transaction((tx) => seedPublishWorkflow(tx));
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((resolve) => (releaseProvider = resolve));
+    vi.mocked(callClaudeSubscriptionModel).mockImplementationOnce(async () => {
+      await providerGate;
+      return {
+        result: { report: "live-during-dispatch report" },
+        usage: { tokensIn: 100, tokensOut: 50, costAmount: 150, costUnit: "subscription_tokens" },
+      };
+    });
+
+    const client = await SseClient.connect(`${baseUrl}/events/stream?sinceEventCursor=0`);
+    try {
+      let requestFinished = false;
+      const request = fetch(`${baseUrl}/goals`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Live during dispatch" }),
+      }).then((res) => {
+        requestFinished = true;
+        return res;
+      });
+
+      // context_compiled commits in the transaction BEFORE the provider call;
+      // the per-commit relay must deliver it while the call is still blocked.
+      await client.waitUntil(() => client.events.some((e) => e.eventType === "context_compiled"), 10000);
+      expect(requestFinished).toBe(false);
+      const eventTypes = client.events.map((e) => e.eventType);
+      expect(eventTypes).toContain("goal_created");
+      expect(eventTypes).toContain("workflow_run_started");
+      expect(eventTypes).not.toContain("run_completed");
+
+      releaseProvider();
+      expect((await request).status).toBe(201);
+      await client.waitUntil(() => client.events.some((e) => e.eventType === "approval_required"), 10000);
+    } finally {
+      releaseProvider();
+      await client.close();
+    }
+  });
+});
+
+describe("GET /events/stream — real relay path (production relay, not test-simulated)", () => {
   it("delivers both Task A's and Task B's events live, through the real relay, when POST /goals runs on the same server", async () => {
     await testDb.transaction((tx) => seedPublishWorkflow(tx));
     mockLlmOnce("live relay path report");
