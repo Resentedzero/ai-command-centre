@@ -21,6 +21,9 @@ Run it with `powershell -File compose-w2-keep.ps1`. It needs Windows PowerShell 
 | `light-{active,wait,core,ambient,torch}-2x.png` | `make-light-pools.ps1` | Light pools, one colour per meaning. |
 | `sprites-outlined-2x/`, `sprites-outlined-4x/` | a script in the session | Agent sprites with a baked 1-logical-pixel dark outline, for contrast in coloured light. |
 | `core-crystal-pedestal-2x.png` | hand-drawn 16×20 pixel map | The runtime core. |
+| `make-outlined-strips.ps1` | the recipe | Knight and wizard run, idle and death strips with the same baked outline, 1 logical px of padding per frame. |
+| `strips-outlined-2x/` | `make-outlined-strips.ps1` | Animation strips for the motion prototype and the UI. |
+| `motion-prototype.html` | hand-written | Local-only motion prototype over the keep art. Open it from this folder; it reads the generated PNGs next to it. It runs scripted demo states, never live data. |
 | `room-*` crops | cropped from the composites | Close-ups and vignettes. |
 
 **`compose-keep-v4.ps1` layout:**

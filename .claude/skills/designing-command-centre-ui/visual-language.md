@@ -141,6 +141,21 @@ These live in the Figma "Spacing" collection; CSS names follow the same rule (`s
 
 Respect `prefers-reduced-motion`: freeze sprites on a representative frame, and keep state legible through the sigil, lamp and label.
 
+**Prototype:** `assets/gamification/adapted/motion-prototype.html`, served locally by the `motion-prototype` entry in `.claude/launch.json`. It runs the rules above over the real keep art with scripted demo states, and has been checked in the browser:
+- run loop: 6 frames at 100 ms (`steps(6)`, 0.6 s);
+- idle: 2 fps;
+- seal pulse: 1.6 s;
+- runes: 2 s;
+- event boost: 400 ms;
+- failure and stop: one red flash, then steady;
+- completion: one green flash;
+- death: a single strip play that holds its last frame (`steps(n-1)` + `forwards`, so it never lands on an empty frame);
+- reduced motion: every animation stops.
+
+Implementation notes:
+- Sprites use the baked-outline strips in `strips-outlined-2x/`.
+- One-shot flash classes must be cleared on every state change; otherwise a stale class wins the cascade and replays the wrong colour.
+
 ## Avoid
 
 - Generic SaaS dashboards and walls of cards
