@@ -239,6 +239,81 @@ export type GoalSummary = {
 
 export type ProjectGoals = { id: string; name: string; description: string | null; goals: GoalSummary[] };
 
+// ---------------------------------------------------------------------------
+// Agent Detail (spec 15.1 screen 2)
+// ---------------------------------------------------------------------------
+
+export type AgentDetail = {
+  agent: { id: string; name: string; version: number; role: string; objective: string };
+  activeStop: { id: string; scope: string; scopeRefId: string; reason: string | null; engagedAt: string } | null;
+  grants: {
+    id: string;
+    capabilityId: string;
+    capabilityName: string;
+    permissions: string[];
+    autonomyState: string;
+    maxTrustLevelRequired: number;
+    revoked: boolean;
+  }[];
+  runs: {
+    runId: string;
+    status: string;
+    startedAt: string;
+    completedAt: string | null;
+    outcomeReason: string | null;
+    taskInstance: { id: string; status: string } | null;
+    taskDefinitionName: string | null;
+    workflowRunId: string | null;
+    goal: { id: string; title: string } | null;
+    latestInvocation: { seqNo: number; kind: string; status: string } | null;
+  }[];
+  /** Consumption per resource unit. Exact decimal strings; units are never combined. */
+  budgetTotals: { resourceUnit: string; consumed: string; reserved: string }[];
+  recentEvents: {
+    eventId: string;
+    eventType: string;
+    occurredAt: string;
+    runId: string | null;
+    invocationId: string | null;
+    eventCursor: number;
+  }[];
+  outputs: { id: string; type: string; size: number; createdAt: string; invocationId: string; runId: string }[];
+  contextLineage: {
+    invocationId: string | null;
+    occurredAt: string;
+    intent: string | null;
+    estimatedInputTokens: number | null;
+    maxInputTokens: number | null;
+    included: { id: string; tier: number }[];
+    excluded: { id: string; reason: string }[];
+  } | null;
+  /** Always null until the agent_performance projection exists (V2). */
+  performance: null;
+};
+
+export async function getAgentDetail(id: string): Promise<AgentDetail> {
+  return apiFetch<AgentDetail>(`/agents/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Engages the agent-scope emergency stop (spec 9.7): this agent's NEXT
+ * Invocation, anywhere, is refused. A call already in flight finishes.
+ */
+export async function engageAgentStop(agentDefinitionId: string, reason?: string): Promise<void> {
+  await apiFetch<unknown>("/execution-stops", {
+    method: "POST",
+    body: JSON.stringify({ scope: "agent_definition", scopeRefId: agentDefinitionId, ...(reason ? { reason } : {}) }),
+  });
+}
+
+/** Lifts the agent-scope stop. Forward-only: work a stop already failed is not revived (spec 9.7). */
+export async function liftAgentStop(agentDefinitionId: string): Promise<void> {
+  await apiFetch<unknown>("/execution-stops/lift", {
+    method: "POST",
+    body: JSON.stringify({ scope: "agent_definition", scopeRefId: agentDefinitionId }),
+  });
+}
+
 export async function listGoals(): Promise<ProjectGoals[]> {
   const data = await apiFetch<{ projects: ProjectGoals[] }>("/goals");
   return data.projects;

@@ -424,6 +424,82 @@ type WorkflowRunDetailBody = {
   }>;
 };
 
+type AgentDetailBody = {
+  agent: { id: string; name: string; version: number };
+  activeStop: { scope: string; reason: string | null } | null;
+  grants: Array<{ capabilityName: string; permissions: string[]; autonomyState: string; revoked: boolean }>;
+  runs: Array<{
+    status: string;
+    workflowRunId: string | null;
+    goal: { title: string } | null;
+    latestInvocation: { kind: string; status: string } | null;
+  }>;
+  budgetTotals: Array<{ resourceUnit: string; consumed: string }>;
+  recentEvents: Array<{ eventType: string }>;
+  outputs: Array<{ type: string }>;
+  contextLineage: { estimatedInputTokens: number | null } | null;
+  performance: null;
+};
+
+describe("GET /agents/:id (spec 15.1 screen 2)", () => {
+  it("shows the publisher's gated work and read-only grants, and reflects an agent-scope stop", async () => {
+    const created = await driveToTaskBAwaitingApproval("Agent-detail Goal", "agent detail report");
+    const publisherId = seedRefs.publisherAgentDefinitionId;
+
+    const res = await app.inject({ method: "GET", url: `/agents/${publisherId}` });
+    expect(res.statusCode).toBe(200);
+    const detail = res.json() as AgentDetailBody;
+    expect(detail.agent.id).toBe(publisherId);
+    expect(detail.performance).toBeNull();
+    expect(detail.activeStop).toBeNull();
+    expect(detail.grants).toContainEqual(
+      expect.objectContaining({ permissions: ["PUBLISH"], autonomyState: "ALWAYS_APPROVE", revoked: false })
+    );
+    expect(detail.runs.find((r) => r.workflowRunId === created.workflowRunId)).toMatchObject({
+      status: "awaiting_approval",
+      goal: { title: "Agent-detail Goal" },
+      latestInvocation: { kind: "tool", status: "awaiting_approval" },
+    });
+
+    const stop = await app.inject({
+      method: "POST",
+      url: "/execution-stops",
+      payload: { scope: "agent_definition", scopeRefId: publisherId, reason: "agent detail route test" },
+    });
+    expect(stop.statusCode).toBe(201);
+    try {
+      const stopped = (await app.inject({ method: "GET", url: `/agents/${publisherId}` })).json() as AgentDetailBody;
+      expect(stopped.activeStop).toMatchObject({ scope: "agent_definition", reason: "agent detail route test" });
+    } finally {
+      const lifted = await app.inject({
+        method: "POST",
+        url: "/execution-stops/lift",
+        payload: { scope: "agent_definition", scopeRefId: publisherId },
+      });
+      expect(lifted.statusCode).toBe(200);
+    }
+  });
+
+  it("shows the researcher's completed work, per-unit usage, outputs and latest context lineage", async () => {
+    const created = await createGoal("Agent-usage Goal", "agent usage report");
+
+    const res = await app.inject({ method: "GET", url: `/agents/${seedRefs.agentDefinitionId}` });
+    expect(res.statusCode).toBe(200);
+    const detail = res.json() as AgentDetailBody;
+    expect(detail.runs.find((r) => r.workflowRunId === created.workflowRunId)).toMatchObject({ status: "completed" });
+    const tokens = detail.budgetTotals.find((b) => b.resourceUnit === "subscription_tokens");
+    expect(Number(tokens?.consumed)).toBeGreaterThan(0);
+    expect(detail.outputs.some((o) => o.type === "report")).toBe(true);
+    expect(typeof detail.contextLineage?.estimatedInputTokens).toBe("number");
+    expect(detail.recentEvents.length).toBeGreaterThan(0);
+  });
+
+  it("is 400 for a malformed id and 404 for an unknown agent", async () => {
+    expect((await app.inject({ method: "GET", url: "/agents/abc" })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/agents/00000000-0000-0000-0000-000000000000" })).statusCode).toBe(404);
+  });
+});
+
 describe("GET /goals (spec 15.1 screen 5)", () => {
   it("groups goals under their project, each with its workflow runs", async () => {
     const created = await createGoal("Goals-list Goal", "goals list report");

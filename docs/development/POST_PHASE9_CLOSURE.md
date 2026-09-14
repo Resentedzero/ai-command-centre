@@ -29,6 +29,7 @@ No live Claude invocations were made. Every dispatch-capable test mocks all thre
 | `40c61d6` | Approved content pinned by hash; approvals queue shows goal, action, agent and a content preview |
 | `9598cae` | This closure record |
 | `d2377dc` | Workflow/Task view (spec §15.1 screen 3): read API plus `/workflows` list and detail pages |
+| `d9ebb69` | Goals & Projects view (spec §15.1 screen 5), with start-a-goal |
 
 The authoritative write-ups are:
 - `docs/architecture/DURABLE_EXECUTION.md`;

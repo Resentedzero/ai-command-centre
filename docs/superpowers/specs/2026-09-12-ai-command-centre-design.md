@@ -1409,7 +1409,17 @@ provenance chains visible (Phase 5.13/7).
 >     `POST /goals` command (§15.2).
 >   - **Cost of starting a Goal:** its workflow runs synchronously, so it can take
 >     minutes and uses subscription quota. The form says so.
-> - **Not built:** screens 2 (Agent Detail), 6, 7 and 8.
+> - **Screen 2 (Agent Detail), built except performance.**
+>   - **Content:** `GET /agents/:id` and `/agents/[id]` show the agent's recent
+>     Runs, with their Goal/Workflow lineage and latest Invocation. They also show
+>     its Capability Grants read-only, per-unit consumption (units never
+>     combined), recent events, output artifacts, and the latest compiled-context
+>     lineage (ids, tiers, exclusion reasons, token estimate, never content).
+>   - **Controls:** the agent-scope emergency stop (§9.7), engage and lift. No
+>     per-agent pause mechanism exists, so none is offered.
+>   - **Performance:** shown as unavailable, because the `agent_performance`
+>     projection is V2 and not built.
+> - **Not built:** screens 6, 7 and 8.
 
 ### 15.2 UI commands vs. Invocations — not the same model
 

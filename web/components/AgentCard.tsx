@@ -22,7 +22,9 @@ export function AgentCard({ agent }: { agent: AgentCardData }) {
         marginBottom: 8,
       }}
     >
-      <div style={{ fontWeight: "bold" }}>{agent.agentName}</div>
+      <div style={{ fontWeight: "bold" }}>
+        {agent.agentDefinitionId ? <a href={`/agents/${agent.agentDefinitionId}`}>{agent.agentName}</a> : agent.agentName}
+      </div>
       <div>Task status: {agent.taskStatus}</div>
       <div>Latest activity: {agent.latestActivitySummary ?? "No activity yet"}</div>
     </div>
