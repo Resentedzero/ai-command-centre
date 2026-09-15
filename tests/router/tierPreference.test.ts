@@ -397,9 +397,10 @@ describe("performance never overrides hard constraints", () => {
     });
   });
 
-  // Token-accounted tiers share one estimate (maxInputTokens + expectedOutputTokens), so a retry at the
-  // default tier would be refused too; the single reservation attempt is what shows there was none.
-  it("a budget refusal still refuses the route at the preferred tier: one reservation attempt, nothing reserved, nothing recorded", async () => {
+  // Since 2026-09-15 a budget denial gets the Governor's one fallback (tests/router/budgetFallback.test.ts):
+  // one tier lower, here the default, under a 75% Context Budget. Refused again, the route is refused:
+  // exactly two reservation attempts, never a third, nothing reserved, nothing recorded.
+  it("a budget refusal at the preferred tier gets one fallback and no more: two reservation attempts, nothing reserved, nothing recorded", async () => {
     await withRollback(async (tx) => {
       const { group, request } = await seedBoundRun(tx, "10");
       await midIsBetter(tx, group);
@@ -415,12 +416,32 @@ describe("performance never overrides hard constraints", () => {
           contextBudget: request.contextBudget,
           historicalPerformance: { consulted: true, minSamples: 10 },
           budgetAuthorization: { authorized: false, modelId: "claude-sonnet-5", resourceUnit: "subscription_tokens", estimatedAmount: 1_100 },
+          // Preferred MID steps to the default CHEAP, never past it.
+          budgetFallback: { outcome: "denied", attemptedOutcome: "downgraded", fromTier: "MID", attemptedTier: "CHEAP", authorized: false, refusal: "insufficient_budget" },
         },
       });
-      expect(reserveBudget).toHaveBeenCalledTimes(1);
+      expect(reserveBudget).toHaveBeenCalledTimes(2);
       expect(await started(tx, request.invocationId)).toBeUndefined();
       const counter = await tx.query.budgetCounters.findFirst({ where: eq(schema.budgetCounters.scopeRefId, request.runId) });
       expect(counter!.reservedAmount).toBe("0");
+    });
+  });
+
+  it("a denied STRONG preference falls back to the default CHEAP, never to MID, which neither the default nor preference chose", async () => {
+    await withRollback(async (tx) => {
+      const { group, request } = await seedBoundRun(tx, "900");
+      await performance(tx, group, "CHEAP", 10, "0.25", "1000");
+      await performance(tx, group, "STRONG", 10, "1", "1500");
+      const route = await authorizeRoute(tx, request, { minPerformanceSamples: 10 });
+      if ("authorized" in route) throw new Error(route.reason);
+      expect(route.tier).toBe("CHEAP");
+      expect(await started(tx, request.invocationId)).toMatchObject({
+        defaultTier: "CHEAP",
+        resultingTier: "CHEAP",
+        tierSource: "budget_downgrade",
+        budgetAuthorization: { outcome: "downgraded", estimatedAmount: 825 },
+        budgetFallback: { fromTier: "STRONG", attemptedTier: "CHEAP", authorized: true },
+      });
     });
   });
 

@@ -10,6 +10,11 @@
  * tier (`default`, `escalation_floor`, `performance_preference`); null on routes recorded
  * before 2026-09-15. Null for other kinds and for an LLM Invocation not yet routed.
  *
+ * `budgetFallback`: the Budget Governor's one fallback when the routed tier's reservation was
+ * denied — the tier it was denied at (`fromTier`), the tier it then tried (`attemptedTier`,
+ * one lower or the same), the Context Budget factor and the tightened input ceiling, and
+ * whether that attempt was authorized. Null when no fallback happened.
+ *
  * `retryRecordOf`: a Run's `run_started` lineage. A retry Run records the Run it retries
  * and the retry policy's cause (`governance/retryPolicy.ts`); a first attempt has neither.
  */
@@ -21,6 +26,14 @@ export type RouteRecord = {
   tierSource: string | null;
   attempt: number | null;
   modelId: string | null;
+  budgetFallback: {
+    outcome: string | null;
+    fromTier: string | null;
+    attemptedTier: string | null;
+    authorized: boolean | null;
+    contextBudgetFactor: number | null;
+    maxInputTokens: number | null;
+  } | null;
 };
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -33,7 +46,18 @@ export function routeRecordOf(kind: string, startedPayload: unknown, failedPaylo
   const refused = record(record(failedPayload).routingDecision);
   const source = "resultingTier" in started ? started : "attemptedTier" in refused ? refused : null;
   if (!source) return null;
+  const fallback = "budgetFallback" in source ? record(source.budgetFallback) : null;
   return {
+    budgetFallback: fallback
+      ? {
+          outcome: text(fallback.outcome),
+          fromTier: text(fallback.fromTier),
+          attemptedTier: text(fallback.attemptedTier),
+          authorized: typeof fallback.authorized === "boolean" ? fallback.authorized : null,
+          contextBudgetFactor: typeof fallback.contextBudgetFactor === "number" ? fallback.contextBudgetFactor : null,
+          maxInputTokens: typeof record(fallback.contextBudget).maxInputTokens === "number" ? (record(fallback.contextBudget).maxInputTokens as number) : null,
+        }
+      : null,
     defaultTier: text(source.defaultTier),
     escalationFloor: text(source.escalationFloor),
     resultingTier: text(started.resultingTier),

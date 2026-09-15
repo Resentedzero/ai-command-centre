@@ -194,6 +194,14 @@ export type RouteResult = {
    * `maxInputTokens`, capped at the model's window less `expectedOutputTokens`.
    */
   effectiveMaxInputTokens: number;
+  /**
+   * The Context Budget this call runs under: the request's, or — when the Budget
+   * Governor degraded it to fit a reservation (`degradedContextBudget`) — the tightened
+   * one. The Executor compiles to this, never to the Task's original budget.
+   */
+  contextBudget: ContextBudget;
+  /** How the Budget Governor authorized this route (recorded on `invocation_started` as `budgetAuthorization.outcome`). */
+  budgetOutcome: "authorized" | "downgraded" | "degraded";
   // Further addition (this unit's own resolution, in the same spirit as the
   // invocationId ruling above): the brief's frozen RouteResult has no
   // invocationId either, but `emitModelInvocationCompleted` is separately

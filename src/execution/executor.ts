@@ -684,8 +684,9 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
       runId,
       candidateArtifactIds: spec.candidateArtifactIds,
       candidateToolCapabilityIds: spec.candidateToolCapabilityIds,
-      // Packed to the routed model's window (§10.7 Pass 2), which the Router resolved.
-      budget: { ...spec.contextBudget, maxInputTokens: route.effectiveMaxInputTokens },
+      // The Context Budget the Router authorized (the Task's, or the Governor's degraded one),
+      // packed to the routed model's window (§10.7 Pass 2).
+      budget: { ...route.contextBudget, maxInputTokens: route.effectiveMaxInputTokens },
     });
     // Spec §5.13/§5.16: the compiled context's lineage and size, recorded on
     // this Invocation — what went in, at what tier, and why anything was left
@@ -698,7 +699,9 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
       payload: {
         intent: spec.intent,
         estimatedInputTokens: compiledContext.estimatedInputTokens,
-        maxInputTokens: spec.contextBudget.maxInputTokens,
+        maxInputTokens: route.contextBudget.maxInputTokens,
+        // Set when the Budget Governor tightened the Task's Context Budget for this call.
+        ...(route.budgetOutcome !== "authorized" ? { budgetOutcome: route.budgetOutcome, taskMaxInputTokens: spec.contextBudget.maxInputTokens } : {}),
         effectiveMaxInputTokens: route.effectiveMaxInputTokens,
         contextWindowTokens: route.contextWindowTokens,
         included: compiledContext.provenance.included,

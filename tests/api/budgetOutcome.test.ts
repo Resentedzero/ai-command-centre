@@ -61,14 +61,21 @@ describe("budgetOutcomeOf", () => {
     expect(budgetOutcomeOf({ ...failedTool, status: "proposed" }, none)).toBeNull();
   });
 
-  it("never reserves for the deterministic cost class or other kinds, and never names a downgrade or degrade", () => {
+  it("never reserves for the deterministic cost class or other kinds", () => {
     expect(budgetOutcomeOf({ kind: "tool", costClass: "deterministic", status: "completed" }, none)).toBeNull();
     expect(budgetOutcomeOf({ kind: "deterministic", costClass: "deterministic", status: "completed" }, none)).toBeNull();
     expect(budgetOutcomeOf({ kind: "retrieval", costClass: "local_retrieval", status: "completed" }, none)).toBeNull();
-    const produced = new Set([
-      budgetOutcomeOf({ kind: "llm", costClass: "llm", status: "completed" }, { ...none, startedPayload: { budgetAuthorization: { authorized: true } } }),
-      budgetOutcomeOf({ kind: "tool", costClass: "metered_api", status: "failed" }, { ...none, failedPayload: { reason: "insufficient_budget" } }),
-    ]);
-    expect([...produced].sort()).toEqual(["authorized", "denied"]);
+  });
+
+  it("llm: the Router's recorded outcome — downgraded or degraded stays so after the call completes or fails; an unknown outcome is not guessed", () => {
+    for (const status of ["completed", "failed"]) {
+      const llm = { kind: "llm", costClass: "llm", status };
+      for (const outcome of ["authorized", "downgraded", "degraded"]) {
+        expect(budgetOutcomeOf(llm, { ...none, startedPayload: { budgetAuthorization: { authorized: true, outcome } }, failedPayload: { reason: "provider_failure" } })).toBe(outcome);
+      }
+      // A route recorded before outcomes existed was authorized; a value this build does not know is not guessed.
+      expect(budgetOutcomeOf(llm, { ...none, startedPayload: { budgetAuthorization: { authorized: true } } })).toBe("authorized");
+      expect(budgetOutcomeOf(llm, { ...none, startedPayload: { budgetAuthorization: { authorized: true, outcome: "surprise" } } })).toBeNull();
+    }
   });
 });

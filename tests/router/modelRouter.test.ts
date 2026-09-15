@@ -798,6 +798,7 @@ describe("authorizeRoute invocation_started event", () => {
         historicalPerformance: { consulted: false, reason: "unbound_run" },
         budgetAuthorization: {
           authorized: true,
+          outcome: "authorized",
           provider: route.provider,
           resourceUnit: route.accounting.unit,
           estimatedAmount: req.contextBudget.maxInputTokens + req.contextBudget.expectedOutputTokens,

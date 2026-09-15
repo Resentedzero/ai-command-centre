@@ -22,8 +22,11 @@
  *      `contextBudget.maxInputTokens + contextBudget.expectedOutputTokens`.
  *   3. Reserves that estimate via Unit 2's `reserveBudget` against scope
  *      `"run"` / `req.runId`, cost class `"llm"`.
- *   4. On `{authorized: false}`, returns immediately — no event emitted, no
- *      provider called (nothing started).
+ *   4. On `{authorized: false}`, makes the Budget Governor's ONE fallback (decided
+ *      2026-09-15): one tier lower where the risk and escalation floors allow, else the
+ *      same tier, under a 75% Context Budget (`degradedContextBudget`), in the same
+ *      resource unit only. Denied again, it returns the refusal — no event emitted, no
+ *      provider called (nothing started). A quota or candidate refusal never falls back.
  *   5. On success, emits `invocation_started` (pre-dispatch ruling) carrying
  *      the full routing decision as its payload, then returns the route.
  *
@@ -279,7 +282,9 @@ export async function selectCandidates(
  * still forces STRONG regardless of difficulty, and no path lowers a tier.
  *
  * The requested tier is never silently downgraded or upgraded: if no candidate
- * serves it, routing fails explicitly rather than falling back to another tier.
+ * serves it, routing fails explicitly rather than falling back to another tier. The
+ * one exception is recorded, not silent: a BUDGET denial gets the Governor's single
+ * fallback (see `authorizeRoute`, `budgetFallback` on the route).
  */
 const DIFFICULTY_TIER: Record<RouteRequest["taskDifficulty"], ModelTier> = {
   simple: "CHEAP",
@@ -299,8 +304,9 @@ function selectTier(req: RouteRequest): ModelTier {
 /**
  * Tier preference from measured performance (spec §10.2, §10.5). An efficiency
  * choice, never an authorization: the result is still reserved and
- * candidate-checked exactly like the default, and a refusal at the preferred tier
- * fails the Invocation rather than falling back to the default.
+ * candidate-checked exactly like the default. A candidate or quota refusal at the
+ * preferred tier fails the Invocation; a budget denial there gets the Governor's one
+ * fallback, to the default tier (`authorizeRoute`).
  *
  * Deterministic and conservative where the spec leaves the rule open:
  *   - Only rows eligible under the minimum sample criterion count, and the default
@@ -369,6 +375,46 @@ function estimateCost(accounting: TierAccounting, contextBudget: RouteRequest["c
   // finite entitlement and is reserved against a counter in its own unit.
   return contextBudget.maxInputTokens + contextBudget.expectedOutputTokens;
 }
+
+/**
+ * The Budget Governor's fallback (Phase 4 "authorized-at-downgraded-tier / degrade"; §5.0 the
+ * Context Budget is "tightenable by the Budget Governor when funds are constrained"). Values
+ * decided by the operator 2026-09-15: when the routed tier's reservation is denied, exactly one
+ * more attempt is made, one tier lower, under the Context Budget tightened to 75%.
+ */
+export const BUDGET_FALLBACK_CONTEXT_FACTOR = 0.75;
+
+/**
+ * The invocation-level degraded Context Budget: every bounded quantity at 75%, rounded down,
+ * never below 1 where the configured value was positive (a zero stays zero, nothing goes
+ * negative). `compressionThreshold` and `freshnessRequirementSeconds` are not quantities the
+ * decision names and are kept. The configured budget is never changed. The spec's
+ * `max_memory_items` has no field: memory is not built (V3).
+ */
+export function degradedContextBudget(budget: RouteRequest["contextBudget"]): RouteRequest["contextBudget"] {
+  const tighten = (value: number) => (value > 0 ? Math.max(1, Math.floor(value * BUDGET_FALLBACK_CONTEXT_FACTOR)) : value);
+  return {
+    ...budget,
+    maxInputTokens: tighten(budget.maxInputTokens),
+    maxArtifactTokens: tighten(budget.maxArtifactTokens),
+    maxRetrievedItems: tighten(budget.maxRetrievedItems),
+    maxToolSchemaTokens: tighten(budget.maxToolSchemaTokens),
+    expectedOutputTokens: tighten(budget.expectedOutputTokens),
+  };
+}
+
+/**
+ * The lowest tier this request may run at: the risk floor (high/highest risk forces STRONG,
+ * §10.2 "independent of budget") and a retry's escalation floor. A budget fallback never goes
+ * below it.
+ */
+function minimumTier(req: RouteRequest, escalationFloor: ModelTier | null): ModelTier {
+  const riskFloor: ModelTier = req.riskTier === "high" || req.riskTier === "highest" ? "STRONG" : MODEL_TIERS[0]!;
+  return escalationFloor !== null && MODEL_TIERS.indexOf(escalationFloor) > MODEL_TIERS.indexOf(riskFloor) ? escalationFloor : riskFloor;
+}
+
+/** How the Budget Governor authorized a route: at the routed tier, one tier lower, at the same tier with less context, or not at all. */
+export type BudgetOutcome = "authorized" | "downgraded" | "degraded" | "denied";
 
 /**
  * A refused route still made a routing decision (§10.7 "every routing decision's
@@ -452,43 +498,90 @@ export async function authorizeRoute(
   // than one entry, but Phase 7D takes the first and stops: falling through to
   // the next on failure would be automatic provider fallback, which requires an
   // explicit Policy/Budget decision and is NOT implemented here.
-  const candidate = routing.candidates[0]!;
-  const modelId = candidate.modelId;
-  const estimatedCost = estimateCost(candidate.accounting, req.contextBudget);
-  // Pass 2 (§5.17, §10.7): the Compiler packs to the chosen model's window, never past it.
-  // The reservation above stays priced at the Task's budget, the pessimistic estimate.
-  const effectiveMaxInputTokens = Math.min(
-    req.contextBudget.maxInputTokens,
-    candidate.contextWindowTokens - req.contextBudget.expectedOutputTokens
-  );
+  const routedCandidate = routing.candidates[0]!;
+  const routedEstimate = estimateCost(routedCandidate.accounting, req.contextBudget);
 
   // Step 2 — the HARD control. Budget authorization is last and is decisive:
-  // nothing above can overturn it, and a denial here is a denial outright.
-  const reservation = await reserveBudget(
-    tx,
-    "run",
-    req.runId,
-    "llm",
-    candidate.accounting.unit,
-    estimatedCost
-  );
+  // nothing above can overturn it. A denial gets exactly one fallback (below).
+  let reservation = await reserveBudget(tx, "run", req.runId, "llm", routedCandidate.accounting.unit, routedEstimate);
+
+  let candidate = routedCandidate;
+  let resultingTier = tier;
+  let contextBudget = req.contextBudget;
+  let estimatedCost = routedEstimate;
+  let budgetOutcome: BudgetOutcome = "authorized";
+  let budgetFallback: Record<string, unknown> | undefined;
+
   if (!reservation.authorized) {
-    return {
+    const deniedAuthorization = {
+      authorized: false,
+      outcome: "denied",
+      provider: routedCandidate.provider,
+      modelId: routedCandidate.modelId,
+      resourceUnit: routedCandidate.accounting.unit,
+      estimatedAmount: routedEstimate,
+    };
+    // The Governor's one fallback (operator decision 2026-09-15), following the ladder
+    // preferred -> default -> next lower -> minimum: a performance-preferred tier steps to the
+    // default (the escalation-floored base); otherwise one tier lower when the risk and
+    // escalation floors allow it (downgraded), else the same tier (degraded). Either way under
+    // the 75% Context Budget, and never a third attempt. Only candidates in the denied
+    // resource unit: a subscription denial never becomes billed usd, and units are never
+    // borrowed across. A quota or candidate refusal never reaches here (Step 1 above).
+    const lowerIndex = tier !== baseTier ? MODEL_TIERS.indexOf(baseTier) : MODEL_TIERS.indexOf(tier) - 1;
+    const lowerTier = lowerIndex >= MODEL_TIERS.indexOf(minimumTier(req, escalationFloor)) ? MODEL_TIERS[lowerIndex]! : null;
+    const fallbackTier = lowerTier ?? tier;
+    const fallbackOutcome: BudgetOutcome = lowerTier ? "downgraded" : "degraded";
+    const fallbackBudget = degradedContextBudget(req.contextBudget);
+    const fallbackRecord = {
+      outcome: fallbackOutcome,
+      fromTier: tier,
+      attemptedTier: fallbackTier,
+      contextBudgetFactor: BUDGET_FALLBACK_CONTEXT_FACTOR,
+      contextBudget: fallbackBudget,
+      deniedAuthorization,
+    };
+    const refuse = (details: Record<string, unknown>): RouteRefusal => ({
       authorized: false,
       reason: "insufficient_budget",
       decision: {
         ...inputs,
         attemptedTier: tier,
-        budgetAuthorization: {
-          authorized: false,
-          provider: candidate.provider,
-          modelId,
-          resourceUnit: candidate.accounting.unit,
-          estimatedAmount: estimatedCost,
-        },
+        budgetAuthorization: deniedAuthorization,
+        // Refused: the outcome is `denied`; what the attempt would have been is `attemptedOutcome`.
+        budgetFallback: { ...fallbackRecord, ...details, outcome: "denied", attemptedOutcome: fallbackOutcome, authorized: false },
       },
-    };
+    });
+
+    const fallbackRouting = await selectCandidates(tx, {
+      tier: fallbackTier,
+      requiredCapabilities: req.requiredCapabilities,
+      allowedResourceUnits: [routedCandidate.accounting.unit],
+      invocationId: req.invocationId,
+      runId: req.runId,
+    });
+    if (fallbackRouting.status === "no_eligible_candidate") {
+      return refuse({ refusal: fallbackRouting.reason, excludedCandidates: fallbackRouting.excluded });
+    }
+    const fallbackCandidate = fallbackRouting.candidates[0]!;
+    const fallbackEstimate = estimateCost(fallbackCandidate.accounting, fallbackBudget);
+    reservation = await reserveBudget(tx, "run", req.runId, "llm", fallbackCandidate.accounting.unit, fallbackEstimate);
+    if (!reservation.authorized) {
+      return refuse({ refusal: "insufficient_budget", provider: fallbackCandidate.provider, modelId: fallbackCandidate.modelId, estimatedAmount: fallbackEstimate });
+    }
+
+    candidate = fallbackCandidate;
+    resultingTier = fallbackTier;
+    contextBudget = fallbackBudget;
+    estimatedCost = fallbackEstimate;
+    budgetOutcome = fallbackOutcome;
+    budgetFallback = { ...fallbackRecord, authorized: true };
   }
+
+  const modelId = candidate.modelId;
+  // Pass 2 (§5.17, §10.7): the Compiler packs to the chosen model's window, never past it.
+  // The reservation above stays priced at the call's budget, the pessimistic estimate.
+  const effectiveMaxInputTokens = Math.min(contextBudget.maxInputTokens, candidate.contextWindowTokens - contextBudget.expectedOutputTokens);
 
   await emitEvent(tx, {
     idempotencyKey: `invocation_started:${req.invocationId}`,
@@ -509,28 +602,34 @@ export async function authorizeRoute(
     // tier before it), then the result.
     payload: {
       ...inputs,
-      contextBudgetMaxInputTokens: req.contextBudget.maxInputTokens,
+      // A budget downgrade is the reason for the resulting tier; a degrade keeps the tier and its source.
+      ...(budgetOutcome === "downgraded" ? { tierSource: "budget_downgrade" } : {}),
+      contextBudgetMaxInputTokens: contextBudget.maxInputTokens,
       contextWindowTokens: candidate.contextWindowTokens,
       effectiveMaxInputTokens,
       budgetAuthorization: {
         authorized: true,
+        outcome: budgetOutcome,
         provider: candidate.provider,
         resourceUnit: candidate.accounting.unit,
         estimatedAmount: estimatedCost,
       },
-      resultingTier: tier,
+      ...(budgetFallback ? { budgetFallback } : {}),
+      resultingTier,
       resultingModelId: modelId,
     },
     usage: null,
   });
 
   return {
-    tier,
+    tier: resultingTier,
     modelId,
     provider: candidate.provider,
     accounting: candidate.accounting,
     contextWindowTokens: candidate.contextWindowTokens,
     effectiveMaxInputTokens,
+    contextBudget,
+    budgetOutcome,
     reservationId: reservation.reservationId,
     invocationId: req.invocationId,
     runId: req.runId,

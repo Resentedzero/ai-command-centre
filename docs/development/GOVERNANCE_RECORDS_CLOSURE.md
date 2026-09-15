@@ -1,7 +1,7 @@
 # Governance Decision Records: Closure
 
 **Started:** 2026-09-15, after the budget-containment closure (`BUDGET_CONTAINMENT_CLOSURE.md`).
-**Status:** closed 2026-09-15. Local commits on `main`, none pushed. The operator's decision pack later decided §4's open values; `V1_DECISION_PACK_CLOSURE.md` supersedes the `CONDITIONAL` rows of §1 (a CONDITIONAL Grant is no longer always approval-gated, and `performanceEvidence` is no longer always null).
+**Status:** closed 2026-09-15. Local commits on `main`, none pushed. The operator's decision pack later decided §4's open values; `V1_DECISION_PACK_CLOSURE.md` supersedes the `CONDITIONAL` rows of §1 (a CONDITIONAL Grant is no longer always approval-gated, and `performanceEvidence` is no longer always null) and §2's two-outcome limit (LLM Invocations can now be `downgraded` or `degraded`).
 **Roadmap stage:** V1 conformance (spec §8.2, §9.3) and V2/V4 observability. No migration, no new infrastructure, no live model calls.
 
 ## Stage assessment

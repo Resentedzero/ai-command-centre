@@ -193,6 +193,9 @@ describe("Workflow run detail", () => {
     expect(within(rows[0]!).getByTestId("invocation-budget")).toHaveTextContent("authorized");
     expect(within(rows[1]!).getByTestId("invocation-budget")).toHaveTextContent("authorized");
     expect(within(rows[2]!).getByTestId("invocation-budget")).toHaveTextContent("denied");
+    // A denial is red; an authorized outcome is neutral.
+    expect(within(rows[2]!).getByTestId("invocation-budget")).toHaveAttribute("data-tone", "fail");
+    expect(within(rows[0]!).getByTestId("invocation-budget")).toHaveAttribute("data-tone", "neutral");
     // The Router's recorded tier and why, beside the kind; the model id is the cell's title.
     expect(within(rows[1]!).getByTestId("invocation-kind")).toHaveTextContent("llm · MID · floor");
     expect(within(rows[1]!).getByTestId("invocation-kind")).toHaveAttribute("title", "claude-sonnet-5");

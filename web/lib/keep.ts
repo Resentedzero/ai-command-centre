@@ -193,7 +193,11 @@ export function policyToken(
   return withCheckpoint && record.checkpoint ? `${words} · at ${stateWord(record.checkpoint)}` : words;
 }
 
-const TIER_SOURCE_WORD: Record<string, string> = { escalation_floor: "floor", performance_preference: "preference" };
+const TIER_SOURCE_WORD: Record<string, string> = {
+  escalation_floor: "floor",
+  performance_preference: "preference",
+  budget_downgrade: "budget downgrade",
+};
 
 /**
  * The Router's recorded tier and which rule set it (`MID · floor`, `STRONG · preference`, `CHEAP`),
@@ -205,9 +209,30 @@ export function routeToken(
   if (!route) return "";
   const tier = route.resultingTier ?? route.attemptedTier;
   if (!tier) return "";
-  // A route recorded before the Router recorded its source must not read as a default route.
-  const source = route.tierSource === null ? "source not recorded" : TIER_SOURCE_WORD[route.tierSource];
+  // A route recorded before the Router recorded its source must not read as a default route;
+  // a source this build does not know is shown as its own word, never dropped.
+  const source =
+    route.tierSource === null ? "source not recorded" : route.tierSource === "default" ? undefined : (TIER_SOURCE_WORD[route.tierSource] ?? stateWord(route.tierSource));
   return [tier, source, route.resultingTier === null ? "refused" : undefined].filter(Boolean).join(" · ");
+}
+
+/**
+ * The Budget Governor's recorded fallback as one tooltip line
+ * (`denied at MID · tried CHEAP · context ×0.75 · input 75000 · authorized`). The API's values only.
+ */
+export function budgetFallbackTitle(
+  fallback: { fromTier: string | null; attemptedTier: string | null; authorized: boolean | null; contextBudgetFactor: number | null; maxInputTokens: number | null } | null | undefined
+): string | undefined {
+  if (!fallback) return undefined;
+  return [
+    fallback.fromTier ? `denied at ${fallback.fromTier}` : undefined,
+    fallback.attemptedTier ? `tried ${fallback.attemptedTier}` : undefined,
+    fallback.contextBudgetFactor !== null ? `context ×${fallback.contextBudgetFactor}` : undefined,
+    fallback.maxInputTokens !== null ? `input ${fallback.maxInputTokens}` : undefined,
+    fallback.authorized === null ? undefined : fallback.authorized ? "authorized" : "denied",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /**

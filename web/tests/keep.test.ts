@@ -1,6 +1,21 @@
 /** Presentation mappings in lib/keep: character identity (#54) and amount display (#45). */
 import { describe, expect, it } from "vitest";
-import { characterFor, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone } from "../lib/keep";
+import { budgetFallbackTitle, characterFor, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeToken } from "../lib/keep";
+
+describe("route and budget fallback presentation", () => {
+  it("names a budget downgrade as the tier's source, and never drops a source it does not know", () => {
+    expect(routeToken({ resultingTier: "CHEAP", attemptedTier: null, tierSource: "budget_downgrade" })).toBe("CHEAP · budget downgrade");
+    expect(routeToken({ resultingTier: "MID", attemptedTier: null, tierSource: "default" })).toBe("MID");
+    expect(routeToken({ resultingTier: "MID", attemptedTier: null, tierSource: "something_new" })).toBe("MID · something new");
+  });
+
+  it("lists the recorded fallback as given", () => {
+    expect(budgetFallbackTitle({ fromTier: "MID", attemptedTier: "CHEAP", authorized: true, contextBudgetFactor: 0.75, maxInputTokens: 75000 })).toBe(
+      "denied at MID · tried CHEAP · context ×0.75 · input 75000 · authorized"
+    );
+    expect(budgetFallbackTitle(null)).toBeUndefined();
+  });
+});
 
 describe("policy decision presentation (the API's record, never recomputed)", () => {
   it("reads an allowed CONDITIONAL decision as neutral words", () => {

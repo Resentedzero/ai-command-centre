@@ -213,11 +213,11 @@ export type InvocationDetail = {
   /** Policy's latest recorded decision; null for Invocations Policy does not govern (llm, deterministic). Absent from older API builds. */
   policyDecision?: PolicyDecisionRecord | null;
   /**
-   * The Budget Governor's outcome for this Invocation, assembled by the API from what was recorded; null when
-   * no reservation was made or none is recorded. Only `authorized` and `denied` exist: downgrade and degrade are
-   * undecided and never produced. Display it; never infer it from a failure reason.
+   * The Budget Governor's outcome for this Invocation, as the runtime recorded it; null when no reservation was
+   * made or none is recorded. `downgraded`: authorized one tier lower after a denial; `degraded`: authorized at the
+   * same tier with a 75% Context Budget. Display it; never infer it from a failure reason or event order.
    */
-  budgetOutcome?: "authorized" | "denied" | null;
+  budgetOutcome?: "authorized" | "downgraded" | "degraded" | "denied" | null;
   /** The Model Router's recorded route; null for kinds it does not route. Absent from older API builds. */
   route?: RouteRecord | null;
 };
@@ -232,9 +232,18 @@ export type RouteRecord = {
   escalationFloor: string | null;
   resultingTier: string | null;
   attemptedTier: string | null;
-  tierSource: "default" | "escalation_floor" | "performance_preference" | null;
+  tierSource: "default" | "escalation_floor" | "performance_preference" | "budget_downgrade" | null;
   attempt: number | null;
   modelId: string | null;
+  /** The Budget Governor's one fallback after the routed tier was denied; null when none happened. Absent from older API builds. */
+  budgetFallback?: {
+    outcome: string | null;
+    fromTier: string | null;
+    attemptedTier: string | null;
+    authorized: boolean | null;
+    contextBudgetFactor: number | null;
+    maxInputTokens: number | null;
+  } | null;
 };
 
 /**

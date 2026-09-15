@@ -15,7 +15,7 @@ import {
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
 import { WorldViewport, world } from "../../components/world/World";
-import { countLabel, errorText, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeToken, stateWord } from "../../lib/keep";
+import { budgetFallbackTitle, countLabel, errorText, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeToken, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
 
 /**
@@ -429,8 +429,15 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                               )}
                               {policyToken(inv.policyDecision, true)}
                             </td>
-                            {/* The Governor's outcome as the API returns it; a denial's red stays on the failure line below. */}
-                            <td data-testid="invocation-budget">{inv.budgetOutcome ?? ""}</td>
+                            {/* The Governor's outcome as the API returns it: a denial is red; authorized, downgraded and degraded are neutral. */}
+                            <td
+                              data-testid="invocation-budget"
+                              data-tone={inv.budgetOutcome === "denied" ? "fail" : "neutral"}
+                              title={budgetFallbackTitle(inv.route?.budgetFallback)}
+                            >
+                              {inv.budgetOutcome === "denied" && <ButtonMark tone="fail" />}
+                              {inv.budgetOutcome ?? ""}
+                            </td>
                             <td>
                               {formatTime(inv.startedAt)}
                               {inv.completedAt ? ` → ${formatTime(inv.completedAt)}` : ""}

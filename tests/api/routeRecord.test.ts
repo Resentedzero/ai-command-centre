@@ -18,6 +18,7 @@ describe("routeRecordOf", () => {
       tierSource: "escalation_floor",
       attempt: 2,
       modelId: "claude-sonnet-5",
+      budgetFallback: null,
     });
   });
 

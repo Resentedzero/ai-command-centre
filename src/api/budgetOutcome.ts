@@ -6,10 +6,12 @@
  * `authorized` whatever happened to the action afterwards (rejected, expired, refused
  * at dispatch, interrupted, failed).
  *
- * - `llm`: the Model Router's own record, `budgetAuthorization.authorized`, on
- *   `invocation_started` (authorized) or on the refused route it wrote into
- *   `invocation_failed.routingDecision` (denied). A route refused before the Governor
- *   was asked (no eligible candidate, quota) has no outcome.
+ * - `llm`: the Model Router's own record, `budgetAuthorization`, on `invocation_started`
+ *   (its `outcome`: `authorized`, `downgraded` one tier lower, or `degraded` to a 75% Context
+ *   Budget at the same tier; routes recorded before 2026-09-15 carry only `authorized: true`)
+ *   or on the refused route it wrote into `invocation_failed.routingDecision` (denied, after
+ *   its one fallback). The outcome stays whatever the call did next. A route refused before
+ *   the Governor was asked (no eligible candidate, quota) has no outcome.
  * - `tool`: denied when the Executor failed it for an exhausted budget at proposal or
  *   on resume. Authorized when any fact shows a reservation succeeded: a state the
  *   Executor writes only after one (`awaiting_approval`, `executing`, `completed`), an
@@ -19,10 +21,11 @@
  *   estimate). Refused before reserving (a stop, a Policy DENY): none.
  * - `deterministic` cost class, and kinds that never reserve: none.
  *
- * Only `authorized` and `denied` exist. The spec's `authorized-at-downgraded-tier` and
- * `degrade` are undecided (ROADMAP_STATUS §6) and are never produced.
+ * A tool is authorized or denied: it has no tier to lower and no Context Budget to tighten.
  */
-export type BudgetOutcome = "authorized" | "denied";
+export type BudgetOutcome = "authorized" | "downgraded" | "degraded" | "denied";
+
+const ROUTED_OUTCOMES = new Set(["authorized", "downgraded", "degraded"]);
 
 /** `invocation_failed.reason` values the Executor writes for an exhausted budget on the tool path. */
 const TOOL_BUDGET_DENIALS = new Set(["insufficient_budget", "insufficient_budget_on_resume"]);
@@ -42,7 +45,13 @@ export function budgetOutcomeOf(
   const failed = record(facts.failedPayload);
 
   if (invocation.kind === "llm") {
-    if (record(record(facts.startedPayload).budgetAuthorization).authorized === true) return "authorized";
+    const started = record(record(facts.startedPayload).budgetAuthorization);
+    if (started.authorized === true) {
+      // No outcome recorded: a route from before outcomes existed, which could only be authorized.
+      // An outcome this build does not know is not guessed.
+      if (!("outcome" in started)) return "authorized";
+      return typeof started.outcome === "string" && ROUTED_OUTCOMES.has(started.outcome) ? (started.outcome as BudgetOutcome) : null;
+    }
     if (record(record(failed.routingDecision).budgetAuthorization).authorized === false) return "denied";
     return null;
   }
