@@ -1,7 +1,7 @@
 # V1 Decision Pack: Closure
 
 **Started:** 2026-09-15, after `GOVERNANCE_RECORDS_CLOSURE.md`, on the operator's decision pack that supplied the values its §4 listed as open.
-**Status:** in progress. Local commits on `main`, none pushed.
+**Status:** closed 2026-09-15: V1 complete under the operator's completion criteria (§4). Local commits on `main`, none pushed.
 **Roadmap stage:** V4 Conditional Autonomy (spec §9.4); Budget Governor downgrade/degrade (Phase 4, §5.0); routing observability (§10.7). No migration.
 
 > The frozen spec's §9.4 and §10.5 implementation notes still say `CONDITIONAL` requires approval. That file carries another workstream's uncommitted changes and is not edited here; this record supersedes those notes until the spec is amended.
@@ -113,3 +113,9 @@ No confirmed defects in fb00b76, 6e64cd5, 3bc6889 or c747fa2. Plausible findings
 Two real calls were made in total: the validation call and the dogfood's synthesis step.
 
 **Reviews of this round** (read-only sub-agents): the Workflow 1 seed diff and its fix (confirmed edge cases fixed; residuals above); V1 governance correctness against the five confirmed decisions (no Critical/High; all implemented); the live and runtime proof (verified, above); browser QA (below); and the fix commit. A provider `timeout` was briefly excluded from Agent Performance as infrastructure, then restored on review: with no output or turn cap, a model that runs too long times out like a hung provider, and excluding it would raise the rate Conditional Autonomy decides on (ROADMAP §6). Other residuals recorded by the governance review: the approval TTL (3600 s) is still the MVP default, and a READ allowed at proposal whose rate drops before dispatch fails rather than asking for approval.
+
+**Browser QA** (independent sub-agent, headless Chrome over the DevTools protocol, `http://localhost:3100` against the live API; 13 pages × 1280×800, 1440×900, 1920×1080). No Critical or High findings. Every value on the dogfood run page matched `GET /workflow-runs/:id`; the page never scrolls horizontally; Stop stays above the fold at 1280; no amber appeared in any live capture and red appeared only on failures, failure lines and Stop; eligibility reads `not enough samples · 1 of 10` as the API decided; no threshold, sample comparison or decision is computed in `web/`. States with no live instance (`REQUIRE_APPROVAL`, `DENY`, budget denied/downgraded/degraded, retry cause, "eligibility not recorded") were verified from components and `web/tests` only. Fixed:
+- Costs counters: the scope and unit label overflowed its 180 px column into the value at every width; it now wraps (re-captured at 1280 and 1920, no overflow).
+- Workflows board: a truncated Goal title had no tooltip; it now carries the full title.
+
+Recorded, not changed (Low, design or readability preferences for the UI workstream): a budget-denied row carries up to three red marks, each labelled (four with a policy denial); overview room labels clip at the map edge at 1280/1440; the invocations table scrolls horizontally at 1280; the event strip shows a backfilled `goal_failed` without marking it a backfill; the artifact preview shows JSON escapes and wraps the hash's last character at 1280; a missing policy record reads blank on the Workflow view but "not recorded" on Approvals; times carry no timezone; Events colours `expired`/`revoked` red while Agents shows a revoked Grant neutral, and `web/design/artifacts-events.md` names an amber event tone the code does not have; the Costs side panel shows a horizontal scrollbar; `approvals.test.tsx` "selects another request" is flaky under full-suite load.

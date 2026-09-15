@@ -85,7 +85,10 @@
 
 .counterHead {
   display: flex;
-  gap: var(--space-sm);
+  flex-wrap: wrap;
+  column-gap: var(--space-sm);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .ellipsis {

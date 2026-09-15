@@ -131,7 +131,7 @@ export function WorkflowsScreen({ id: routeId }: { id?: string }) {
                   className={cx(px.plaque, w.entry, r.id === id && px.selected)}
                   aria-current={r.id === id ? "page" : undefined}
                 >
-                  <span className={w.title}>{r.goal?.title ?? "Goal not found"}</span>
+                  <span className={w.title} title={r.goal?.title}>{r.goal?.title ?? "Goal not found"}</span>
                   <StatusMark state={r.status} />
                   <span className={cx(px.dim, w.meta)}>
                     {r.workflowDefinition ? `${r.workflowDefinition.name} v${r.workflowDefinition.version}` : "definition not found"} ·{" "}
