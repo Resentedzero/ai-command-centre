@@ -554,3 +554,32 @@ Implementation status only; nothing here is verified. Every item needs QA confir
 | 57 Overview ragged timestamps | **Fixed in code, awaiting QA verification.** The grid track is on the `ol`, and each `li` uses `grid-template-columns: subgrid` with columns `minmax(0, max-content) max-content auto`. `formatTime(iso, true)` gives "09-12 22:20:14" for a day that isn't today, with the full ISO value in `title`. Measured with real data: at 1920, 1440 and 1280 the time, type and cursor cells share an x per column across all four rows, and no cell is cut. |
 | 37 Agents Recent actions type ellipsized | **Fixed in code, awaiting QA verification.** It uses the same subgrid track and compact time, and the `li` now holds three cells (tested in `agentDetail.test.tsx`). Measured: the type is never cut at any width, and time cells share one x. **Open question for QA:** at 1280 the Recent actions box is half of the two-column detail grid, so even the compact time is cut to "09…" (33 px). It's cut at the same point on every row, and the full value is in the row `title`. At 1440 it's 113 px, cut by a character or two. Fitting it fully would need the list to span both columns, like Work does. I left that alone as a layout call. |
 | 58 Goals run chip wrapping at 1920 | **Fixed in code, awaiting QA verification.** Both fixes were needed. With `nowrap` alone, the chip overflowed its 340 px card at 1920. Cards are now `repeat(auto-fill, minmax(min(100%, 340px), 520px))`. The chip's label and timestamp are `nowrap` units, and the chip is `flex-wrap: wrap`, so it breaks only between units. Measured: one line at 1920, 1440 and 1280, inside its card. **Side effect for QA:** at 1280 the goal cards stack in one 520 px column, where there used to be two cards of about 430 px. |
+
+## Round 15 (design QA of web commit `1819d92`)
+
+**Method:**
+- Diff read in full. `npx vitest run` passes 78 tests.
+- **#43b checked by hash:** `web/public/world/room-researcher-workshop-4x-slate.png` and `assets/gamification/adapted/room-researcher-workshop-4x-slate.png` are byte-identical (md5 `71476d28…`), and identical to `-nochests.png`.
+- **Live visual pass deferred:** at review time neither the API (`:3000`) nor the UI (`:3100`) was running, so this round rests on the diff and CLI1's DOM measurements, not new captures. When the servers are back, recapture Overview, Agents (Researcher) and Goals at 1920, 1440 and 1280 with `http://localhost:3100`, since `127.0.0.1` fails the API's `UI_ORIGIN` CORS check.
+
+**Verified:**
+- **#43b resolved:** the art matches by hash, and CSS never hid the chests.
+- **#57 resolved in code:** one track on the `ol`, a `subgrid` on each `li`, and the time in `minmax(0, max-content)`. Every row now cuts its timestamp at the same point, and a past date drops the year ("09-12 22:20:14", full ISO in `title`). This matches the round-14 fix.
+- **Diff review:** `formatTime`'s default output is unchanged, so every other caller still gets the full date.
+
+**Design calls on CLI1's two open questions (not a redesign):**
+1. **#37 is not done at 1280.** A timestamp cut to "09…" is unreadable, and a half-width card is too narrow for time, type and cursor on one line. **Decision:** Recent actions spans both detail columns (`grid-column: 1 / -1`), like Work does. It's a log, and a log reads full width. Keep the shared subgrid and compact time. Expected result: the full "09-12 22:20:14" at 1280, 1440 and 1920.
+2. **#58 regressed the 1280 layout.** `repeat(auto-fill, minmax(min(100%, 340px), 520px))` sizes columns by their 520 px maximum, so a board of about 890 px fits only one column, and the goal cards stack in a single 520 px lane beside empty space. **Decision:** size by a larger minimum and let the tracks share the width: `repeat(auto-fill, minmax(min(100%, 400px), 1fr))`. Expected at 1280: two cards of about 440 px, and the chip (label and time as `nowrap` units, `flex-wrap` between them) fits on one line. At 1920: three cards of about 490 px, so no parchment glare. If a card still passes about 560 px on a very wide screen, add `max-width: 560px` on the card, not on the track.
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 37 | Low | `app/agents/agents.module.css` / `AgentsScreen.tsx` Recent actions (1280, and 1440 by a character or two) | The type is now always whole, but at 1280 the half-width card cuts even the compact timestamp to "09…". The time column is effectively missing. | Span Recent actions across the detail grid (`grid-column: 1 / -1`), as Work does. |
+| 59 | Low | `app/goals/goals.module.css` goal grid (1280) | The #58 track `minmax(…, 520px)` makes `auto-fill` count columns at 520 px, so at 1280 the goal cards collapse from two of about 430 px to one column of 520 px, leaving the rest of the board empty. | `repeat(auto-fill, minmax(min(100%, 400px), 1fr))`. Keep the chip's `nowrap` units and `flex-wrap`. Cap with `max-width` on the card only if needed. |
+
+**Round 15 status, at web commit `1819d92`:**
+
+| Status | Findings |
+|---|---|
+| **Verified resolved** | #43b (by hash), #57 (code, pending live capture) |
+| **Open** | #37 (1280 time column, span full width), #58 → #59 (1280 single-column regression) |
+| **Pending live recapture** | #57, #37, #58/#59, once the API and UI are running |
