@@ -15,7 +15,7 @@ import {
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
 import { WorldViewport, world } from "../../components/world/World";
-import { countLabel, errorText, formatAmount, formatTime, hashOf, stateWord } from "../../lib/keep";
+import { countLabel, errorText, formatAmount, formatTime, hashOf, policyToken, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
 
 /**
@@ -400,6 +400,7 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                         <th>#</th>
                         <th>kind</th>
                         <th>status</th>
+                        <th>policy</th>
                         <th>time</th>
                         <th>outputs</th>
                       </tr>
@@ -413,6 +414,8 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                             <td>
                               <StatusMark state={inv.status} />
                             </td>
+                            {/* Policy's recorded decision, as the API returns it; blank where Policy does not govern the kind. */}
+                            <td data-testid="invocation-policy">{policyToken(inv.policyDecision, true)}</td>
                             <td>
                               {formatTime(inv.startedAt)}
                               {inv.completedAt ? ` → ${formatTime(inv.completedAt)}` : ""}
@@ -428,7 +431,7 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                           {/* What failed answers this screen's question, so it gets a full-width line that no scroll can hide. */}
                           {(inv.failureReason || inv.errorCode) && (
                             <tr data-testid="invocation-failure">
-                              <td colSpan={5} className={w.failure}>
+                              <td colSpan={6} className={w.failure}>
                                 <ButtonMark tone="fail" />
                                 {inv.failureReason ?? "no reason recorded"}
                                 {inv.errorCode && <span className={px.dim}> ({inv.errorCode})</span>}

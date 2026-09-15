@@ -91,8 +91,33 @@ describe("Workflow run detail", () => {
           completedAt: "t",
           agent: { name: "Researcher", version: 1 },
           invocations: [
-            { id: "i-1", seqNo: 1, kind: "tool", status: "completed", startedAt: "t", completedAt: "t", failureReason: null, errorCode: null, artifactIds: ["art-1"] },
-            { id: "i-2", seqNo: 2, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "interrupted_outcome_unknown", errorCode: "timeout", artifactIds: [] },
+            {
+              id: "i-1",
+              seqNo: 1,
+              kind: "tool",
+              status: "completed",
+              startedAt: "t",
+              completedAt: "t",
+              failureReason: null,
+              errorCode: null,
+              artifactIds: ["art-1"],
+              policyDecision: {
+                checkpoint: "pre_dispatch",
+                decision: "ALLOW",
+                basis: "autonomy_autonomous",
+                autonomyState: "AUTONOMOUS",
+                riskTier: "low",
+                grantId: "grant-1",
+                capabilityId: "cap-1",
+                permission: "READ",
+                toolBindingId: "tb-1",
+                trustLevel: "first_party",
+                maxTrustLevelRequired: 1,
+                bindingTrustLevel: 2,
+                performanceEvidence: null,
+              },
+            },
+            { id: "i-2", seqNo: 2, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "interrupted_outcome_unknown", errorCode: "timeout", artifactIds: [], policyDecision: null },
           ],
           budget: [
             { resourceUnit: "subscription_tokens", limitAmount: "200000", reservedAmount: "0", consumedAmount: "1050" },
@@ -140,6 +165,9 @@ describe("Workflow run detail", () => {
     expect(failures[0]).toHaveTextContent("interrupted_outcome_unknown (timeout)");
     expect(rows[1]!.nextElementSibling).toBe(failures[0]);
     expect(within(rows[0]!).getByRole("link", { name: "output 1" })).toHaveAttribute("href", "/artifacts/art-1");
+    // Policy's recorded decision and basis, as words; nothing for a kind Policy does not govern.
+    expect(within(rows[0]!).getByTestId("invocation-policy")).toHaveTextContent("allowed · autonomous · at pre dispatch");
+    expect(within(rows[1]!).getByTestId("invocation-policy")).toHaveTextContent(/^$/);
 
     const budget = screen.getByTestId("run-budget");
     expect(budget).toHaveTextContent("1050 consumed of 200000");

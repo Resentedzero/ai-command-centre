@@ -91,6 +91,8 @@ export type ApprovalContext = {
     /** Whether the artifact's current content still matches the hash pinned in the snapshot; null when none is pinned. */
     hashMatchesSnapshot: boolean | null;
   } | null;
+  /** The Policy evaluation that required this approval (checkpoint `propose`). Absent from older API builds. */
+  policyDecision?: PolicyDecisionRecord | null;
 };
 
 /**
@@ -208,6 +210,39 @@ export type InvocationDetail = {
   errorCode: string | null;
   /** Artifacts this Invocation produced; each resolves via `GET /artifacts/:id`. */
   artifactIds: string[];
+  /** Policy's latest recorded decision; null for Invocations Policy does not govern (llm, deterministic). Absent from older API builds. */
+  policyDecision?: PolicyDecisionRecord | null;
+};
+
+/**
+ * Policy's own record of one evaluation (`policy_evaluated`), assembled by the API.
+ * Display it; never derive a decision, threshold or eligibility from it.
+ * `basis` says why; null on evaluations recorded before it existed. `performanceEvidence`
+ * is always null: Policy reads no performance (CONDITIONAL's rule is undecided, so it requires approval).
+ */
+export type PolicyDecisionRecord = {
+  checkpoint: "propose" | "resume" | "pre_dispatch" | null;
+  decision: "ALLOW" | "REQUIRE_APPROVAL" | "DENY" | null;
+  basis:
+    | "no_grant"
+    | "permission_not_granted"
+    | "binding_below_grant_trust_bar"
+    | "autonomy_always_approve"
+    | "autonomy_conditional_rule_undecided"
+    | "autonomy_autonomous"
+    | "unverified_binding_requires_approval"
+    | null;
+  autonomyState: string | null;
+  riskTier: string | null;
+  grantId: string | null;
+  capabilityId: string | null;
+  permission: string | null;
+  toolBindingId: string | null;
+  trustLevel: string | null;
+  /** The trust bar Policy applied and the binding's level it compared. */
+  maxTrustLevelRequired: number | null;
+  bindingTrustLevel: number | null;
+  performanceEvidence: null;
 };
 
 /** Amounts are the exact decimal strings the API stores. Units are separate counters and are never summed. */
@@ -517,7 +552,16 @@ export async function getCosts(scope?: string): Promise<CostsData> {
 export type RunTrace = {
   run: { id: string; status: string; startedAt: string; completedAt: string | null };
   events: { eventId: string; eventType: string; occurredAt: string; sequenceNo: number; actor: string; payload: Record<string, unknown> }[];
-  invocations: { id: string; seqNo: number; kind: string; status: string; permission: string | null; contextLineage: unknown }[];
+  invocations: {
+    id: string;
+    seqNo: number;
+    kind: string;
+    status: string;
+    permission: string | null;
+    contextLineage: unknown;
+    /** Every Policy evaluation, in sequence order (tool Invocations only). Absent from older API builds. */
+    policyEvaluations?: PolicyDecisionRecord[];
+  }[];
 };
 
 export async function getRunTrace(runId: string): Promise<RunTrace> {

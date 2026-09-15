@@ -16,7 +16,8 @@
  * `autonomyState` generically (ALWAYS_APPROVE/CONDITIONAL -> REQUIRE_APPROVAL,
  * AUTONOMOUS -> ALLOW) regardless of which permission is being exercised.
  * The ceiling is a property of what Grants are allowed to exist, not runtime
- * policy logic.
+ * policy logic. Each decision also returns a `basis` naming the path taken
+ * (including which autonomy state); it explains the decision and never feeds it.
  *
  * Design decision (undocumented by the brief, made here): `evaluatePolicy`
  * additionally denies when the requested `permission` is not present in
@@ -44,6 +45,22 @@ import type { DrizzleTransaction } from "../events/emit.js";
 import { computeRiskTier, type RiskTier } from "./risk.js";
 
 export type PolicyDecision = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
+
+/**
+ * Why `evaluatePolicy` decided as it did: exactly one value per return path, recorded
+ * with every evaluation (`policy_evaluated`) so a decision is explainable without
+ * re-deriving it. `autonomy_conditional_rule_undecided`: a CONDITIONAL Grant requires
+ * approval because the §9.4 rule's values are not decided (ROADMAP_STATUS §6); Policy
+ * reads no performance.
+ */
+export type PolicyBasis =
+  | "no_grant"
+  | "permission_not_granted"
+  | "binding_below_grant_trust_bar"
+  | "autonomy_always_approve"
+  | "autonomy_conditional_rule_undecided"
+  | "autonomy_autonomous"
+  | "unverified_binding_requires_approval";
 
 export type CapabilityPermission = "READ" | "WRITE" | "CREATE" | "PUBLISH" | "SPEND" | "TRADE" | "DELETE" | "EXECUTE" | "SEND";
 
@@ -231,21 +248,21 @@ export async function evaluatePolicy(
      */
     bindingTrustLevel: number;
   }
-): Promise<{ decision: PolicyDecision; riskTier: RiskTier }> {
+): Promise<{ decision: PolicyDecision; riskTier: RiskTier; basis: PolicyBasis }> {
   const { grant, permission, proposedActionSnapshot, trustLevel, bindingTrustLevel } = input;
 
   if (grant === null) {
-    return { decision: "DENY", riskTier: NO_RISK_COMPUTED };
+    return { decision: "DENY", riskTier: NO_RISK_COMPUTED, basis: "no_grant" };
   }
 
   if (!grant.permissions.includes(permission)) {
-    return { decision: "DENY", riskTier: NO_RISK_COMPUTED };
+    return { decision: "DENY", riskTier: NO_RISK_COMPUTED, basis: "permission_not_granted" };
   }
 
   // Rule 1 (see header): the Grant declares a trust bar this binding does not
   // clear, so the Grant does not cover this action — a configuration fact.
   if (!meetsGrantTrustBar(bindingTrustLevel, grant.maxTrustLevelRequired)) {
-    return { decision: "DENY", riskTier: NO_RISK_COMPUTED };
+    return { decision: "DENY", riskTier: NO_RISK_COMPUTED, basis: "binding_below_grant_trust_bar" };
   }
 
   // Validate the snapshot's risk-relevant fields before touching the DB, so
@@ -270,8 +287,15 @@ export async function evaluatePolicy(
   // Rule 2 (see header): an unverified binding is never autonomously ALLOWed.
   // One-directional — the only transition this can make is ALLOW ->
   // REQUIRE_APPROVAL.
-  const decision: PolicyDecision =
-    autonomyDecision === "ALLOW" && trustLevel === "unverified_third_party" ? "REQUIRE_APPROVAL" : autonomyDecision;
+  if (autonomyDecision === "ALLOW" && trustLevel === "unverified_third_party") {
+    return { decision: "REQUIRE_APPROVAL", riskTier, basis: "unverified_binding_requires_approval" };
+  }
 
-  return { decision, riskTier };
+  const basis: PolicyBasis =
+    grant.autonomyState === "AUTONOMOUS"
+      ? "autonomy_autonomous"
+      : grant.autonomyState === "CONDITIONAL"
+        ? "autonomy_conditional_rule_undecided"
+        : "autonomy_always_approve";
+  return { decision: autonomyDecision, riskTier, basis };
 }

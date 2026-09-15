@@ -54,6 +54,7 @@ import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRu
 import { buildInvocationSpecsFromDefinitions } from "../../workflow/buildInvocationSpecsFromDefinitions.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
+import { readPolicyDecisions } from "../policyDecisionRecord.js";
 
 function replyForWorkflowRunError(error: unknown, reply: FastifyReply): FastifyReply {
   if (error instanceof WorkflowRunNotFoundError) return reply.status(404).send({ error: error.message });
@@ -112,6 +113,9 @@ async function runDetail(deps: ApiDeps, runId: string) {
         .orderBy(asc(artifacts.createdAt), asc(artifacts.id))
     : [];
 
+  // Policy's own record (tool Invocations only); the latest evaluation is the current decision.
+  const policyDecisions = await readPolicyDecisions(deps.db, runId, invocationRows.map((i) => i.id));
+
   const counters = await deps.db.query.budgetCounters.findMany({
     where: and(eq(budgetCounters.scope, "run"), eq(budgetCounters.scopeRefId, runId)),
     orderBy: (c, { asc }) => asc(c.resourceUnit),
@@ -139,6 +143,7 @@ async function runDetail(deps: ApiDeps, runId: string) {
         failureReason: typeof failure?.reason === "string" ? failure.reason : null,
         errorCode: typeof failure?.errorCode === "string" ? failure.errorCode : null,
         artifactIds: produced.filter((a) => a.invocationId === i.id).map((a) => a.id),
+        policyDecision: policyDecisions.get(i.id)?.at(-1) ?? null,
       };
     }),
     budget: counters.map((c) => ({

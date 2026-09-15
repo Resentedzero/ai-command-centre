@@ -6,7 +6,7 @@ import { approveApproval, listPendingApprovals, rejectApproval, type ApprovalDat
 import { isStale, useLive, useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
-import { errorText, formatTime } from "../../lib/keep";
+import { errorText, formatTime, policyToken } from "../../lib/keep";
 import s from "./approvals.module.css";
 
 /** How often the queue re-reads with no event: a pending Approval can expire past its TTL silently. */
@@ -148,6 +148,8 @@ export default function ApprovalsPage() {
                   </dd>
                   <dt>risk tier</dt>
                   <dd>{selected.riskTier}</dd>
+                  <dt>policy</dt>
+                  <dd>{policyToken(selected.context?.policyDecision) || "not recorded"}</dd>
                   <dt>agent</dt>
                   <dd>{selected.context?.agent ? `${selected.context.agent.name} v${selected.context.agent.version}` : "not recorded"}</dd>
                   <dt>goal</dt>

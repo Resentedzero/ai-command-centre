@@ -63,6 +63,7 @@ describe("evaluatePolicy", () => {
       bindingTrustLevel: 2,
     });
     expect(result.decision).toBe("DENY");
+    expect(result.basis).toBe("no_grant");
   });
 
   it("returns DENY when the requested permission is not in the grant's permissions (generic check, no permission-type branch)", async () => {
@@ -82,6 +83,7 @@ describe("evaluatePolicy", () => {
       bindingTrustLevel: 2,
     });
     expect(result.decision).toBe("DENY");
+    expect(result.basis).toBe("permission_not_granted");
   });
 
   it("returns ALLOW for an AUTONOMOUS grant with a covered permission", async () => {
@@ -103,6 +105,7 @@ describe("evaluatePolicy", () => {
         bindingTrustLevel: 2,
       });
       expect(result.decision).toBe("ALLOW");
+      expect(result.basis).toBe("autonomy_autonomous");
       expect(result.riskTier).toBe("low");
     });
   });
@@ -126,6 +129,7 @@ describe("evaluatePolicy", () => {
         bindingTrustLevel: 2,
       });
       expect(result.decision).toBe("REQUIRE_APPROVAL");
+      expect(result.basis).toBe("autonomy_always_approve");
     });
   });
 
@@ -148,6 +152,8 @@ describe("evaluatePolicy", () => {
         bindingTrustLevel: 2,
       });
       expect(result.decision).toBe("REQUIRE_APPROVAL");
+      // Recorded as undecided, never as an ALWAYS_APPROVE decision or an evaluated threshold.
+      expect(result.basis).toBe("autonomy_conditional_rule_undecided");
     });
   });
 
@@ -352,6 +358,7 @@ describe("evaluatePolicy", () => {
         bindingTrustLevel: 0,
       });
       expect(result.decision).toBe("DENY");
+      expect(result.basis).toBe("binding_below_grant_trust_bar");
     });
 
     it("rule 1 fails closed: a non-finite/absent binding trust level is DENY, never read as 'trusted enough'", async () => {
@@ -372,6 +379,7 @@ describe("evaluatePolicy", () => {
           bindingTrustLevel,
         });
         expect(result.decision).toBe("DENY");
+        expect(result.basis).toBe("binding_below_grant_trust_bar");
       }
     });
 
@@ -394,6 +402,7 @@ describe("evaluatePolicy", () => {
           bindingTrustLevel: 0,
         });
         expect(result.decision).toBe("REQUIRE_APPROVAL");
+        expect(result.basis).toBe("unverified_binding_requires_approval");
       });
     });
 
@@ -417,6 +426,7 @@ describe("evaluatePolicy", () => {
             bindingTrustLevel: 0,
           });
           expect(result.decision).toBe("REQUIRE_APPROVAL");
+          expect(result.basis).toBe("unverified_binding_requires_approval");
         }
       });
     });
@@ -440,6 +450,8 @@ describe("evaluatePolicy", () => {
           bindingTrustLevel: 0,
         });
         expect(unverified.decision).toBe("REQUIRE_APPROVAL");
+        // The Grant's own autonomy required approval; rule 2 changed nothing, so it is not the basis.
+        expect(unverified.basis).toBe("autonomy_always_approve");
 
         // verified_third_party / first_party are untouched by rule 2 — an
         // AUTONOMOUS Grant on those still reaches ALLOW.

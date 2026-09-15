@@ -38,8 +38,7 @@ import { capabilityGrants, invocations, runs, toolBindings } from "../db/schema.
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
 import { evaluatePolicy, readAmountOrScope, readIsNovelAction } from "../governance/policy.js";
-import type { CapabilityGrant, CapabilityPermission, PolicyDecision } from "../governance/policy.js";
-import type { RiskTier } from "../governance/risk.js";
+import type { CapabilityGrant, CapabilityPermission } from "../governance/policy.js";
 import type { CostClass } from "../governance/costClass.js";
 import type { InvocationKind } from "./types.js";
 import { failureCode, redactFailureText } from "./failureReason.js";
@@ -240,7 +239,8 @@ export type PolicyCheckpoint = "propose" | "resume" | "pre_dispatch";
  * It records the evaluation as `policy_evaluated` (spec §8.2; §9.3: the risk
  * tier is "logged with the Approval/Policy-evaluation event for auditability")
  * in the caller's transaction, here rather than in `policy.ts`, which stays free
- * of events. The payload holds the facts Policy decided on: the decision, the
+ * of events. The payload holds the facts Policy decided on: the decision and its
+ * `basis` (why), `performanceEvidence: null` (Policy reads no performance), the
  * Grant (id, autonomy, trust bar), the binding (id, raw and classified trust),
  * and — only when a risk tier was actually computed — the tier and its
  * snapshot inputs (`amountOrScope`, `isNovelAction`). A DENY carries no tier:
@@ -261,7 +261,7 @@ export async function authorizeInvocation(
     bindingTrustLevel: number;
     audit: { runId: string; invocationId: string; capabilityId: string; toolBindingId: string; checkpoint: PolicyCheckpoint };
   }
-): Promise<{ decision: PolicyDecision; riskTier: RiskTier }> {
+): Promise<Awaited<ReturnType<typeof evaluatePolicy>>> {
   const { audit, ...policyInput } = params;
   const result = await evaluatePolicy(tx, policyInput);
   const riskComputed = result.decision !== "DENY";
@@ -277,6 +277,10 @@ export async function authorizeInvocation(
     payload: {
       checkpoint: audit.checkpoint,
       decision: result.decision,
+      // Why: one value per Policy return path (`PolicyBasis`).
+      basis: result.basis,
+      // Policy consults no performance (spec §9.4: the CONDITIONAL rule's values are undecided).
+      performanceEvidence: null,
       capabilityId: audit.capabilityId,
       permission: params.permission,
       grantId: params.grant?.id ?? null,

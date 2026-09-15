@@ -33,6 +33,7 @@ import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRu
 import { buildInvocationSpecsFromDefinitions } from "../../workflow/buildInvocationSpecsFromDefinitions.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
+import { readPolicyDecisions } from "../policyDecisionRecord.js";
 
 /**
  * The V1 actor recorded for every Approval resolution made through this API
@@ -118,6 +119,12 @@ async function approvalContext(deps: ApiDeps, approval: typeof approvals.$inferS
     }
   }
 
+  // Why approval is required: Policy's own record of the evaluation that created this Approval.
+  const evaluations = invocation
+    ? ((await readPolicyDecisions(deps.db, invocation.runId, [approval.invocationId])).get(approval.invocationId) ?? [])
+    : [];
+  const policyDecision = evaluations.find((e) => e.checkpoint === "propose") ?? null;
+
   return {
     capabilityName: capability?.name ?? null,
     permission: invocation?.permission ?? null,
@@ -126,6 +133,7 @@ async function approvalContext(deps: ApiDeps, approval: typeof approvals.$inferS
     workflowRunId: taskInstance?.workflowRunId ?? null,
     runId: run?.id ?? null,
     artifact,
+    policyDecision,
   };
 }
 

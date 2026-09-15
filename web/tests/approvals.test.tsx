@@ -43,6 +43,21 @@ const withContext: ApprovalData = {
       truncated: true,
       hashMatchesSnapshot: true,
     },
+    policyDecision: {
+      checkpoint: "propose",
+      decision: "REQUIRE_APPROVAL",
+      basis: "autonomy_always_approve",
+      autonomyState: "ALWAYS_APPROVE",
+      riskTier: "high",
+      grantId: "grant-1",
+      capabilityId: "cap-1",
+      permission: "PUBLISH",
+      toolBindingId: "tb-1",
+      trustLevel: "first_party",
+      maxTrustLevelRequired: 1,
+      bindingTrustLevel: 2,
+      performanceEvidence: null,
+    },
   },
 };
 
@@ -138,6 +153,8 @@ describe("Approvals page", () => {
     const request = await screen.findByTestId("approval-context");
     expect(within(request).getByRole("link", { name: "Compare EV batteries" })).toHaveAttribute("href", "/workflows/wr-1");
     expect(request).toHaveTextContent("publish.report · PUBLISH");
+    // Why approval is required, as Policy recorded it.
+    expect(request).toHaveTextContent("approval required · always approve");
     expect(request).toHaveTextContent("Publisher v1");
     expect(screen.getByText("content matches the proposal")).toBeInTheDocument();
     const preview = screen.getByTestId("approval-preview");

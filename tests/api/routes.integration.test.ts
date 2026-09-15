@@ -333,6 +333,8 @@ describe("GET /approvals", () => {
         hashMatchesSnapshot: true,
         preview: expect.stringContaining("approvals list report"),
       },
+      // Why approval is required, as Policy recorded it when it created this Approval.
+      policyDecision: { checkpoint: "propose", decision: "REQUIRE_APPROVAL", basis: "autonomy_always_approve", performanceEvidence: null },
     });
   });
 });
@@ -506,7 +508,14 @@ type WorkflowRunDetailBody = {
     taskInstance: { status: string } | null;
     run: {
       status: string;
-      invocations: Array<{ id: string; kind: string; status: string; failureReason: string | null; artifactIds: string[] }>;
+      invocations: Array<{
+        id: string;
+        kind: string;
+        status: string;
+        failureReason: string | null;
+        artifactIds: string[];
+        policyDecision: Record<string, unknown> | null;
+      }>;
       budget: Array<{ resourceUnit: string; consumedAmount: string; limitAmount: string }>;
     } | null;
   }>;
@@ -668,6 +677,18 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
     expect(research!.run?.status).toBe("completed");
     expect(research!.run?.invocations.map((i) => i.kind)).toEqual(["tool", "llm", "deterministic"]);
     expect(research!.run?.invocations.every((i) => i.status === "completed" && i.failureReason === null)).toBe(true);
+    // Policy's own record, never re-derived: the seeded research Grant is AUTONOMOUS, the
+    // publish Grant ALWAYS_APPROVE; LLM and deterministic Invocations are not Policy-governed.
+    expect(research!.run?.invocations.map((i) => i.policyDecision?.decision ?? null)).toEqual(["ALLOW", null, null]);
+    expect(research!.run?.invocations[0]!.policyDecision).toMatchObject({
+      checkpoint: "pre_dispatch",
+      basis: "autonomy_autonomous",
+      autonomyState: "AUTONOMOUS",
+      permission: "READ",
+      maxTrustLevelRequired: expect.any(Number),
+      bindingTrustLevel: expect.any(Number),
+      performanceEvidence: null,
+    });
     const tokens = research!.run?.budget.find((b) => b.resourceUnit === "subscription_tokens");
     expect(Number(tokens?.consumedAmount)).toBeGreaterThan(0);
 
@@ -684,6 +705,13 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
 
     expect(publish!.taskInstance?.status).toBe("awaiting_approval");
     expect(publish!.run?.invocations).toEqual([expect.objectContaining({ kind: "tool", status: "awaiting_approval", artifactIds: [] })]);
+    expect(publish!.run?.invocations[0]!.policyDecision).toMatchObject({
+      checkpoint: "propose",
+      decision: "REQUIRE_APPROVAL",
+      basis: "autonomy_always_approve",
+      autonomyState: "ALWAYS_APPROVE",
+      permission: "PUBLISH",
+    });
   });
 
   it("redacts a provider error's host path end to end: neither the failure event nor the detail view carries it", async () => {

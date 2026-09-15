@@ -447,7 +447,16 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
       });
       expect(evaluations).toHaveLength(1);
       const payload = evaluations[0]!.payload as Record<string, unknown>;
-      expect(payload).toMatchObject({ checkpoint: "propose", decision: "DENY", grantId: null, autonomyState: null, capabilityId, toolBindingId });
+      expect(payload).toMatchObject({
+        checkpoint: "propose",
+        decision: "DENY",
+        basis: "no_grant",
+        performanceEvidence: null,
+        grantId: null,
+        autonomyState: null,
+        capabilityId,
+        toolBindingId,
+      });
       expect(payload).not.toHaveProperty("riskTier");
       expect(payload).not.toHaveProperty("amountOrScope");
       expect(payload).not.toHaveProperty("isNovelAction");
@@ -515,6 +524,8 @@ describe("tool invocation REQUIRE_APPROVAL", () => {
         permission,
         toolBindingId,
         autonomyState: "ALWAYS_APPROVE",
+        basis: "autonomy_always_approve",
+        performanceEvidence: null,
         maxTrustLevelRequired: 1,
         bindingTrustLevel: 2,
         trustLevel: "first_party",

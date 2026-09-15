@@ -23,7 +23,13 @@ let researchRunId: string;
 type Trace = {
   run: { id: string; status: string };
   events: { eventType: string; sequenceNo: number; correlation: { runId: string | null } }[];
-  invocations: { id: string; kind: string; seqNo: number; contextLineage: { included: { kind: string }[] } | null }[];
+  invocations: {
+    id: string;
+    kind: string;
+    seqNo: number;
+    contextLineage: { included: { kind: string }[] } | null;
+    policyEvaluations: { checkpoint: string; decision: string; basis: string | null }[];
+  }[];
 };
 
 beforeAll(async () => {
@@ -75,6 +81,14 @@ describe("GET /runs/:id/trace", () => {
     expect(tool!.contextLineage).toBeNull();
     expect(deterministic!.contextLineage).toBeNull();
     expect(llm!.contextLineage!.included.some((i) => i.kind.startsWith("artifact"))).toBe(true);
+
+    // Every Policy evaluation of the tool Invocation, in sequence order; none for kinds Policy does not govern.
+    expect(tool!.policyEvaluations.map((e) => [e.checkpoint, e.decision, e.basis])).toEqual([
+      ["propose", "ALLOW", "autonomy_autonomous"],
+      ["pre_dispatch", "ALLOW", "autonomy_autonomous"],
+    ]);
+    expect(llm!.policyEvaluations).toEqual([]);
+    expect(deterministic!.policyEvaluations).toEqual([]);
   });
 
   it("rejects a malformed id and reports an unknown Run", async () => {

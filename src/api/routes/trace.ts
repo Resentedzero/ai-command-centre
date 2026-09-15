@@ -9,7 +9,9 @@
  *   where it is written, and binding config never enters an event.
  * - `invocations`: each Invocation in `seq_no` order with its `context_compiled`
  *   lineage (ids, tiers, versions, hashes, exclusions, token estimate — never
- *   content, spec §5.13), or null when it compiled none (tools, deterministic).
+ *   content, spec §5.13), or null when it compiled none (tools, deterministic), and
+ *   `policyEvaluations`: Policy's record at each checkpoint, in sequence order (tool
+ *   Invocations only; `../policyDecisionRecord.ts`).
  *
  * Events not tied to a Run (`goal_created`, `workflow_run_started`, stops,
  * revocations) are outside a Run's trace by the spec's definition.
@@ -20,6 +22,7 @@ import { events, invocations, runs } from "../../db/schema.js";
 import type { ApiDeps } from "../server.js";
 import { isUuid } from "../requestGuards.js";
 import { rowToEventEnvelope } from "../eventEnvelopeRow.js";
+import { toPolicyDecisionRecord } from "../policyDecisionRecord.js";
 
 export function registerTraceRoutes(app: FastifyInstance, deps: ApiDeps): void {
   app.get<{ Params: { id: string } }>("/runs/:id/trace", async (request, reply) => {
@@ -58,6 +61,9 @@ export function registerTraceRoutes(app: FastifyInstance, deps: ApiDeps): void {
         startedAt: i.startedAt,
         completedAt: i.completedAt,
         contextLineage: lineageByInvocation.get(i.id) ?? null,
+        policyEvaluations: eventRows
+          .filter((e) => e.eventType === "policy_evaluated" && e.invocationId === i.id)
+          .map((e) => toPolicyDecisionRecord(e.payload)),
       })),
     });
   });

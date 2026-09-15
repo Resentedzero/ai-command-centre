@@ -20,15 +20,15 @@ Every value, count, gauge, badge and animation state on a screen names its sourc
 | `AgentCardData[]` | `GET /agents/active` | agent name, `taskStatus`, `latestActivitySummary`, `runId` |
 | `AgentDetail` | `GET /agents/:id` | role, objective, `activeStop`, grants (capability, permissions, `autonomyState`, trust, revoked), runs with goal lineage and latest invocation `kind`/`status`, `budgetTotals` per unit, `recentEvents`, `outputs`, `contextLineage` (tiers, exclusions, token estimate vs max). `performance` is always `null`. |
 | `WorkflowRunSummary[]` | `GET /workflow-runs` | status, goal title, definition name/version, timestamps |
-| `WorkflowRunDetail` | `GET /workflow-runs/:id` | ordered `steps` (task definition, task instance status, run, invocations with failure reason, budget per unit), `stepsUnavailableReason` |
+| `WorkflowRunDetail` | `GET /workflow-runs/:id` | ordered `steps` (task definition, task instance status, run, invocations with failure reason and `policyDecision` — Policy's recorded decision and basis, tool Invocations only, null otherwise — budget per unit), `stepsUnavailableReason` |
 | `ProjectGoals[]` | `GET /goals` | projects → goals → workflow runs with status |
-| `ApprovalData[]` | `GET /approvals` | risk tier, status, TTL, snapshot, `context` (capability, permission, agent, goal, artifact preview, `hashMatchesSnapshot`) |
+| `ApprovalData[]` | `GET /approvals` | risk tier, status, TTL, snapshot, `context` (capability, permission, agent, goal, artifact preview, `hashMatchesSnapshot`, `policyDecision`: why approval is required) |
 | `EventDisplayItem` stream | `GET /events/stream` (SSE) | `eventType`, `occurredAt`, `eventCursor`, summary |
 | `ActiveStop[]` (`listActiveStops`) | `GET /execution-stops` | every active stop, all scopes: `scope`, `scopeRefId`, `reason`. A global stop exists as data, so the keep can show it. |
 | `RegistryData` (`getRegistry`) | `GET /registry` | every Agent Definition (name, version, role, objective), Capability (risk tag, cost profile, tool bindings with trust level), Capability Grant (permissions, `autonomyState`, `maxTrustLevelRequired`, `revokedAt`), Task and Workflow Definition. **Read-only:** there are still no write routes. |
 | `CostsData` (`getCosts(scope?)`) | `GET /costs` | budget `counters` (scope run / task_instance / agent_definition / goal / day, unit, limit, reserved, consumed), `totals` **summed by the API per (scope, unit)**, and `costVsSuccess` from `agent_performance`. Show a total only as the API returns it; never add across units or scopes. |
 | `AgentDetail.performance` (`AgentPerformanceRow[]`) | `GET /agents/:id` | per task definition and model tier: `sampleCount`, `successRate`, `avgRetries`, `avgCost` per unit. **A measurement, not a ranking:** no minimum sample criterion is set, so nothing may rank, badge "best" or recommend from it. Always show `sampleCount` beside it. |
-| `RunTrace` (`getRunTrace`) | `GET /runs/:id/trace` | a Run's events in sequence order plus its invocations (kind, status, permission) |
+| `RunTrace` (`getRunTrace`) | `GET /runs/:id/trace` | a Run's events in sequence order plus its invocations (kind, status, permission, `policyEvaluations` at each checkpoint) |
 | Artifact detail (`getArtifact(id, full?)`) | `GET /artifacts/:id` | `artifact` (type, version, size, hash, summary, createdAt, storedInline, `preview` shown as text, truncated, `contentHashMatches`); `producedBy` (invocation kind/seqNo → runId → agent name/version → taskDefinition → workflowRunId → goal title); `referencedBy[]` (compiled contexts: occurredAt, kind, tier, version, hash) plus `referencedByTruncated`. There is **no artifact list route**: browsing is per agent via `AgentDetail.outputs`. |
 
 Commands (§15.2): `createGoal`, `approveApproval`, `rejectApproval`, `engageAgentStop`, `liftAgentStop`. Nothing else is controllable from the UI. No per-agent pause exists. Workflow pause/resume exists in the runtime but has no UI route yet.
@@ -44,6 +44,7 @@ Seeded reality: 2 agents (Researcher, Publisher), 2 capabilities (`research.retr
 | Invocation | `proposed`, `awaiting_approval`, `executing`, `completed`, `failed` |
 | Invocation kind | `llm`, `tool`, `retrieval`, `deterministic` (`browser` in the spec; not built) |
 | Approval | `pending`, `approved`, `rejected`, `expired` |
+| Policy decision (`PolicyDecisionRecord`) | `ALLOW`, `REQUIRE_APPROVAL`, `DENY`; `basis`: `no_grant`, `permission_not_granted`, `binding_below_grant_trust_bar`, `autonomy_autonomous`, `autonomy_always_approve`, `autonomy_conditional_rule_undecided`, `unverified_binding_requires_approval`. Show as words (`policyToken`); never compute a decision, threshold or eligibility. `performanceEvidence` is always null today. |
 | Execution stop scope | `global`, `agent_definition`, `capability_grant`, `goal`, `workflow_run`, `run` |
 | Autonomy | `ALWAYS_APPROVE`, `CONDITIONAL` (behaves as approve today), `AUTONOMOUS` |
 | Resource unit | `usd`, `subscription_tokens`, `local_tokens`: separate counters, never summed or converted |

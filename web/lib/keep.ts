@@ -121,6 +121,35 @@ export function stateWord(state: string): string {
   return state.replace(/_/g, " ");
 }
 
+const POLICY_DECISION_WORD: Record<string, string> = { ALLOW: "allowed", REQUIRE_APPROVAL: "approval required", DENY: "denied" };
+const POLICY_BASIS_WORD: Record<string, string> = {
+  autonomy_autonomous: "autonomous",
+  autonomy_always_approve: "always approve",
+  autonomy_conditional_rule_undecided: "conditional · rule not decided",
+  no_grant: "no grant",
+  permission_not_granted: "permission not granted",
+  binding_below_grant_trust_bar: "binding below trust bar",
+  unverified_binding_requires_approval: "unverified binding",
+};
+
+/**
+ * Policy's recorded decision as one compact line (`approval required · always approve`).
+ * Words only: the decision and its basis are the API's (`PolicyDecisionRecord`), never
+ * computed here. Plain text; colour stays with the status mark and the failure line.
+ * `withCheckpoint` names which check it was (`at pre dispatch`), so a later check that
+ * again reads "approval required" beside a completed action is not taken as outstanding.
+ */
+export function policyToken(
+  record: { decision: string | null; basis: string | null; checkpoint?: string | null } | null | undefined,
+  withCheckpoint = false
+): string {
+  if (!record?.decision) return "";
+  const decision = POLICY_DECISION_WORD[record.decision] ?? stateWord(record.decision);
+  const basis = record.basis ? (POLICY_BASIS_WORD[record.basis] ?? stateWord(record.basis)) : null;
+  const words = basis ? `${decision} · ${basis}` : decision;
+  return withCheckpoint && record.checkpoint ? `${words} · at ${stateWord(record.checkpoint)}` : words;
+}
+
 /** A count from a capped list is never a total: `100+`. */
 export function countLabel(n: number, cap: number): string {
   return n >= cap ? `${cap}+` : String(n);
