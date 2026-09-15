@@ -1,0 +1,194 @@
+.screen {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  height: 100%;
+}
+
+/* Laptop: 280 px output list; vault, metadata and reading panels wrap and scroll. */
+@media (max-width: 1440px) {
+  .screen {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+}
+
+.left {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, auto) minmax(0, 1fr);
+  gap: var(--space-lg);
+}
+.left > nav:first-child {
+  max-height: 240px;
+}
+
+.outputs {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.outputs > span:first-child {
+  align-self: flex-start;
+}
+.outputs p {
+  margin: 0;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.entry {
+  font: 14px/20px var(--font-mono), monospace;
+}
+
+.entryText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.time {
+  font-size: 12px;
+}
+
+.chest,
+.chestOpen {
+  flex: none;
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  image-rendering: pixelated;
+}
+.chest {
+  background: url(/world/lootchest_item_anim_strip_8.png) 0 0 / 256px 32px no-repeat;
+}
+.chestOpen {
+  background: url(/world/lootchest_item_static_open.png) 0 0 / 32px 32px no-repeat;
+}
+
+.worldChest {
+  position: absolute;
+}
+
+/* Selection is a cream edge, never a state colour. */
+.bracket {
+  outline: 2px solid var(--pixel-label);
+  outline-offset: 2px;
+}
+
+.main {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: 4px;
+}
+.main p {
+  margin: 0;
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  align-items: flex-start;
+}
+
+.vault {
+  position: relative;
+  flex: none;
+  width: 356px;
+  height: 260px;
+  overflow: hidden;
+  background: var(--void);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+}
+
+.meta {
+  flex: 1 1 320px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.hash {
+  font: 12px/18px var(--font-mono), monospace;
+  word-break: break-all;
+}
+
+.panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+.produced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.reading,
+.referenced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.reading > span:first-child,
+.referenced > span:first-child {
+  align-self: flex-start;
+}
+
+.reading {
+  grid-column: 1 / -1;
+}
+
+.pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.untrusted {
+  border-color: var(--state-fail);
+}
+
+.untrustedNote {
+  font: 14px/20px var(--font-mono), monospace;
+  color: var(--state-fail);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.refs {
+  list-style: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inkLink {
+  color: var(--pixel-ink);
+}

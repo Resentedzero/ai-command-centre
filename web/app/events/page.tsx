@@ -1,0 +1,116 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { MAX_EVENTS, isStale, useLive } from "../../components/live";
+import { PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
+import { world } from "../../components/world/World";
+import { formatTime, stateWord, type Tone } from "../../lib/keep";
+import s from "./events.module.css";
+
+/** A type marker per event name: presentation only, from the runtime's own words. Lifting a stop is recovery, so it stays neutral. */
+const TYPE_TONES: [RegExp, Tone][] = [
+  [/failed|halted|denied|rejected|expired|revoked|stop_engaged/, "fail"],
+  [/approval_required/, "wait"],
+  [/completed|approved/, "done"],
+  [/started/, "active"],
+];
+
+function toneOfEvent(eventType: string): Tone {
+  return TYPE_TONES.find(([re]) => re.test(eventType))?.[1] ?? "neutral";
+}
+
+/**
+ * Events (Figma "Events — pixel (dense log)"): what happened, and in what
+ * order? Almost no world (a library strip), then a dense mono log of every
+ * event the live feed has delivered this session, newest first, with the
+ * global cursor as the order. The feed replays from the start on load, and a
+ * reconnect replays what was missed from the highest cursor seen. Filtering by
+ * type is client-side over received events: there is no event list route.
+ */
+export default function EventsPage() {
+  const { status, events, reconnect } = useLive();
+  const [filter, setFilter] = useState<string | null>(null);
+  const types = useMemo(() => [...new Set(events.map((e) => e.eventType))].sort(), [events]);
+  const rows = useMemo(() => events.filter((e) => filter === null || e.eventType === filter).reverse(), [events, filter]);
+
+  return (
+    <main className={s.screen}>
+      <header className={s.head}>
+        <div className={cx(s.strip, isStale(status) && world.stale)} role="img" aria-label="Library">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/world/room-v5-library-2x.png" width={352} height={256} alt="" className={world.base} style={{ top: -72 }} draggable={false} />
+          <div className={world.night} />
+        </div>
+        <div className={cx(px.parchment, s.card)}>
+          <div className={s.row}>
+            <h1 className={px.heading}>Events</h1>
+            {status === "live" ? (
+              <StatusMark state="live" tone="done" surface="parchment" />
+            ) : (
+              <StatusMark state={status} tone="neutral" surface="parchment" />
+            )}
+            <span>
+              {events.length} received{events.length >= MAX_EVENTS ? ` · only the latest ${MAX_EVENTS} are kept` : ""}
+            </span>
+          </div>
+          {isStale(status) && (
+            <div className={s.row} role="status">
+              <span>
+                {status === "offline" ? "The live feed is offline." : "Reconnecting to the live feed."} Missed events replay from the last cursor when it
+                returns.
+              </span>
+              <PixelButton onClick={reconnect}>Reconnect</PixelButton>
+            </div>
+          )}
+          {types.length > 0 && (
+            <div role="group" aria-label="Filter by type" className={s.chips}>
+              <button type="button" className={cx(px.plaque, s.chip, filter === null && px.selected)} aria-pressed={filter === null} onClick={() => setFilter(null)}>
+                all types
+              </button>
+              {types.map((t) => (
+                <button key={t} type="button" className={cx(px.plaque, s.chip, filter === t && px.selected)} aria-pressed={filter === t} onClick={() => setFilter(t)}>
+                  {stateWord(t)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <section className={cx(px.board, s.log)} aria-label="Event log">
+        {events.length === 0 ? (
+          status === "connecting" ? (
+            <StateNotice role="status" message={<>Connecting to the live feed <Skeleton /></>} />
+          ) : (
+            <StateNotice message="No events received yet." detail={isStale(status) ? "The feed is not connected." : "Events appear here as the runtime records them."} />
+          )
+        ) : (
+          <table className={s.table}>
+            <thead>
+              <tr>
+                <th>time</th>
+                <th>type</th>
+                <th>summary</th>
+                <th>cursor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((e) => (
+                <tr key={e.eventId} data-testid="event-row">
+                  <td>{formatTime(e.occurredAt)}</td>
+                  <td>
+                    <StatusMark state={e.eventType} tone={toneOfEvent(e.eventType)}>
+                      {stateWord(e.eventType)}
+                    </StatusMark>
+                  </td>
+                  <td title={e.summary}>{e.summary}</td>
+                  <td>{e.eventCursor === undefined ? "" : e.eventCursor}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </main>
+  );
+}
