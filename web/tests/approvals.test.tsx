@@ -81,6 +81,14 @@ describe("Approvals page", () => {
     expect(screen.getByText(/"destinationRelativePath": "reports\/x.json"/)).toBeInTheDocument();
   });
 
+  it("shows Policy's recorded requirement in amber while the Approval waits on the human", async () => {
+    api.listPendingApprovals.mockResolvedValue([withContext]);
+    render(<ApprovalsPage />);
+    const policy = await screen.findByTestId("approval-policy");
+    expect(policy).toHaveTextContent("approval required · always approve");
+    expect(policy).toHaveAttribute("data-tone", "wait");
+  });
+
   it("says nothing is waiting when the queue is empty", async () => {
     api.listPendingApprovals.mockResolvedValue([]);
     render(<ApprovalsPage />);

@@ -369,7 +369,14 @@ async function processToolSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: nu
   // tier's provider accounts in (which may be `subscription_tokens`).
   const reservation = await reserveBudget(tx, "run", runId, spec.costClass, "usd", spec.estimatedCost);
   if (!reservation.authorized) {
-    await failInvocation(tx, { invocationId, runId, taskInstanceId: runRow.taskInstanceId, reason: "insufficient_budget" });
+    // The Governor's outcome as a recorded fact, so no read model infers it from a reason a tool's own error could also carry.
+    await failInvocation(tx, {
+      invocationId,
+      runId,
+      taskInstanceId: runRow.taskInstanceId,
+      reason: "insufficient_budget",
+      details: { budgetAuthorization: { authorized: false, outcome: "denied", resourceUnit: "usd", estimatedAmount: spec.estimatedCost } },
+    });
     await failRun(tx, runId);
     return { status: "failed", runId };
   }
@@ -605,6 +612,7 @@ async function resumeToolSpec(
       runId,
       taskInstanceId: runRow.taskInstanceId,
       reason: "insufficient_budget_on_resume",
+      details: { budgetAuthorization: { authorized: false, outcome: "denied", resourceUnit: "usd", estimatedAmount: spec.estimatedCost } },
     });
     await failRun(tx, runId);
     return { status: "failed", runId };

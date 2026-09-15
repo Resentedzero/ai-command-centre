@@ -15,7 +15,7 @@ import {
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
 import { WorldViewport, world } from "../../components/world/World";
-import { countLabel, errorText, formatAmount, formatTime, hashOf, policyToken, routeToken, stateWord } from "../../lib/keep";
+import { countLabel, errorText, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeToken, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
 
 /**
@@ -421,8 +421,14 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                             <td>
                               <StatusMark state={inv.status} />
                             </td>
-                            {/* Policy's recorded decision, as the API returns it; blank where Policy does not govern the kind. */}
-                            <td data-testid="invocation-policy">{policyToken(inv.policyDecision, true)}</td>
+                            {/* Policy's recorded decision, as the API returns it; blank where Policy does not govern the kind.
+                                Red for a denial, amber only while this Invocation waits on a human. */}
+                            <td data-testid="invocation-policy" data-tone={policyTone(inv.policyDecision, inv.status === "awaiting_approval")} title={policyEvidenceTitle(inv.policyDecision)}>
+                              {policyTone(inv.policyDecision, inv.status === "awaiting_approval") !== "neutral" && (
+                                <ButtonMark tone={policyTone(inv.policyDecision, inv.status === "awaiting_approval")} />
+                              )}
+                              {policyToken(inv.policyDecision, true)}
+                            </td>
                             {/* The Governor's outcome as the API returns it; a denial's red stays on the failure line below. */}
                             <td data-testid="invocation-budget">{inv.budgetOutcome ?? ""}</td>
                             <td>

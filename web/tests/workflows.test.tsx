@@ -185,6 +185,9 @@ describe("Workflow run detail", () => {
     expect(within(rows[0]!).getByRole("link", { name: "output 1" })).toHaveAttribute("href", "/artifacts/art-1");
     // Policy's recorded decision and basis, as words; nothing for a kind Policy does not govern.
     expect(within(rows[0]!).getByTestId("invocation-policy")).toHaveTextContent("allowed · autonomous · at pre dispatch");
+    // An allowed decision is neutral, and no Conditional Autonomy evidence means no tooltip.
+    expect(within(rows[0]!).getByTestId("invocation-policy")).toHaveAttribute("data-tone", "neutral");
+    expect(within(rows[0]!).getByTestId("invocation-policy")).not.toHaveAttribute("title");
     expect(within(rows[1]!).getByTestId("invocation-policy")).toHaveTextContent(/^$/);
     // The Governor's outcome is the API's word, shown as given.
     expect(within(rows[0]!).getByTestId("invocation-budget")).toHaveTextContent("authorized");

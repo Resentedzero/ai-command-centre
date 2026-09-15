@@ -50,8 +50,11 @@ version. See `docs/architecture/CAPABILITY_PLATFORM.md`.
 Asynchronous projections (`src/projections/`) are rebuilt from Events by an
 in-process loop, never on the execution path. `agent_performance` reaches a
 decision only through its minimum sample criterion
-(`src/governance/performanceEligibility.ts`; N = 10, set by the operator) and only in the Model Router's tier preference. Policy must not read
-it. See `docs/architecture/AGENT_PERFORMANCE.md`.
+(`src/governance/performanceEligibility.ts`; N = 10, set by the operator), in
+two places: the Model Router's tier preference, and Policy's Conditional
+Autonomy rule, whose evidence the Invocation lifecycle resolves through the gate
+and hands to Policy. Policy never queries the projection itself. See
+`docs/architecture/AGENT_PERFORMANCE.md`.
 
 ## Per-module CLAUDE.md files
 
@@ -61,4 +64,4 @@ Architecture invariants that can be checked statically — no provider call or
 tool side effect inside a transaction, the single chokepoint, status changes
 recorded as events, core code naming no capability, Definitions and Grants
 inserted only by the Registry, `agent_performance` read
-only by its projector, read APIs and eligibility gate (imported only by the Router and the read APIs' display helper) — are enforced by `tests/execution/structuralInvariants.test.ts`.
+only by its projector, read APIs and eligibility gate (imported only by the Router, the Invocation lifecycle's Conditional Autonomy evidence and the read APIs' display helper) — are enforced by `tests/execution/structuralInvariants.test.ts`.

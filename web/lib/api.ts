@@ -240,8 +240,9 @@ export type RouteRecord = {
 /**
  * Policy's own record of one evaluation (`policy_evaluated`), assembled by the API.
  * Display it; never derive a decision, threshold or eligibility from it.
- * `basis` says why; null on evaluations recorded before it existed. `performanceEvidence`
- * is always null: Policy reads no performance (CONDITIONAL's rule is undecided, so it requires approval).
+ * `basis` says why; null on evaluations recorded before it existed. `conditionalRule` and
+ * `performanceEvidence` are what a CONDITIONAL Grant's rule applied and consulted; null otherwise.
+ * `autonomy_conditional_rule_undecided` appears only on evaluations recorded before the rule existed.
  */
 export type PolicyDecisionRecord = {
   checkpoint: "propose" | "resume" | "pre_dispatch" | null;
@@ -253,7 +254,13 @@ export type PolicyDecisionRecord = {
     | "autonomy_always_approve"
     | "autonomy_conditional_rule_undecided"
     | "autonomy_autonomous"
+    | "autonomy_state_unrecognized"
     | "unverified_binding_requires_approval"
+    | "conditional_human_gated_action"
+    | "conditional_insufficient_evidence"
+    | "conditional_performance_meets_allow_threshold"
+    | "conditional_performance_below_allow_threshold"
+    | "conditional_performance_below_deny_threshold"
     | null;
   autonomyState: string | null;
   riskTier: string | null;
@@ -265,7 +272,24 @@ export type PolicyDecisionRecord = {
   /** The trust bar Policy applied and the binding's level it compared. */
   maxTrustLevelRequired: number | null;
   bindingTrustLevel: number | null;
-  performanceEvidence: null;
+  conditionalRule?: {
+    id: string | null;
+    allowAtOrAboveSuccessRate: number | null;
+    requireApprovalAtOrAboveSuccessRate: number | null;
+    autoAllowPermissions: string[];
+    autoAllowRiskTiers: string[];
+  } | null;
+  performanceEvidence: {
+    agentDefinitionId: string | null;
+    agentDefinitionVersion: number | null;
+    taskDefinitionId: string | null;
+    effectiveTier: string | null;
+    sampleCount: number | null;
+    successRate: string | null;
+    minSamples: number | null;
+    eligible: boolean | null;
+    eligibilityReason: string | null;
+  } | null;
 };
 
 /** Amounts are the exact decimal strings the API stores. Units are separate counters and are never summed. */

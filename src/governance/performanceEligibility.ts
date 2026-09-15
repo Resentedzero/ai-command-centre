@@ -11,15 +11,17 @@
  * (nothing eligible), the same config pattern as `./dailyBudgetPolicy.ts`. Callers may
  * pass a different N only through an explicit option, which production never does.
  *
- * The only decision that reads it is the Model Router's tier preference (§10.2, §10.5).
- * The read APIs display each row's eligibility through `../api/performanceEligibilityFields.ts`,
- * deciding nothing. Policy does not read performance: §9.4's CONDITIONAL rule needs thresholds that are not yet
- * decided, so CONDITIONAL still requires approval. `tests/execution/structuralInvariants.test.ts`
- * enforces both.
+ * Two decisions read it, both through this gate: the Model Router's tier preference
+ * (§10.2, §10.5), and Policy's Conditional Autonomy rule (§9.4, decided 2026-09-15), whose
+ * evidence `readConditionalEvidence` resolves for the Invocation lifecycle to hand to
+ * Policy. The read APIs display each row's eligibility through
+ * `../api/performanceEligibilityFields.ts`, deciding nothing.
+ * `tests/execution/structuralInvariants.test.ts` enforces the importers.
  */
-import { and, asc, eq } from "drizzle-orm";
-import { agentPerformance, runs, taskInstances } from "../db/schema.js";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { agentPerformance, events, runs, taskInstances } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
+import type { ConditionalPerformanceEvidence } from "./policy.js";
 
 /** N, the operator's value (2026-09-15). Null would mean no criterion configured: nothing eligible. */
 export const MIN_PERFORMANCE_SAMPLES: number | null = 10;
@@ -94,5 +96,66 @@ export async function readTierPerformance(
       updatedAt: r.updatedAt.toISOString(),
       eligibility: performanceEligibility(r.sampleCount, minSamples),
     })),
+  };
+}
+
+/**
+ * The evidence Policy's Conditional Autonomy rule consults for a tool action in `runId`:
+ * the row for the Run's own Agent Definition version and Task Definition at the tier the
+ * Model Router selected — the `resultingTier` of its latest route in this Run. A Run that
+ * has routed no model call has no selected tier, and so no applicable row: never another
+ * tier's, another Task's or an aggregate. The Executor is sequential, so at `resume` and
+ * `pre_dispatch` nothing has routed since `propose` and the tier is the same.
+ */
+export async function readConditionalEvidence(
+  tx: DrizzleTransaction,
+  runId: string,
+  minSamples: number | null = MIN_PERFORMANCE_SAMPLES
+): Promise<ConditionalPerformanceEvidence> {
+  const snapshot = await readTierPerformance(tx, runId, minSamples);
+  const none = {
+    agentDefinitionId: null,
+    agentDefinitionVersion: null,
+    taskDefinitionId: null,
+    effectiveTier: null,
+    sampleCount: null,
+    successRate: null,
+    minSamples,
+    eligible: false,
+  } as const;
+  if (!snapshot.consulted) return { ...none, eligibilityReason: snapshot.reason };
+
+  const [binding] = await tx
+    .select({ agentDefinitionId: runs.agentDefinitionId, agentDefinitionVersion: runs.agentDefinitionVersion, taskDefinitionId: taskInstances.taskDefinitionId })
+    .from(runs)
+    .innerJoin(taskInstances, eq(taskInstances.id, runs.taskInstanceId))
+    .where(eq(runs.id, runId));
+  const scope = { ...none, agentDefinitionId: binding!.agentDefinitionId, agentDefinitionVersion: binding!.agentDefinitionVersion, taskDefinitionId: binding!.taskDefinitionId };
+
+  const [route] = await tx
+    .select({ tier: sql<string>`${events.payload}->>'resultingTier'` })
+    .from(events)
+    .where(
+      and(
+        eq(events.runId, runId),
+        eq(events.eventType, "invocation_started"),
+        // The Router's own record only: no other producer's started event can name a tier.
+        eq(events.producer, "model-router"),
+        sql`${events.payload} ? 'resultingTier'`
+      )
+    )
+    .orderBy(desc(events.sequenceNo))
+    .limit(1);
+  if (!route?.tier) return { ...scope, eligibilityReason: "no_routed_tier" };
+
+  const row = snapshot.rows.find((r) => r.tier === route.tier);
+  if (!row) return { ...scope, effectiveTier: route.tier, eligibilityReason: "no_performance_row" };
+  return {
+    ...scope,
+    effectiveTier: route.tier,
+    sampleCount: row.sampleCount,
+    successRate: row.successRate,
+    eligible: row.eligibility.eligible,
+    eligibilityReason: row.eligibility.eligible ? null : row.eligibility.reason,
   };
 }

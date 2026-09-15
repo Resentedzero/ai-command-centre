@@ -3,7 +3,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resetTestSchema, closeTestDb, withRollback } from "../testDb.js";
 import { capabilities, agentDefinitions } from "../../src/db/schema.js";
-import { evaluatePolicy, validateCapabilityGrant, type CapabilityGrant } from "../../src/governance/policy.js";
+import {
+  CONDITIONAL_AUTONOMY_RULE,
+  evaluatePolicy,
+  riskTierComputed,
+  validateCapabilityGrant,
+  type CapabilityGrant,
+  type ConditionalPerformanceEvidence,
+} from "../../src/governance/policy.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
 
 beforeAll(async () => {
@@ -133,27 +140,126 @@ describe("evaluatePolicy", () => {
     });
   });
 
-  it("returns REQUIRE_APPROVAL for a CONDITIONAL grant too (V1: no performance-driven relaxation)", async () => {
-    await withRollback(async (tx) => {
-      const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, "low");
-      const grant: CapabilityGrant = {
-        agentDefinitionId,
-        agentDefinitionVersion,
-        capabilityId,
-        permissions: ["SPEND"],
-        maxTrustLevelRequired: 1,
-        autonomyState: "CONDITIONAL",
-      };
-      const result = await evaluatePolicy(tx, {
-        grant,
-        permission: "SPEND",
-        proposedActionSnapshot: {},
-        trustLevel: "first_party",
-        bindingTrustLevel: 2,
+  describe("CONDITIONAL: the Conditional Autonomy rule (spec §9.4, decided 2026-09-15)", () => {
+    const evidence = (overrides: Partial<ConditionalPerformanceEvidence> = {}): ConditionalPerformanceEvidence => ({
+      agentDefinitionId: "a",
+      agentDefinitionVersion: 1,
+      taskDefinitionId: "t",
+      effectiveTier: "MID",
+      sampleCount: 12,
+      successRate: "0.9",
+      minSamples: 10,
+      eligible: true,
+      eligibilityReason: null,
+      ...overrides,
+    });
+
+    async function conditional(
+      opts: { staticRiskTag?: string; permission?: CapabilityGrant["permissions"][number]; trustLevel?: "first_party" | "unverified_third_party"; evidence?: ConditionalPerformanceEvidence | null; snapshot?: Record<string, unknown> }
+    ) {
+      return withRollback(async (tx) => {
+        const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, opts.staticRiskTag ?? "low");
+        const permission = opts.permission ?? "READ";
+        return evaluatePolicy(tx, {
+          grant: { agentDefinitionId, agentDefinitionVersion, capabilityId, permissions: [permission], maxTrustLevelRequired: 0, autonomyState: "CONDITIONAL" },
+          permission,
+          proposedActionSnapshot: opts.snapshot ?? {},
+          trustLevel: opts.trustLevel ?? "first_party",
+          bindingTrustLevel: 2,
+          conditionalEvidence: opts.evidence === undefined ? evidence() : opts.evidence,
+        });
       });
-      expect(result.decision).toBe("REQUIRE_APPROVAL");
-      // Recorded as undecided, never as an ALWAYS_APPROVE decision or an evaluated threshold.
-      expect(result.basis).toBe("autonomy_conditional_rule_undecided");
+    }
+
+    it("allows a low-risk READ at success rate >= 0.80, recording the evidence it consulted", async () => {
+      for (const successRate of ["0.8", "0.95", "1"]) {
+        const result = await conditional({ evidence: evidence({ successRate }) });
+        expect(result).toMatchObject({ decision: "ALLOW", basis: "conditional_performance_meets_allow_threshold", riskTier: "low" });
+        expect(result.performanceEvidence).toMatchObject({ effectiveTier: "MID", sampleCount: 12, successRate });
+      }
+    });
+
+    it("requires approval at 0.60 <= success rate < 0.80, and denies below 0.60 (risk tier still recorded)", async () => {
+      for (const successRate of ["0.6", "0.7999"]) {
+        expect(await conditional({ evidence: evidence({ successRate }) })).toMatchObject({ decision: "REQUIRE_APPROVAL", basis: "conditional_performance_below_allow_threshold" });
+      }
+      for (const successRate of ["0.5999", "0"]) {
+        const denied = await conditional({ evidence: evidence({ successRate }) });
+        expect(denied).toMatchObject({ decision: "DENY", basis: "conditional_performance_below_deny_threshold", riskTier: "low" });
+        expect(riskTierComputed(denied.basis)).toBe(true);
+      }
+    });
+
+    it("requires approval on insufficient evidence: below the sample criterion, no row, no routed tier, absent, or an unreadable rate", async () => {
+      const cases: (ConditionalPerformanceEvidence | null)[] = [
+        evidence({ sampleCount: 9, eligible: false, eligibilityReason: "insufficient_samples", successRate: "1" }),
+        evidence({ sampleCount: null, successRate: null, eligible: false, eligibilityReason: "no_performance_row" }),
+        evidence({ effectiveTier: null, sampleCount: null, successRate: null, eligible: false, eligibilityReason: "no_routed_tier" }),
+        evidence({ successRate: "not a number" }),
+        evidence({ successRate: "1.5" }),
+        null,
+      ];
+      for (const e of cases) {
+        expect(await conditional({ evidence: e })).toMatchObject({ decision: "REQUIRE_APPROVAL", basis: "conditional_insufficient_evidence" });
+      }
+    });
+
+    it("keeps every gated action human-approved whatever the performance: non-READ permissions and any risk above low", async () => {
+      for (const permission of ["SPEND", "PUBLISH", "DELETE", "WRITE", "CREATE", "SEND", "EXECUTE", "TRADE"] as const) {
+        const perfect = await conditional({ permission, evidence: evidence({ successRate: "1" }) });
+        expect(perfect).toMatchObject({ decision: "REQUIRE_APPROVAL", basis: "conditional_human_gated_action", performanceEvidence: null });
+        // Poor performance does not deny a gated action either: it stays with the human.
+        expect(await conditional({ permission, evidence: evidence({ successRate: "0" }) })).toMatchObject({ decision: "REQUIRE_APPROVAL" });
+      }
+      expect(await conditional({ staticRiskTag: "medium" })).toMatchObject({ decision: "REQUIRE_APPROVAL", basis: "conditional_human_gated_action" });
+      expect(await conditional({ snapshot: { isNovelAction: true } })).toMatchObject({ decision: "REQUIRE_APPROVAL", basis: "conditional_human_gated_action" });
+    });
+
+    it("never allows an unverified binding (its risk is escalated above low, so the action is gated)", async () => {
+      expect(await conditional({ trustLevel: "unverified_third_party" })).toMatchObject({ decision: "REQUIRE_APPROVAL" });
+    });
+
+    it("performance never reaches ALWAYS_APPROVE or AUTONOMOUS Grants", async () => {
+      await withRollback(async (tx) => {
+        const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, "low");
+        for (const [autonomyState, decision] of [["ALWAYS_APPROVE", "REQUIRE_APPROVAL"], ["AUTONOMOUS", "ALLOW"]] as const) {
+          for (const successRate of ["0", "1"]) {
+            const result = await evaluatePolicy(tx, {
+              grant: { agentDefinitionId, agentDefinitionVersion, capabilityId, permissions: ["READ"], maxTrustLevelRequired: 0, autonomyState },
+              permission: "READ",
+              proposedActionSnapshot: {},
+              trustLevel: "first_party",
+              bindingTrustLevel: 2,
+              conditionalEvidence: evidence({ successRate }),
+            });
+            expect(result).toMatchObject({ decision, performanceEvidence: null });
+          }
+        }
+      });
+    });
+
+    it("an autonomy state outside the three requires approval and is recorded as unrecognized, not as ALWAYS_APPROVE", async () => {
+      await withRollback(async (tx) => {
+        const { capabilityId, agentDefinitionId, agentDefinitionVersion } = await seedCapabilityAndAgent(tx, "low");
+        const result = await evaluatePolicy(tx, {
+          grant: { agentDefinitionId, agentDefinitionVersion, capabilityId, permissions: ["READ"], maxTrustLevelRequired: 0, autonomyState: "SOMETIMES" as CapabilityGrant["autonomyState"] },
+          permission: "READ",
+          proposedActionSnapshot: {},
+          trustLevel: "first_party",
+          bindingTrustLevel: 2,
+        });
+        expect(result).toMatchObject({ decision: "REQUIRE_APPROVAL", basis: "autonomy_state_unrecognized" });
+      });
+    });
+
+    it("records the decided values on the rule constant", () => {
+      expect(CONDITIONAL_AUTONOMY_RULE).toMatchObject({
+        id: "conditional_autonomy_v1",
+        allowAtOrAboveSuccessRate: 0.8,
+        requireApprovalAtOrAboveSuccessRate: 0.6,
+        autoAllowPermissions: ["READ"],
+        autoAllowRiskTiers: ["low"],
+      });
     });
   });
 
@@ -633,9 +739,9 @@ describe("Zero budget coupling (Phase 20 risk #2)", () => {
     // live only in validateCapabilityGrant.
     const startIndex = source.indexOf("export async function evaluatePolicy");
     expect(startIndex).toBeGreaterThan(-1);
-    const rest = source.slice(startIndex);
-    const nextExportIndex = rest.indexOf("\nexport ", 1);
-    const body = nextExportIndex === -1 ? rest : rest.slice(0, nextExportIndex);
+    // Everything from evaluatePolicy to the end of the file: its helpers (the Conditional
+    // Autonomy rule's `conditionalDecision`) follow it, and a branch there is the same branch.
+    const body = source.slice(startIndex);
     for (const permission of ["SPEND", "TRADE", "PUBLISH", "DELETE"]) {
       expect(body).not.toContain(`"${permission}"`);
     }

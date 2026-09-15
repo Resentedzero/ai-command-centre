@@ -255,8 +255,15 @@ describe("agent_performance reaches decisions only through its sample criterion 
       .map(rel)
       .sort();
 
-  it("only the Model Router and the read APIs' display helper import the eligibility gate (never Policy, Approvals or the Executor)", () => {
-    expect(importersOf(/\/performanceEligibility\.js$/)).toEqual(["api/performanceEligibilityFields.ts", "router/modelRouter.ts"]);
+  // 2026-09-15: the Conditional Autonomy rule (§9.4). The Invocation lifecycle resolves a
+  // CONDITIONAL Grant's evidence through the gate and hands it to Policy; Policy itself,
+  // Approvals and the Executor still never import the gate.
+  it("only the Model Router, the Invocation lifecycle (Conditional Autonomy evidence) and the read APIs' display helper import the eligibility gate", () => {
+    expect(importersOf(/\/performanceEligibility\.js$/)).toEqual([
+      "api/performanceEligibilityFields.ts",
+      "execution/invocationLifecycle.ts",
+      "router/modelRouter.ts",
+    ]);
   });
 
   it("only the two performance read routes import the eligibility display helper", () => {

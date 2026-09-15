@@ -37,7 +37,8 @@ import { and, eq } from "drizzle-orm";
 import { capabilityGrants, invocations, runs, toolBindings } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitEvent } from "../events/emit.js";
-import { evaluatePolicy, readAmountOrScope, readIsNovelAction } from "../governance/policy.js";
+import { CONDITIONAL_AUTONOMY_RULE, evaluatePolicy, readAmountOrScope, readIsNovelAction, riskTierComputed } from "../governance/policy.js";
+import { readConditionalEvidence } from "../governance/performanceEligibility.js";
 import type { CapabilityGrant, CapabilityPermission } from "../governance/policy.js";
 import type { CostClass } from "../governance/costClass.js";
 import type { InvocationKind } from "./types.js";
@@ -240,12 +241,16 @@ export type PolicyCheckpoint = "propose" | "resume" | "pre_dispatch";
  * tier is "logged with the Approval/Policy-evaluation event for auditability")
  * in the caller's transaction, here rather than in `policy.ts`, which stays free
  * of events. The payload holds the facts Policy decided on: the decision and its
- * `basis` (why), `performanceEvidence: null` (Policy reads no performance), the
- * Grant (id, autonomy, trust bar), the binding (id, raw and classified trust),
- * and — only when a risk tier was actually computed — the tier and its
- * snapshot inputs (`amountOrScope`, `isNovelAction`). A DENY carries no tier:
- * Policy returns a placeholder there, and the log must not record it as a fact.
- * No other part of the proposed action is recorded.
+ * `basis` (why), the Grant (id, autonomy, trust bar), the binding (id, raw and
+ * classified trust), and — only when a risk tier was actually computed — the tier
+ * and its snapshot inputs (`amountOrScope`, `isNovelAction`). A configuration DENY
+ * carries no tier: Policy returns a placeholder there, and the log must not record
+ * it as a fact. No other part of the proposed action is recorded.
+ *
+ * A CONDITIONAL Grant's evidence is resolved here, through the sample criterion's gate
+ * (`readConditionalEvidence`), and handed to Policy; the payload records the rule
+ * (`conditionalRule`: id and thresholds) and `performanceEvidence`, the evidence
+ * Policy actually consulted (null when it consulted none, including a gated action).
  *
  * The `pre_dispatch` check returns its refusal rather than throwing
  * (`executor.ts#toolDispatchRefusal`), so its evaluation commits even when the
@@ -263,8 +268,10 @@ export async function authorizeInvocation(
   }
 ): Promise<Awaited<ReturnType<typeof evaluatePolicy>>> {
   const { audit, ...policyInput } = params;
-  const result = await evaluatePolicy(tx, policyInput);
-  const riskComputed = result.decision !== "DENY";
+  const conditional = params.grant?.autonomyState === "CONDITIONAL";
+  const conditionalEvidence = conditional ? await readConditionalEvidence(tx, audit.runId) : null;
+  const result = await evaluatePolicy(tx, { ...policyInput, conditionalEvidence });
+  const riskComputed = riskTierComputed(result.basis);
 
   await emitEvent(tx, {
     idempotencyKey: `policy_evaluated:${audit.invocationId}:${audit.checkpoint}`,
@@ -279,8 +286,17 @@ export async function authorizeInvocation(
       decision: result.decision,
       // Why: one value per Policy return path (`PolicyBasis`).
       basis: result.basis,
-      // Policy consults no performance (spec §9.4: the CONDITIONAL rule's values are undecided).
-      performanceEvidence: null,
+      // The rule a CONDITIONAL Grant is decided by, and the performance Policy consulted.
+      conditionalRule: conditional
+        ? {
+            id: CONDITIONAL_AUTONOMY_RULE.id,
+            allowAtOrAboveSuccessRate: CONDITIONAL_AUTONOMY_RULE.allowAtOrAboveSuccessRate,
+            requireApprovalAtOrAboveSuccessRate: CONDITIONAL_AUTONOMY_RULE.requireApprovalAtOrAboveSuccessRate,
+            autoAllowPermissions: CONDITIONAL_AUTONOMY_RULE.autoAllowPermissions,
+            autoAllowRiskTiers: CONDITIONAL_AUTONOMY_RULE.autoAllowRiskTiers,
+          }
+        : null,
+      performanceEvidence: result.performanceEvidence,
       capabilityId: audit.capabilityId,
       permission: params.permission,
       grantId: params.grant?.id ?? null,

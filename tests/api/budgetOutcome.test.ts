@@ -25,6 +25,15 @@ describe("budgetOutcomeOf", () => {
     expect(budgetOutcomeOf(failedTool, { ...none, failedPayload: { reason: "insufficient_budget" } })).toBe("denied");
     // Refused a fresh reservation on resume, although the proposal's reservation had succeeded.
     expect(budgetOutcomeOf(failedTool, { ...none, approvalRequired: true, failedPayload: { reason: "insufficient_budget_on_resume" } })).toBe("denied");
+    // The recorded fact the Executor writes now.
+    expect(budgetOutcomeOf(failedTool, { ...none, failedPayload: { reason: "insufficient_budget", budgetAuthorization: { authorized: false, outcome: "denied" } } })).toBe("denied");
+  });
+
+  it("tool: a tool's own error message that reads like a budget reason is not a denial when a reservation was settled", () => {
+    const failedTool = { kind: "tool", costClass: "metered_api", status: "failed" };
+    expect(
+      budgetOutcomeOf(failedTool, { ...none, preDispatchChecked: true, failedPayload: { reason: "insufficient_budget", reservationSettlement: "charged_at_estimate" } })
+    ).toBe("authorized");
   });
 
   it("tool: authorized by any recorded fact of a successful reservation, and it stays authorized after the action fails", () => {

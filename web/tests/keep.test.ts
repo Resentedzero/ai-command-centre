@@ -1,6 +1,35 @@
 /** Presentation mappings in lib/keep: character identity (#54) and amount display (#45). */
 import { describe, expect, it } from "vitest";
-import { characterFor, formatAmount, formatTime, hashOf } from "../lib/keep";
+import { characterFor, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone } from "../lib/keep";
+
+describe("policy decision presentation (the API's record, never recomputed)", () => {
+  it("reads an allowed CONDITIONAL decision as neutral words", () => {
+    const record = { decision: "ALLOW", basis: "conditional_performance_meets_allow_threshold" };
+    expect(policyToken(record)).toBe("allowed · conditional");
+    expect(policyTone(record, false)).toBe("neutral");
+  });
+
+  it("is red for any denial, amber for an approval requirement only while a human is being asked", () => {
+    expect(policyTone({ decision: "DENY" }, false)).toBe("fail");
+    expect(policyTone({ decision: "REQUIRE_APPROVAL" }, true)).toBe("wait");
+    expect(policyTone({ decision: "REQUIRE_APPROVAL" }, false)).toBe("neutral");
+    expect(policyTone(null, true)).toBe("neutral");
+  });
+
+  it("lists the recorded rule and evidence as given, and nothing for a non-CONDITIONAL record", () => {
+    const rule = { id: "conditional_autonomy_v1", allowAtOrAboveSuccessRate: 0.8, requireApprovalAtOrAboveSuccessRate: 0.6 };
+    expect(
+      policyEvidenceTitle({ conditionalRule: rule, performanceEvidence: { effectiveTier: "MID", sampleCount: 12, successRate: "0.9", eligibilityReason: null } })
+    ).toBe("conditional_autonomy_v1 · MID · 12 samples · success 0.9 · allow ≥ 0.8 · approval ≥ 0.6");
+    expect(
+      policyEvidenceTitle({ conditionalRule: rule, performanceEvidence: { effectiveTier: null, sampleCount: null, successRate: null, eligibilityReason: "no_routed_tier" } })
+    ).toBe("conditional_autonomy_v1 · no routed tier · allow ≥ 0.8 · approval ≥ 0.6");
+    expect(policyEvidenceTitle({ conditionalRule: rule, performanceEvidence: null })).toBe(
+      "conditional_autonomy_v1 · performance not consulted · allow ≥ 0.8 · approval ≥ 0.6"
+    );
+    expect(policyEvidenceTitle({ conditionalRule: null, performanceEvidence: null })).toBeUndefined();
+  });
+});
 
 describe("formatTime", () => {
   it("drops the year in compact form for a past day, and shows only the time today (#57)", () => {

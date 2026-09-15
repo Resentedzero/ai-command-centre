@@ -48,7 +48,13 @@ export function budgetOutcomeOf(
   }
 
   if (invocation.kind === "tool") {
-    if (typeof failed.reason === "string" && TOOL_BUDGET_DENIALS.has(failed.reason)) return "denied";
+    // The Executor's recorded denial (`budgetAuthorization`, since 2026-09-15). Older denials carry
+    // only the reason; a failure that settled a reservation was never denied, whatever its reason
+    // text says (a tool's own error message can read "insufficient_budget").
+    if (record(failed.budgetAuthorization).authorized === false) return "denied";
+    if (typeof failed.reason === "string" && TOOL_BUDGET_DENIALS.has(failed.reason) && !("budgetAuthorization" in failed) && !("reservationSettlement" in failed)) {
+      return "denied";
+    }
     const settled = typeof failed.reservationSettlement === "string" && SETTLED_RESERVATIONS.has(failed.reservationSettlement);
     if (TOOL_STATES_AFTER_RESERVATION.has(invocation.status) || facts.approvalRequired || facts.preDispatchChecked || settled) {
       return "authorized";

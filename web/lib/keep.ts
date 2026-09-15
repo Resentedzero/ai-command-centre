@@ -125,12 +125,55 @@ const POLICY_DECISION_WORD: Record<string, string> = { ALLOW: "allowed", REQUIRE
 const POLICY_BASIS_WORD: Record<string, string> = {
   autonomy_autonomous: "autonomous",
   autonomy_always_approve: "always approve",
+  autonomy_state_unrecognized: "autonomy state not recognized",
   autonomy_conditional_rule_undecided: "conditional · rule not decided",
   no_grant: "no grant",
   permission_not_granted: "permission not granted",
   binding_below_grant_trust_bar: "binding below trust bar",
   unverified_binding_requires_approval: "unverified binding",
+  conditional_performance_meets_allow_threshold: "conditional",
+  conditional_performance_below_allow_threshold: "conditional · below allow threshold",
+  conditional_performance_below_deny_threshold: "conditional · below deny threshold",
+  conditional_insufficient_evidence: "conditional · not enough evidence",
+  conditional_human_gated_action: "conditional · human-gated action",
 };
+
+/**
+ * The colour of a recorded Policy decision: red for a denial; amber for an approval
+ * requirement only while a human is being asked (`awaitingHuman`, the Invocation's or
+ * Approval's own state), since amber means a human must act now; neutral otherwise,
+ * including `allowed · conditional`.
+ */
+export function policyTone(record: { decision: string | null } | null | undefined, awaitingHuman: boolean): Tone {
+  if (record?.decision === "DENY") return "fail";
+  if (record?.decision === "REQUIRE_APPROVAL" && awaitingHuman) return "wait";
+  return "neutral";
+}
+
+/**
+ * The Conditional Autonomy evidence Policy recorded, as one line for a tooltip
+ * (`conditional_autonomy_v1 · MID · 12 samples · success 0.9 · allow ≥ 0.8 · approval ≥ 0.6`).
+ * Every value is the API's; nothing is compared here.
+ */
+export function policyEvidenceTitle(record: {
+  conditionalRule?: { id: string | null; allowAtOrAboveSuccessRate: number | null; requireApprovalAtOrAboveSuccessRate: number | null } | null;
+  performanceEvidence?: { effectiveTier: string | null; sampleCount: number | null; successRate: string | null; eligibilityReason: string | null } | null;
+} | null | undefined): string | undefined {
+  const rule = record?.conditionalRule;
+  if (!rule) return undefined;
+  const e = record?.performanceEvidence;
+  return [
+    rule.id,
+    e ? (e.effectiveTier ?? undefined) : "performance not consulted",
+    e?.sampleCount !== null && e?.sampleCount !== undefined ? `${e.sampleCount} samples` : undefined,
+    e?.successRate ? `success ${e.successRate}` : undefined,
+    e?.eligibilityReason ? stateWord(e.eligibilityReason) : undefined,
+    rule.allowAtOrAboveSuccessRate !== null ? `allow ≥ ${rule.allowAtOrAboveSuccessRate}` : undefined,
+    rule.requireApprovalAtOrAboveSuccessRate !== null ? `approval ≥ ${rule.requireApprovalAtOrAboveSuccessRate}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 /**
  * Policy's recorded decision as one compact line (`approval required · always approve`).

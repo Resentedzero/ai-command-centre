@@ -8,7 +8,7 @@ A read-side aggregate over Events, per **Agent Definition version × Task Defini
 
 - A group is eligible only when its `sample_count` is at least N. The count is samples as defined in §2 (finished Runs attributable to the agent), not successes only.
 - N is a governance value, **set to 10 by the operator on 2026-09-15** (`MIN_PERFORMANCE_SAMPLES = 10` in `src/governance/performanceEligibility.ts`, the `dailyBudgetPolicy.ts` pattern). The operator also confirmed that the §2 sample definition is what counts toward N. Null would mean no criterion, so nothing eligible. A zero, negative or fractional N fails closed.
-- The one consumer is the Model Router's tier preference (§5). Policy's `CONDITIONAL` rule (spec §9.4) needs thresholds that are not decided, so Policy reads no performance (`ROADMAP_STATUS.md` §6).
+- Two consumers, both through the gate: the Model Router's tier preference (§5), and Policy's Conditional Autonomy rule (spec §9.4, decided 2026-09-15; §6 below). Policy never queries the projection: the Invocation lifecycle resolves the evidence and hands it to Policy.
 
 It is not XP. `agent_xp_projection` (§16) is not built, and only this projection may ever feed Policy or the Router (§16.2).
 
@@ -33,7 +33,7 @@ Not built: average duration and approval-rejection rate (§8.8 names them; Phase
 
 ## 4. Firewall
 
-`tests/execution/structuralInvariants.test.ts` fails if any source file other than the schema, the projector, the startup loop, the two read routes (`api/routes/agents.ts`, `api/routes/costs.ts`) and the eligibility gate references the table, its identifier or the projector, and if any file other than `router/modelRouter.ts` and the read APIs' display helper (`api/performanceEligibilityFields.ts`, itself imported only by the two read routes) imports the gate. Letting Policy consume it is a deliberate edit to both, which should come with the `CONDITIONAL` decision.
+`tests/execution/structuralInvariants.test.ts` fails if any source file other than the schema, the projector, the startup loop, the two read routes (`api/routes/agents.ts`, `api/routes/costs.ts`) and the eligibility gate references the table, its identifier or the projector, and if any file other than `router/modelRouter.ts`, `execution/invocationLifecycle.ts` (Conditional Autonomy evidence, since 2026-09-15) and the read APIs' display helper (`api/performanceEligibilityFields.ts`, itself imported only by the two read routes) imports the gate. Policy, Approvals and the Executor still do not import it.
 
 ## 5. Tier preference (spec §10.2, §10.5)
 
@@ -50,7 +50,21 @@ The chosen tier is reserved and candidate-checked like the default. A refusal fa
 
 With static difficulty tags a group usually has data for one tier only, so preference rarely has anything to compare until something else (the risk floor, a definition change, §10.4 escalation) produces samples on a second tier.
 
-## 5. Residuals
+## 6. Conditional Autonomy (spec §9.4, decided 2026-09-15)
+
+For a `CONDITIONAL` Grant, `authorizeInvocation` calls `readConditionalEvidence(tx, runId)`: the row of the Run's own group at the tier the Model Router selected in that Run (the `resultingTier` of its latest `invocation_started`). Policy then applies `CONDITIONAL_AUTONOMY_RULE` (`governance/policy.ts`):
+
+| Condition | Decision |
+|---|---|
+| Permission is not `READ`, or the computed risk tier is above `low` | `REQUIRE_APPROVAL` (`conditional_human_gated_action`); performance not consulted |
+| No routed tier, no row at that tier, fewer than N samples, or an unreadable rate | `REQUIRE_APPROVAL` (`conditional_insufficient_evidence`) |
+| Success rate ≥ 0.80 | `ALLOW` |
+| 0.60 ≤ success rate < 0.80 | `REQUIRE_APPROVAL` |
+| Success rate < 0.60 | `DENY` |
+
+Never another Agent version's, another Task's, another tier's or an aggregate row. `policy_evaluated` records `conditionalRule` (id, thresholds, allowlists) and `performanceEvidence` (the row's scope, effective tier, sample count, success rate, eligibility). Tests: `tests/governance/policy.test.ts`, `tests/governance/conditionalAutonomy.test.ts`. Write-up: `docs/development/V1_DECISION_PACK_CLOSURE.md` §1.
+
+## 7. Residuals
 
 - **Rebuild cost grows with the event log.** The terminal-event scan has no `event_type` index. Fine at operator scale; add a partial index or a commit-ordered incremental cursor when it is not.
 - **Not fully event-sourced.** The Agent binding is read from `runs` and the Task Definition from `task_instances` (written in the same transaction as the Run's events); no event records the binding.
