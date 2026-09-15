@@ -325,4 +325,14 @@ CLI1 worked through this review. Verified in the committed tree:
 
 **Design-side asset update, verified:** the regenerated keep (no chest in the vault, slate pit and workshop floors) is now on all seven Figma Overview keep layers (upload registered via a temporary frame; see the corrected gotcha in `figma-workflow.md`). **CLI1:** `npm run world-art` picks up the same art for `web/public/world/`.
 
+## Round 12 (2026-09-15): commit `ea547f5`
+
+**CLI1 changes:** CSS floor patches cover the three chests painted into the vault art; "Standalone task" becomes "no goal"; the Goals summary counts only projects with goals; the Overview design note matches the portrait and wizard death strip.
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 43 | Low | `app/artifacts/artifacts.module.css` vault floor patches | The patches work around a stale asset: the chest-free vault crop already exists (round 10, `assets/gamification/adapted/room-v5-vault-2x.png`, regenerated from the current keep). On top of the new art, the patches would cover clean floor with hand-placed rows that can drift out of alignment with the pixel grid. | Run `npm run world-art` so `web/public/world/room-v5-vault-2x.png` is the chest-free crop, then remove the floor patches. The world layer then carries only real outputs, and no correction is layered over the art. |
+
+**Unchanged at this commit:** #32, #34, **#35** (rooms absent on failed reads: Agents, Workflows, Registry), #36, #37, #38, #39, #40, #41, #42 (scope filters still live over a failed ledger).
+
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
