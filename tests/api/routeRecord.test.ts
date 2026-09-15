@@ -19,6 +19,52 @@ describe("routeRecordOf", () => {
       attempt: 2,
       modelId: "claude-sonnet-5",
       budgetFallback: null,
+      performance: null,
+    });
+  });
+
+  it("exposes the performance snapshot the Router consulted, as recorded, and a refused fallback's refusal", () => {
+    const historicalPerformance = {
+      consulted: true,
+      minSamples: 10,
+      rows: [
+        { tier: "CHEAP", sampleCount: 12, successRate: "0.25", avgCost: {}, eligibility: { eligible: true } },
+        { tier: "MID", sampleCount: 3, successRate: "1", avgCost: {}, eligibility: { eligible: false, reason: "insufficient_samples" } },
+      ],
+    };
+    expect(routeRecordOf("llm", { ...inputs, historicalPerformance, resultingTier: "CHEAP", resultingModelId: "m" }, undefined)!.performance).toEqual({
+      consulted: true,
+      reason: null,
+      rows: [
+        { tier: "CHEAP", sampleCount: 12, successRate: "0.25", eligible: true },
+        { tier: "MID", sampleCount: 3, successRate: "1", eligible: false },
+      ],
+    });
+    expect(routeRecordOf("llm", { ...inputs, historicalPerformance: { consulted: false, reason: "unbound_run" }, resultingTier: "CHEAP" }, undefined)!.performance).toEqual({
+      consulted: false,
+      reason: "unbound_run",
+      rows: [],
+    });
+
+    const failed = {
+      reason: "insufficient_budget",
+      routingDecision: {
+        ...inputs,
+        attemptedTier: "MID",
+        budgetAuthorization: { authorized: false, modelId: "m" },
+        budgetFallback: { outcome: "denied", attemptedOutcome: "downgraded", fromTier: "MID", fromTierSource: "escalation_floor", attemptedTier: "CHEAP", authorized: false, refusal: "resource_mismatch", contextBudgetFactor: 0.75, contextBudget: { maxInputTokens: 750 } },
+      },
+    };
+    expect(routeRecordOf("llm", undefined, failed)!.budgetFallback).toEqual({
+      outcome: "denied",
+      attemptedOutcome: "downgraded",
+      fromTier: "MID",
+      fromTierSource: "escalation_floor",
+      attemptedTier: "CHEAP",
+      authorized: false,
+      refusal: "resource_mismatch",
+      contextBudgetFactor: 0.75,
+      maxInputTokens: 750,
     });
   });
 

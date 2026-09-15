@@ -99,6 +99,28 @@ beforeAll(async () => {
     for (const reason of ["policy_denied", "insufficient_budget", "approval_expired", "interrupted_outcome_unknown", "reauthorization_failed", "resume_spec_mismatch", "execution_stopped"]) {
       await run(tx, await taskInstance(tx), ids.agentB, failed(reason));
     }
+    // Free-text reasons that are still not the agent's work, classified by errorCode (a pre-dispatch
+    // refusal, a provider refusal that consumed nothing, a context that did not fit its degraded budget,
+    // a database error) or by the step-failure prefix, and a Run failed with no Invocation failure.
+    for (const errorCode of [
+      "policy_denied_before_dispatch",
+      "reauthorization_failed_before_dispatch",
+      "approval_required_before_dispatch",
+      "pre_dispatch_check_failed",
+      "quota_exhausted",
+      "auth_expired",
+      "cli_unavailable",
+      "misconfigured",
+      "input_too_large",
+      "context_budget_exceeded",
+      "database_error",
+    ]) {
+      await run(tx, await taskInstance(tx), ids.agentB, [tier("GATED"), ["invocation_failed", { reason: `free text for ${errorCode}`, errorCode }], ["run_failed"]]);
+    }
+    await run(tx, await taskInstance(tx), ids.agentB, failed("execution_error: the step builder found ambiguous data"));
+    await run(tx, await taskInstance(tx), ids.agentB, [tier("GATED"), ["run_failed", { reason: "execution_error" }]]);
+    // A provider failure that may have consumed (timeout, validation) IS the agent's sample.
+    await run(tx, await taskInstance(tx), ids.agentB, [tier("GATED"), ["invocation_failed", { reason: "timed out", errorCode: "timeout" }], ["run_failed"]]);
     await run(tx, await taskInstance(tx), ids.agentB, failed("approval_rejected"));
     await run(tx, await taskInstance(tx), ids.agentB, failed("provider returned malformed output"));
     // A Run halted after another terminal event is still excluded.
@@ -120,7 +142,7 @@ describe("agent_performance", () => {
     expect(await rows()).toEqual([
       { agent: "A", tier: "CHEAP", samples: 2, successRate: 0.5, avgRetries: 1, avgCost: { usd: 0.03, subscription_tokens: 50 } },
       { agent: "A", tier: "none", samples: 1, successRate: 1, avgRetries: 0, avgCost: {} },
-      { agent: "B", tier: "GATED", samples: 2, successRate: 0, avgRetries: 0, avgCost: {} },
+      { agent: "B", tier: "GATED", samples: 3, successRate: 0, avgRetries: 0, avgCost: {} },
       { agent: "B", tier: "STRONG", samples: 1, successRate: 1, avgRetries: 0, avgCost: {} },
     ]);
 

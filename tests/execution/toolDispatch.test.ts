@@ -287,6 +287,8 @@ describe("the pre-effect re-check", () => {
       expect(execute).not.toHaveBeenCalled();
       expect(await failedPayload(tx, dispatch.invocationId)).toMatchObject({
         reason: expect.stringMatching(/policy_denied_before_dispatch/),
+        // A stable code, so the performance projector never parses the sentence.
+        errorCode: "policy_denied_before_dispatch",
         reservationSettlement: "released",
       });
       // The refused evaluation is still recorded: the check commits it before the Invocation fails.

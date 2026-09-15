@@ -221,18 +221,60 @@ export function routeToken(
  * (`denied at MID · tried CHEAP · context ×0.75 · input 75000 · authorized`). The API's values only.
  */
 export function budgetFallbackTitle(
-  fallback: { fromTier: string | null; attemptedTier: string | null; authorized: boolean | null; contextBudgetFactor: number | null; maxInputTokens: number | null } | null | undefined
+  fallback:
+    | {
+        fromTier: string | null;
+        attemptedTier: string | null;
+        authorized: boolean | null;
+        refusal?: string | null;
+        contextBudgetFactor: number | null;
+        maxInputTokens: number | null;
+      }
+    | null
+    | undefined
 ): string | undefined {
   if (!fallback) return undefined;
+  // A fallback refused before pricing (no candidate in the unit, a quota refusal) was never "denied" by the Governor.
+  const notPriced = fallback.authorized === false && fallback.refusal && fallback.refusal !== "insufficient_budget";
   return [
     fallback.fromTier ? `denied at ${fallback.fromTier}` : undefined,
-    fallback.attemptedTier ? `tried ${fallback.attemptedTier}` : undefined,
+    fallback.attemptedTier ? (notPriced ? `not tried at ${fallback.attemptedTier}: ${stateWord(fallback.refusal!)}` : `tried ${fallback.attemptedTier}`) : undefined,
     fallback.contextBudgetFactor !== null ? `context ×${fallback.contextBudgetFactor}` : undefined,
     fallback.maxInputTokens !== null ? `input ${fallback.maxInputTokens}` : undefined,
-    fallback.authorized === null ? undefined : fallback.authorized ? "authorized" : "denied",
+    fallback.authorized === null || notPriced ? undefined : fallback.authorized ? "authorized" : "denied",
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+/**
+ * The route's model and the performance it consulted, as a tooltip: `claude-sonnet-5`, or
+ * `claude-sonnet-5 (priced, not called)` for a refused route, then each consulted row
+ * (`MID 12 samples success 0.9 eligible`). The API's recorded values only.
+ */
+export function routeTitle(
+  route:
+    | {
+        resultingTier: string | null;
+        modelId: string | null;
+        performance?: { consulted: boolean; reason: string | null; rows: { tier: string | null; sampleCount: number | null; successRate: string | null; eligible: boolean | null }[] } | null;
+      }
+    | null
+    | undefined
+): string | undefined {
+  if (!route?.modelId) return undefined;
+  const model = route.resultingTier === null ? `${route.modelId} (priced, not called)` : route.modelId;
+  const p = route.performance;
+  const performance = !p
+    ? undefined
+    : !p.consulted
+      ? `performance not consulted${p.reason ? `: ${stateWord(p.reason)}` : ""}`
+      : p.rows.length === 0
+        ? "no performance rows"
+        : p.rows
+            .map((r) => [r.tier, r.sampleCount !== null ? `${r.sampleCount} samples` : undefined, r.successRate ? `success ${r.successRate}` : undefined, r.eligible === null ? "eligibility not recorded" : r.eligible ? "eligible" : "not eligible"].filter(Boolean).join(" "))
+            .join("; ");
+  return [model, performance].filter(Boolean).join(" · ");
 }
 
 /**

@@ -130,6 +130,7 @@ describe("authorizeRoute budget fallback", () => {
         budgetFallback: {
           outcome: "downgraded",
           fromTier: "MID",
+          fromTierSource: "default",
           attemptedTier: "CHEAP",
           authorized: true,
           contextBudgetFactor: 0.75,

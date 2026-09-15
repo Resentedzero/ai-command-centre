@@ -129,6 +129,7 @@ describe("Agent Detail", () => {
     expect(usage).toHaveTextContent("usd0.05 consumed · 0.05 reserved");
 
     expect(screen.getByTestId("agent-context")).toHaveTextContent("~180 of 1000 input tokens");
+    expect(screen.queryByTestId("agent-context-budget")).not.toBeInTheDocument();
     expect(screen.getByTestId("agent-context")).toHaveTextContent("excluded art-9: stale");
     expect(screen.getByRole("link", { name: /report · 42 bytes/ })).toHaveAttribute("href", "/artifacts/art-1");
     expect(screen.getByTestId("agent-events")).toHaveTextContent("approval required");
@@ -142,6 +143,16 @@ describe("Agent Detail", () => {
     expect(performance).toHaveTextContent("not enough samples · 3 of 10");
     expect(screen.getByText(/can steer the Model Router's tier choice/)).toBeInTheDocument();
     expect(screen.queryByText(/ranks and recommends nothing/)).not.toBeInTheDocument();
+  });
+
+  it("names a Context Budget the Budget Governor tightened, with the Task's own ceiling, and nothing otherwise", async () => {
+    api.getAgentDetail.mockResolvedValue({
+      ...base,
+      contextLineage: { ...base.contextLineage!, maxInputTokens: 900, effectiveMaxInputTokens: 750, budgetOutcome: "downgraded", taskMaxInputTokens: 1000 },
+    });
+    await renderPage();
+    expect(await screen.findByTestId("agent-context-budget")).toHaveTextContent("budget downgraded · task ceiling 1000 input tokens");
+    expect(screen.getByTestId("agent-context")).toHaveTextContent("~180 of 750 input tokens");
   });
 
   it("never claims no model calls: a missing context is said to be missing (#50)", async () => {

@@ -59,6 +59,35 @@ Only low-risk, non-destructive capabilities may be allowed automatically. Spendi
 
 **Tests.** `tests/router/budgetFallback.test.ts` (budget arithmetic; downgraded with its full record and one `budget_denied`; degraded at CHEAP; the risk floor and the escalation floor hold; denied after exactly two attempts with nothing reserved and no provider call; never a usd fallback from a subscription denial; the Executor compiles to the degraded budget and records it); `tests/router/tierPreference.test.ts` (a preferred tier's denial falls back once, never twice); `tests/router/modelRouter.test.ts`; `tests/api/budgetOutcome.test.ts` (each recorded outcome, kept after the call fails; unknown values read as authorized); `tests/api/routeRecord.test.ts`; `web/tests/keep.test.ts`, `web/tests/workflows.test.tsx`.
 
+## 3. Routing observability reconciled and V1 readiness fixes
+
+Three independent read-only reviews ran against `daa8d6e`: end-to-end V1 readiness, observability reconciliation (runtime record → read API → web type → UI), and cross-feature governance safety. No contradiction between records and UI was found, and no guarantee was broken (no silent provider switch, no retry route to a `usd` model, no unsettled reservation after a fallback). Acted on:
+
+**Performance projection pollution (confirmed).** The projector excluded non-agent failures only by exact `invocation_failed.reason`, but several are free text. Pre-dispatch tool refusals, provider refusals that consumed nothing (`quota_exhausted`, `auth_expired`, `cli_unavailable`, `misconfigured`, `input_too_large`), a context that did not fit its budget (including the Governor's 75% degrade), database errors and step build failures (`execution_error: …`) all counted against the agent, lowering the rate Conditional Autonomy and tier preference decide on. Now:
+- `toolDispatchRefusal` gives its three refusals a stable `code` (`policy_denied_before_dispatch`, `reauthorization_failed_before_dispatch`, `approval_required_before_dispatch`), recorded as `errorCode`; a pre-dispatch check that itself throws is `pre_dispatch_check_failed`.
+- The projector also excludes by `errorCode` (`NOT_AGENT_ERROR_CODES`), by the `execution_error:` prefix, and a Run failed with reason `execution_error`. A timeout or a validation failure still counts.
+- Residuals (review of this change): codes are matched as strings, so a future adapter that passes a remote service's snake_case code through (`misconfigured`, `input_too_large`) could exclude a failure that was the agent's; today's sources are the Claude adapter's fixed enum, Node's uppercase errno codes (rejected by `failureCode`) and OpenAI codes not in the list. And every step build or execution throw is excluded; a future deferred builder that parses a model's output would have that agent failure excluded too. A pre-dispatch check that throws a database error is recorded as `pre_dispatch_check_failed`, not `database_error` (both excluded).
+- Residual: events recorded before this change are classified by the same rules, so an old pre-dispatch refusal without `errorCode` still counts. A pre-dispatch check that fails on a transient database error still fails its Run permanently (fail closed, nothing spent), now excluded from samples.
+
+**Research output shape (plausible live blocker).** The research plan sent `{ report: "string" }` to the Claude CLI's `--json-schema`, which is not a JSON Schema (it names no type, so it constrains nothing, or the CLI rejects it). It now sends `REPORT_OUTPUT_SCHEMA` (`type: object`, `report: string`, required, no other properties). Every recorded live run used a real schema, but none used this one: **a live `claude -p` check of the seeded research step is still needed before dogfooding**, and was not run (no live calls in this work). The dev database's one failed Workflow Run failed on 2026-09-12 for a missing Anthropic API key, before subscription routing was the default; it is unrelated.
+
+**Observability gaps (confirmed).**
+- A budget downgrade overwrote why the denied tier was chosen: `budgetFallback.fromTierSource` now records it.
+- The performance snapshot behind a tier choice (`historicalPerformance`, recorded on the route) was never exposed: `route.performance` (consulted, reason, each row's tier, sample count, success rate, eligibility as recorded then) on the Workflow Run detail and trace, in the kind cell's tooltip (`routeTitle`).
+- A refused fallback that was never priced (no candidate in the unit) read as "denied": `route.budgetFallback` exposes `refusal` and `attemptedOutcome`, and the tooltip says "not tried at CHEAP: resource mismatch".
+- A refused route's tooltip showed a model that was never called: now "(priced, not called)".
+- Agent Detail showed a Governor-tightened ceiling as the Task's: `contextLineage` exposes `effectiveMaxInputTokens`, `budgetOutcome` and `taskMaxInputTokens`; the screen names the tightening and the Task ceiling.
+- The web `RunTrace` type lagged the API (`route`, `budgetOutcome`, binding and timestamps): synced. The trace screen still renders events only.
+
+**Recorded, not changed.**
+- **A retry re-incurs tool `usd` spend** (confirmed). "An automatic retry never spends money" is enforced for model routing only; a retry Run re-runs its tool step and reserves its `usd` estimate again (seeded: the synthetic `research.retrieve` at $0.01, three attempts at most, inside the $1.00 Task Instance ceiling). Blocking it would make retries of the seeded workflow fail at the tool step. An operator decision (ROADMAP §6).
+- **Conditional Autonomy is inert for the shipped plans** (§1 item 2): no real flow reaches its ALLOW or DENY branches until a plan runs a READ tool after a model call.
+- **A performance DENY does not recover by itself**: denied Runs are not samples, so the rate changes only with new samples or a new Agent Definition version. Fail closed.
+- **Downgraded and degraded calls share their resulting tier's row** (§2 interpretation 5b).
+- **V1 readiness gaps outside this work's scope**: Workflow 1 alone (Research → Report without publish) has no seeded Workflow Definition, so it runs only after creating one through the Registry API; the UI has no advance, pause, resume or non-agent stop controls (curl works; UI proposals are not authorized); no API-level test drives a budget denial, a downgrade, a stop, TTL expiry or Conditional Autonomy through the seeded workflow (each is proven at the Executor or Router level); an earlier attempt's route is not reachable from the UI.
+
+**Tests.** `tests/projections/agentPerformance.test.ts` (each excluded code, the prefix, a run-level `execution_error`, and a timeout still counted); `tests/execution/toolDispatch.test.ts` (`errorCode` on a pre-dispatch refusal); `tests/api/routeRecord.test.ts` (performance snapshot, refused fallback); `tests/router/budgetFallback.test.ts` (`fromTierSource`); `web/tests/keep.test.ts` (`routeTitle`, unpriced fallback), `web/tests/agentDetail.test.tsx` (tightened budget).
+
 ## Independent review of c747fa2 (Stage 1)
 
 No confirmed defects in fb00b76, 6e64cd5, 3bc6889 or c747fa2. Plausible findings acted on:

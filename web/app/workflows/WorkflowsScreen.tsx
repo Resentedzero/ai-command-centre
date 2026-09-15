@@ -15,7 +15,7 @@ import {
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
 import { WorldViewport, world } from "../../components/world/World";
-import { budgetFallbackTitle, countLabel, errorText, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeToken, stateWord } from "../../lib/keep";
+import { budgetFallbackTitle, countLabel, errorText, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeTitle, routeToken, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
 
 /**
@@ -414,7 +414,7 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                         <Fragment key={inv.id}>
                           <tr data-testid="invocation-row">
                             <td>{inv.seqNo}</td>
-                            <td data-testid="invocation-kind" title={inv.route?.modelId ?? undefined}>
+                            <td data-testid="invocation-kind" title={routeTitle(inv.route)}>
                               {inv.kind}
                               {routeToken(inv.route) && ` · ${routeToken(inv.route)}`}
                             </td>

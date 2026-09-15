@@ -15,7 +15,10 @@
  *   `run_completed` or `run_failed`, EXCEPT outcomes that are not the agent's:
  *   a Run with any `run_halted` (an operator's emergency stop), and a failed Run
  *   whose last `invocation_failed` reason is in NOT_AGENT_OUTCOMES (governance,
- *   budget, the operator not answering, a changed binding, a crash). Every other
+ *   budget, the operator not answering, a changed binding, a crash) or whose
+ *   `errorCode` is in NOT_AGENT_ERROR_CODES (a provider refusal that consumed
+ *   nothing, a context that did not fit, a database error, a pre-dispatch refusal),
+ *   and a Run whose step could not be built or executed (`execution_error`). Every other
  *   failure counts, including a human rejecting the work and any reason not listed:
  *   an unrecognized reason lowers the rate, which can never widen autonomy.
  * - Group: (Agent Definition id, version, Task Definition id, model tier).
@@ -68,6 +71,31 @@ const NOT_AGENT_OUTCOMES = [
 ];
 const NOT_AGENT_OUTCOMES_SQL = sql.raw(NOT_AGENT_OUTCOMES.map((reason) => `'${reason}'`).join(", "));
 
+/**
+ * `invocation_failed.errorCode` values that are not the agent's work, for failures whose
+ * `reason` is free text (added 2026-09-15 after a cross-feature review): a provider refusal
+ * that consumed nothing (`claudeSubscription.ts` NO_CONSUMPTION_CODES), a context that did not
+ * fit its (possibly Governor-degraded) budget, a database error, and the pre-dispatch
+ * refusals (`executor.ts#toolDispatchRefusal`, `advanceWorkflowRunUntilBlocked.ts`). A step
+ * that could not be built or executed (`execution_error: …`) is excluded by its prefix.
+ * Without these, an operator's Policy change, a provider outage or a budget shortage lowered
+ * the rate Conditional Autonomy and tier preference decide on.
+ */
+const NOT_AGENT_ERROR_CODES = [
+  "cli_unavailable",
+  "misconfigured",
+  "input_too_large",
+  "auth_expired",
+  "quota_exhausted",
+  "context_budget_exceeded",
+  "database_error",
+  "policy_denied_before_dispatch",
+  "reauthorization_failed_before_dispatch",
+  "approval_required_before_dispatch",
+  "pre_dispatch_check_failed",
+];
+const NOT_AGENT_ERROR_CODES_SQL = sql.raw(NOT_AGENT_ERROR_CODES.map((code) => `'${code}'`).join(", "));
+
 export async function refreshAgentPerformance(tx: DrizzleTransaction): Promise<void> {
   // One refresh at a time; readers keep seeing the previous rows until commit.
   await tx.execute(sql`select pg_advisory_xact_lock(${LOCK_CLASS_ID}::int, hashtext('projection:agent_performance'))`);
@@ -99,12 +127,22 @@ export async function refreshAgentPerformance(tx: DrizzleTransaction): Promise<v
       WHERE NOT EXISTS (SELECT 1 FROM events h WHERE h.run_id = r.id AND h.event_type = 'run_halted')
         AND NOT (
           t.event_type = 'run_failed'
-          AND COALESCE(
-            (SELECT f.payload->>'reason' FROM events f
-             WHERE f.run_id = r.id AND f.event_type = 'invocation_failed'
-             ORDER BY f.sequence_no DESC LIMIT 1),
-            ''
-          ) IN (${NOT_AGENT_OUTCOMES_SQL})
+          AND (
+            EXISTS (
+              SELECT 1 FROM (
+                SELECT f.payload->>'reason' AS reason, f.payload->>'errorCode' AS code FROM events f
+                WHERE f.run_id = r.id AND f.event_type = 'invocation_failed'
+                ORDER BY f.sequence_no DESC LIMIT 1
+              ) last_failure
+              WHERE last_failure.reason IN (${NOT_AGENT_OUTCOMES_SQL})
+                 OR last_failure.code IN (${NOT_AGENT_ERROR_CODES_SQL})
+                 OR last_failure.reason LIKE 'execution_error:%'
+            )
+            OR EXISTS (
+              SELECT 1 FROM events rf
+              WHERE rf.run_id = r.id AND rf.event_type = 'run_failed' AND rf.payload->>'reason' = 'execution_error'
+            )
+          )
         )
         AND r.agent_definition_id IS NOT NULL
         AND r.agent_definition_version IS NOT NULL

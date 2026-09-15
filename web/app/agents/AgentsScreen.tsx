@@ -265,9 +265,15 @@ function AgentBoard({
               {ctx.intent && <div>intent: {ctx.intent}</div>}
               <div>
                 {ctx.estimatedInputTokens !== null && ctx.maxInputTokens !== null
-                  ? `~${ctx.estimatedInputTokens} of ${ctx.maxInputTokens} input tokens`
+                  ? `~${ctx.estimatedInputTokens} of ${ctx.effectiveMaxInputTokens ?? ctx.maxInputTokens} input tokens`
                   : "input token estimate not recorded"}
               </div>
+              {/* The Budget Governor tightened this call's Context Budget; the Task's own ceiling is named, never implied. */}
+              {ctx.budgetOutcome && ctx.taskMaxInputTokens != null && (
+                <div data-testid="agent-context-budget">
+                  budget {stateWord(ctx.budgetOutcome)} · task ceiling {ctx.taskMaxInputTokens} input tokens
+                </div>
+              )}
               {tiers.map((t) => (
                 <div key={t}>
                   tier {t}: {ctx.included.filter((i) => i.tier === t).length} included

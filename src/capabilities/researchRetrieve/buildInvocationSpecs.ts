@@ -102,6 +102,14 @@ export type BuilderParams = {
   input: Record<string, unknown>;
 };
 
+/** The synthesis step's required output: one object with a string `report`. */
+export const REPORT_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: { report: { type: "string" } },
+  required: ["report"],
+  additionalProperties: false,
+} as const satisfies Record<string, unknown>;
+
 /** seqNo 1: the Capability's current Tool Binding decides what runs (`../toolAdapters.ts`). */
 async function buildToolSpec(tx: DrizzleTransaction, config: ResearchReportBuilderConfig): Promise<ToolInvocationSpec> {
   return await resolveToolInvocation(tx, {
@@ -137,7 +145,9 @@ function buildLlmSpec(config: ResearchReportBuilderConfig, ctx: InvocationSpecCo
     contextBudget: config.contextBudget,
     taskDifficulty: "simple",
     riskTier: "low",
-    expectedOutputShape: { report: "string" },
+    // A JSON Schema, not an informal shape: the Claude CLI adapter passes it to `--json-schema`,
+    // where `{ report: "string" }` names no type and would constrain nothing.
+    expectedOutputShape: REPORT_OUTPUT_SCHEMA,
   };
 }
 

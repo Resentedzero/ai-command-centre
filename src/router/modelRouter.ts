@@ -536,6 +536,8 @@ export async function authorizeRoute(
     const fallbackRecord = {
       outcome: fallbackOutcome,
       fromTier: tier,
+      // Why the denied tier had been chosen; a downgrade records `budget_downgrade` as the route's source.
+      fromTierSource: tierSource,
       attemptedTier: fallbackTier,
       contextBudgetFactor: BUDGET_FALLBACK_CONTEXT_FACTOR,
       contextBudget: fallbackBudget,

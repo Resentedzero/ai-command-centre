@@ -1036,18 +1036,29 @@ export async function toolDispatchRefusal(tx: DrizzleTransaction, dispatch: Pend
     },
   });
   if (decision === "DENY") {
-    return new Error("tool dispatch refused: Policy now denies this action (policy_denied_before_dispatch).");
+    return dispatchRefusal("tool dispatch refused: Policy now denies this action (policy_denied_before_dispatch).", "policy_denied_before_dispatch");
   }
 
   const approval = await tx.query.approvals.findFirst({ where: eq(approvals.invocationId, dispatch.invocationId) });
   if (approval) {
     if (approval.status !== "approved" || !(await reauthorize(tx, dispatch.invocationId))) {
-      return new Error("tool dispatch refused: the Approval no longer authorizes this action (reauthorization_failed_before_dispatch).");
+      return dispatchRefusal(
+        "tool dispatch refused: the Approval no longer authorizes this action (reauthorization_failed_before_dispatch).",
+        "reauthorization_failed_before_dispatch"
+      );
     }
   } else if (decision !== "ALLOW") {
-    return new Error("tool dispatch refused: this action now requires an Approval it does not have (approval_required_before_dispatch).");
+    return dispatchRefusal(
+      "tool dispatch refused: this action now requires an Approval it does not have (approval_required_before_dispatch).",
+      "approval_required_before_dispatch"
+    );
   }
   return null;
+}
+
+/** A pre-dispatch refusal carrying a stable `code`, recorded as `errorCode` so no reader parses the sentence. */
+function dispatchRefusal(message: string, code: string): Error {
+  return Object.assign(new Error(message), { code });
 }
 
 /**

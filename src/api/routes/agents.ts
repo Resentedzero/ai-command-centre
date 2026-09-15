@@ -290,6 +290,11 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
           estimatedInputTokens:
             typeof lineagePayload.estimatedInputTokens === "number" ? lineagePayload.estimatedInputTokens : null,
           maxInputTokens: typeof lineagePayload.maxInputTokens === "number" ? lineagePayload.maxInputTokens : null,
+          // The ceiling the Compiler packed to (the budget capped at the model's window).
+          effectiveMaxInputTokens: typeof lineagePayload.effectiveMaxInputTokens === "number" ? lineagePayload.effectiveMaxInputTokens : null,
+          // Set only when the Budget Governor tightened the Task's Context Budget for this call.
+          budgetOutcome: typeof lineagePayload.budgetOutcome === "string" ? lineagePayload.budgetOutcome : null,
+          taskMaxInputTokens: typeof lineagePayload.taskMaxInputTokens === "number" ? lineagePayload.taskMaxInputTokens : null,
           included: Array.isArray(lineagePayload.included) ? lineagePayload.included : [],
           excluded: Array.isArray(lineagePayload.excluded) ? lineagePayload.excluded : [],
         }

@@ -1,6 +1,6 @@
 /** Presentation mappings in lib/keep: character identity (#54) and amount display (#45). */
 import { describe, expect, it } from "vitest";
-import { budgetFallbackTitle, characterFor, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeToken } from "../lib/keep";
+import { budgetFallbackTitle, characterFor, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeTitle, routeToken } from "../lib/keep";
 
 describe("route and budget fallback presentation", () => {
   it("names a budget downgrade as the tier's source, and never drops a source it does not know", () => {
@@ -14,6 +14,26 @@ describe("route and budget fallback presentation", () => {
       "denied at MID · tried CHEAP · context ×0.75 · input 75000 · authorized"
     );
     expect(budgetFallbackTitle(null)).toBeUndefined();
+    // Refused before pricing: never called a denial by the Governor.
+    expect(
+      budgetFallbackTitle({ fromTier: "MID", attemptedTier: "CHEAP", authorized: false, refusal: "resource_mismatch", contextBudgetFactor: 0.75, maxInputTokens: 750 })
+    ).toBe("denied at MID · not tried at CHEAP: resource mismatch · context ×0.75 · input 750");
+    expect(
+      budgetFallbackTitle({ fromTier: "MID", attemptedTier: "CHEAP", authorized: false, refusal: "insufficient_budget", contextBudgetFactor: 0.75, maxInputTokens: 750 })
+    ).toBe("denied at MID · tried CHEAP · context ×0.75 · input 750 · denied");
+  });
+
+  it("titles a route with its model (qualified when never called) and the performance it consulted", () => {
+    const performance = { consulted: true, reason: null, rows: [{ tier: "MID", sampleCount: 12, successRate: "0.9", eligible: true }] };
+    expect(routeTitle({ resultingTier: "MID", modelId: "claude-sonnet-5", performance })).toBe("claude-sonnet-5 · MID 12 samples success 0.9 eligible");
+    expect(routeTitle({ resultingTier: null, modelId: "claude-sonnet-5", performance: { consulted: false, reason: "unbound_run", rows: [] } })).toBe(
+      "claude-sonnet-5 (priced, not called) · performance not consulted: unbound run"
+    );
+    expect(routeTitle({ resultingTier: "MID", modelId: null })).toBeUndefined();
+    // A row recorded without eligibility is not called ineligible.
+    expect(routeTitle({ resultingTier: "MID", modelId: "m", performance: { consulted: true, reason: null, rows: [{ tier: "MID", sampleCount: 2, successRate: "1", eligible: null }] } })).toBe(
+      "m · MID 2 samples success 1 eligibility not recorded"
+    );
   });
 });
 

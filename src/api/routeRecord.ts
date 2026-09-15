@@ -28,11 +28,26 @@ export type RouteRecord = {
   modelId: string | null;
   budgetFallback: {
     outcome: string | null;
+    /** On a refused fallback: what the attempt would have been (`downgraded` / `degraded`). */
+    attemptedOutcome: string | null;
     fromTier: string | null;
+    fromTierSource: string | null;
     attemptedTier: string | null;
     authorized: boolean | null;
+    /** On a refused fallback: `insufficient_budget` (priced and denied) or why no candidate was tried. */
+    refusal: string | null;
     contextBudgetFactor: number | null;
     maxInputTokens: number | null;
+  } | null;
+  /**
+   * The measured performance the Router consulted when it chose the tier (`historicalPerformance`,
+   * recorded at the time): each row's tier, sample count, success rate and eligibility, or why
+   * nothing was consulted. Null on routes that recorded no snapshot.
+   */
+  performance: {
+    consulted: boolean;
+    reason: string | null;
+    rows: { tier: string | null; sampleCount: number | null; successRate: string | null; eligible: boolean | null }[];
   } | null;
 };
 
@@ -47,13 +62,32 @@ export function routeRecordOf(kind: string, startedPayload: unknown, failedPaylo
   const source = "resultingTier" in started ? started : "attemptedTier" in refused ? refused : null;
   if (!source) return null;
   const fallback = "budgetFallback" in source ? record(source.budgetFallback) : null;
+  const snapshot = "historicalPerformance" in source ? record(source.historicalPerformance) : null;
   return {
+    performance: snapshot
+      ? {
+          consulted: snapshot.consulted === true,
+          reason: text(snapshot.reason),
+          rows: (Array.isArray(snapshot.rows) ? snapshot.rows : []).map((value) => {
+            const row = record(value);
+            return {
+              tier: text(row.tier),
+              sampleCount: typeof row.sampleCount === "number" ? row.sampleCount : null,
+              successRate: text(row.successRate),
+              eligible: typeof record(row.eligibility).eligible === "boolean" ? (record(row.eligibility).eligible as boolean) : null,
+            };
+          }),
+        }
+      : null,
     budgetFallback: fallback
       ? {
           outcome: text(fallback.outcome),
+          attemptedOutcome: text(fallback.attemptedOutcome),
           fromTier: text(fallback.fromTier),
+          fromTierSource: text(fallback.fromTierSource),
           attemptedTier: text(fallback.attemptedTier),
           authorized: typeof fallback.authorized === "boolean" ? fallback.authorized : null,
+          refusal: text(fallback.refusal),
           contextBudgetFactor: typeof fallback.contextBudgetFactor === "number" ? fallback.contextBudgetFactor : null,
           maxInputTokens: typeof record(fallback.contextBudget).maxInputTokens === "number" ? (record(fallback.contextBudget).maxInputTokens as number) : null,
         }

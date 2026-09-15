@@ -139,7 +139,10 @@ async function refusalBeforeDispatch(
   try {
     refusal = await runInTx(check);
   } catch (error) {
+    // The check itself failed (a database error, a failed stop lookup): nothing was attempted.
+    // Named as such, so the failure is never read as the agent's.
     refusal = error instanceof Error ? error : new Error(String(error));
+    Object.assign(refusal, { code: "pre_dispatch_check_failed" });
   }
   return refusal === null ? null : { ok: false, error: Object.assign(refusal, { consumption: "none" as const }) };
 }

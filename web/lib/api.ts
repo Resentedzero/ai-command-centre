@@ -238,11 +238,20 @@ export type RouteRecord = {
   /** The Budget Governor's one fallback after the routed tier was denied; null when none happened. Absent from older API builds. */
   budgetFallback?: {
     outcome: string | null;
+    attemptedOutcome?: string | null;
     fromTier: string | null;
+    fromTierSource?: string | null;
     attemptedTier: string | null;
     authorized: boolean | null;
+    refusal?: string | null;
     contextBudgetFactor: number | null;
     maxInputTokens: number | null;
+  } | null;
+  /** The performance rows the Router consulted when it routed, as recorded then. Absent from older API builds. */
+  performance?: {
+    consulted: boolean;
+    reason: string | null;
+    rows: { tier: string | null; sampleCount: number | null; successRate: string | null; eligible: boolean | null }[];
   } | null;
 };
 
@@ -425,6 +434,11 @@ export type AgentDetail = {
     intent: string | null;
     estimatedInputTokens: number | null;
     maxInputTokens: number | null;
+    /** The ceiling the Compiler packed to. Absent from older API builds. */
+    effectiveMaxInputTokens?: number | null;
+    /** Set only when the Budget Governor tightened the Task's Context Budget (`downgraded` / `degraded`). */
+    budgetOutcome?: string | null;
+    taskMaxInputTokens?: number | null;
     included: { id: string; tier: number }[];
     excluded: { id: string; reason: string }[];
   } | null;
@@ -619,17 +633,32 @@ export async function getCosts(scope?: string): Promise<CostsData> {
 // ---------------------------------------------------------------------------
 
 export type RunTrace = {
-  run: { id: string; status: string; startedAt: string; completedAt: string | null };
+  run: {
+    id: string;
+    status: string;
+    startedAt: string;
+    completedAt: string | null;
+    taskInstanceId?: string;
+    agentDefinitionId?: string | null;
+    agentDefinitionVersion?: number | null;
+  };
   events: { eventId: string; eventType: string; occurredAt: string; sequenceNo: number; actor: string; payload: Record<string, unknown> }[];
   invocations: {
     id: string;
     seqNo: number;
     kind: string;
     status: string;
+    capabilityId?: string | null;
     permission: string | null;
+    toolBindingId?: string | null;
+    startedAt?: string;
+    completedAt?: string | null;
     contextLineage: unknown;
     /** Every Policy evaluation, in sequence order (tool Invocations only). Absent from older API builds. */
     policyEvaluations?: PolicyDecisionRecord[];
+    /** The same fields as the Workflow Run detail's Invocations. Absent from older API builds. */
+    budgetOutcome?: InvocationDetail["budgetOutcome"];
+    route?: RouteRecord | null;
   }[];
 };
 
