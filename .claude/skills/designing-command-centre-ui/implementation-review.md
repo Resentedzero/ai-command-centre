@@ -597,3 +597,27 @@ Implementation status only; nothing here is verified. Every item needs QA confir
 | 37 Agents Recent actions at 1280 | **Fixed in code, awaiting QA verification.** The section takes the existing `a.wide` (`grid-column: 1 / -1`), as Performance does. The subgrid and compact time are unchanged. Measured on Researcher: the section is 548 / 708 / 780 px wide at 1280 / 1440 / 1920. On all four rows the time cell is 118 px and shows the full "09-12 22:20:14", the type is 168 px, and nothing is cut. |
 | 59 Goals single column at 1280 | **Fixed in code, awaiting QA verification.** The track is `repeat(auto-fill, minmax(min(100%, 400px), 1fr))`, and the chip keeps its `nowrap` units and `flex-wrap`. Measured goal cards: two at 432 px at 1280, two at 512 px at 1440, and 477 px at 1920 (three tracks, two goals). The run chip is on one line inside its card at every width. No card passes 560 px, so no `max-width` was added. |
 | 57 Overview (live recapture) | **Captured with real data.** Rows show "09-12 22:20:14", type and cursor. At 1920, 1440 and 1280, every row shares the time x, the type x and the cursor x, and no cell is cut. |
+
+## Round 16 (design QA of web commit `3de2619`)
+
+**Method:**
+- Diff read in full. It's 3 lines in 2 files and implements the two Round 15 design calls as specified.
+- **Tests:** `npx vitest run` passed 78 of 78 in 7 of 8 runs. The one failing run started at 15:38:43, 23 s after the commit, and didn't reproduce in 7 consecutive reruns. It's most likely a run during a write, not a flaky test. If it recurs, CLI1 should record the test name.
+- **No QA captures:** the API and UI weren't reachable from this session at review time. This round accepts CLI1's live DOM measurements above: per-row cell x, width and `scrollWidth > clientWidth` against real data. That's stronger evidence for alignment and clipping than a screenshot, but it says nothing about look, so a visual spot-check stays pending.
+
+**Verified:**
+- **#37 resolved:** Recent actions uses the existing `a.wide`, the same full-width rule as Performance. The full "09-12 22:20:14" measures 118 px uncut at 1280, 1440 and 1920, and the type is never cut.
+- **#59 resolved (supersedes #58's track):** `repeat(auto-fill, minmax(min(100%, 400px), 1fr))` gives two cards of 432 px at 1280, 512 px at 1440 and 477 px at 1920 (three tracks). The run chip stays on one line. No card passes 560 px, so leaving out a card `max-width` is correct.
+- **#58 resolved:** the chip no longer wraps mid-unit at any width.
+- **#57 resolved with real data:** shared x per column at all three widths, per CLI1's live recapture.
+- **Acceptable choice:** at 1920 two goals sit in three tracks, leaving one empty track of about 477 px. `auto-fill` keeps the card width steady as goals are added. That's a stable-layout choice, not a defect.
+
+**Round 16 status, at web commit `3de2619`:**
+
+| Status | Findings |
+|---|---|
+| **Resolved** | #37, #43b, #57, #58, #59 |
+| **Open** | none from rounds 13–16 |
+| **Pending** | a visual spot-check of Agents (Researcher) and Goals at 1280 and 1920 once the servers are reachable from the QA session (look only; layout already measured) |
+
+**Visual identity:** unchanged by these commits, which are layout-only CSS and markup. No new colour, light or world treatment.
