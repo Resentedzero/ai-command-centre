@@ -337,4 +337,25 @@ CLI1 worked through this review. Verified in the committed tree:
 
 **Unchanged at this commit:** #32, #34, **#35** (rooms absent on failed reads: Agents, Workflows, Registry), #36, #37, #38, #39, #40, #41, #42 (scope filters still live over a failed ledger).
 
+## Round 13 (2026-09-15): real data, after the API restart (web at `ea547f5`)
+
+**Live data at capture:**
+- **Registry:** Publisher v1 and Researcher v1, 2 capabilities with 2 grants, 2 task definitions, 1 workflow definition.
+- **Goals:** 1 project ("Research Workflow") with 2 goals and 1 failed workflow run.
+- **Costs:** 1 run-scope counter in usd.
+- **Currently:** no active agents, no stops, no pending approvals.
+
+**Confirmed with real data:**
+- **#18:** with nothing running, the Overview board lists "Publisher v1" and "Researcher v1" with a neutral "no active run".
+- **#14:** `/agents` opens the first definition's 4× workshop (Publisher) instead of an empty pane.
+- **#13:** the key is 64 px (4×) with tag "1", matching the "Key 1 · publish.report" card.
+- **Overview:**
+  - plaques show real values in neutral tones ("2 goals", "0 in progress", "0 pending");
+  - the workshops are unlit with no actors while nothing runs;
+  - Recent events show their cursors (#1–#4).
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 44 | Medium | `components/world/workshop.module.css` `.closeup` / `.room` (Agents, Registry at 1920) | The 768 × 640 room sits centred in a world column about 940 px tall, leaving about 200 px of solid void above it and 150 px below. The void reads as letterboxing, not as part of the keep, and makes the hero room look like a pasted thumbnail. | Size the column to the room: `align-self: start; height: 644px` (room plus bevel) on wide screens, and let the board use the full height. Or keep the height and continue the keep around the room: tile the stone-wall strip above and the hall floor below (from `keep-v4-2x.png`), dimmed by the night layer. Don't scale the room fractionally. |
+
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
