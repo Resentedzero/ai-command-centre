@@ -1,0 +1,172 @@
+/* Long reading sits on dark vellum (visual-language.md "Reading surfaces"): JetBrains Mono label text, Pixelify titles. */
+
+.document {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  font: 15px/24px var(--font-mono), monospace;
+  max-width: 920px;
+}
+
+.untrusted {
+  border-color: var(--state-fail);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.title {
+  margin: 0;
+  font: 32px/40px var(--font-pixel), monospace;
+  color: var(--pixel-label);
+}
+
+.basis {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-left: 4px solid var(--pixel-wood-edge);
+  color: var(--pixel-label-dim);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.sectionTitle {
+  margin: 0;
+  font: 20px/28px var(--font-pixel), monospace;
+  color: var(--pixel-label);
+}
+
+.sources {
+  margin: 0;
+  padding-left: var(--space-xl);
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown pre,
+.markdown table,
+.markdown blockquote {
+  margin: 0 0 var(--space-md);
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-family: var(--font-pixel), monospace;
+  color: var(--pixel-label);
+  margin: var(--space-lg) 0 var(--space-sm);
+}
+.markdown h1 {
+  font-size: 28px;
+  line-height: 36px;
+}
+.markdown h2 {
+  font-size: 24px;
+  line-height: 32px;
+}
+.markdown h3 {
+  font-size: 20px;
+  line-height: 28px;
+}
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: 16px;
+  line-height: 24px;
+}
+.markdown ul,
+.markdown ol {
+  padding-left: var(--space-xl);
+}
+.markdown li + li {
+  margin-top: var(--space-2xs);
+}
+.markdown strong {
+  color: var(--pixel-label);
+}
+.markdown a {
+  color: var(--pixel-label);
+}
+.markdown code {
+  font: 14px/22px var(--font-mono), monospace;
+  background: var(--pixel-wood-dark);
+  padding: 0 var(--space-xs);
+}
+.markdown pre {
+  background: var(--pixel-wood-dark);
+  border: 2px solid var(--pixel-wood-edge);
+  padding: var(--space-sm) var(--space-md);
+  overflow-x: auto;
+}
+.markdown pre code {
+  padding: 0;
+}
+.markdown blockquote {
+  border-left: 4px solid var(--pixel-wood-edge);
+  padding-left: var(--space-md);
+  color: var(--pixel-label-dim);
+}
+.markdown table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.markdown th,
+.markdown td {
+  border: 2px solid var(--pixel-wood-edge);
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  vertical-align: top;
+}
+.markdown th {
+  background: var(--pixel-wood-dark);
+  color: var(--pixel-label);
+}
+.markdown hr {
+  border: 0;
+  border-top: 2px solid var(--pixel-wood-edge);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.tab {
+  font: 16px/20px var(--font-pixel), monospace;
+  color: var(--pixel-label-dim);
+  background: var(--pixel-wood-dark);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+  padding: 4px 14px;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--pixel-label);
+}
+/* Selection is a cream edge, never a state colour. */
+.tab[aria-selected="true"] {
+  color: var(--pixel-label);
+  background: var(--pixel-wood);
+  border-color: var(--pixel-label);
+}

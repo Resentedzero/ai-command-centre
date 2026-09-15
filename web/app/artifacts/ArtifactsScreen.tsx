@@ -8,7 +8,12 @@ import { AgentRoster, useAgentRoster } from "../../components/agents/roster";
 import { PixelButton, RefreshNotice, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
 import { countLabel, errorText, formatTime } from "../../lib/keep";
+import { DOCUMENT_TYPES, basisLine, parseDeliverable } from "../../lib/deliverable";
+import { DocumentView } from "../../components/deliverable/DocumentView";
+import ds from "../../components/deliverable/deliverable.module.css";
 import s from "./artifacts.module.css";
+
+type View = "document" | "evidence" | "raw";
 
 type Output = AgentDetail["outputs"][number];
 
@@ -140,6 +145,39 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
   const hrefFor = (artifactId: string) => `/artifacts/${artifactId}${agentId ? `?agent=${agentId}` : ""}`;
   const a = artifact?.artifact;
   const mismatch = a?.contentHashMatches === false;
+
+  // Document-like Artifacts open as a readable document (their whole content is read);
+  // provenance and the stored bytes are secondary views of the same immutable Artifact.
+  const isDocument = a ? DOCUMENT_TYPES.has(a.type) : false;
+  const [view, setView] = useState<View | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
+  useEffect(() => {
+    setView(null);
+    setVerifiedAt(null);
+  }, [id]);
+  useEffect(() => {
+    if (isDocument && content === undefined && !contentLoading && !contentError) void readAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDocument, content, contentLoading, contentError]);
+  const activeView: View = view ?? (isDocument ? "document" : "raw");
+  const doc = a ? parseDeliverable(a.type, content) : null;
+
+  /** Re-reads the Artifact: the API recomputes the hash over the stored bytes. */
+  async function verify() {
+    if (!id) return;
+    setVerifying(true);
+    try {
+      const d = await getArtifact(id, true);
+      setArtifact(d);
+      setContent(d.artifact.content ?? null);
+      setVerifiedAt(new Date().toISOString());
+    } catch (err) {
+      setContentError(errorText(err));
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   return (
     <main className={s.screen}>
@@ -273,7 +311,70 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
         </div>
 
         {a && artifact && (
+          <div role="tablist" aria-label="Artifact views" className={ds.tabs}>
+            {(isDocument ? (["document", "evidence", "raw"] as const) : (["raw", "evidence"] as const)).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="tab"
+                className={ds.tab}
+                aria-selected={activeView === v}
+                onClick={() => setView(v)}
+              >
+                {v === "document" ? "Document" : v === "evidence" ? "Evidence" : "Raw"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {a && artifact && activeView === "document" && (
+          <section aria-label="Document" className={s.reading}>
+            {mismatch && <p className={s.untrustedNote}>Untrusted: this content does not match its stored hash.</p>}
+            {doc ? (
+              <DocumentView doc={doc} fallbackTitle={artifact.producedBy?.goal?.title ?? null} untrusted={mismatch} />
+            ) : content === undefined || contentLoading ? (
+              <StateNotice role="status" message={<Skeleton label="loading the document" />} />
+            ) : contentError ? (
+              <StateNotice role="alert" message="Couldn't load the document." detail={contentError} action={<PixelButton onClick={() => void readAll()}>Retry</PixelButton>} />
+            ) : (
+              <StateNotice message="This content isn't a readable document." detail="Its stored form is in Raw." action={<PixelButton onClick={() => setView("raw")}>Show raw</PixelButton>} />
+            )}
+          </section>
+        )}
+
+        {a && artifact && activeView === "evidence" && (
           <div className={s.panels}>
+            <section className={cx(px.parchment, s.produced)} aria-label="Integrity" data-testid="integrity">
+              <div className={px.label}>Integrity</div>
+              <dl className={px.kv}>
+                <dt>artifact</dt>
+                <dd className={s.hash}>{a.id}</dd>
+                <dt>version</dt>
+                <dd>{a.version}</dd>
+                <dt>sha256</dt>
+                <dd className={s.hash}>{a.hash}</dd>
+                <dt>storage</dt>
+                <dd>{a.storedInline ? `inline in the database · ${a.size} bytes` : `not inline · ${a.size} bytes`}</dd>
+                <dt>created</dt>
+                <dd>{formatTime(a.createdAt)}</dd>
+              </dl>
+              <div className={s.row}>
+                <PixelButton onClick={() => void verify()} disabled={verifying}>
+                  Verify integrity
+                </PixelButton>
+                {verifiedAt && (
+                  <span data-testid="verified">
+                    {a.contentHashMatches === false
+                      ? `Checked ${formatTime(verifiedAt)}: the stored bytes do not match the hash.`
+                      : a.contentHashMatches === null
+                        ? `Checked ${formatTime(verifiedAt)}: nothing inline to hash.`
+                        : `Checked ${formatTime(verifiedAt)}: the stored bytes match the hash.`}
+                  </span>
+                )}
+              </div>
+              <p className={px.detail}>The API recomputes sha256 over the stored bytes on every read; the artifact itself can never be changed.</p>
+            </section>
+
             <section className={cx(px.parchment, s.produced)} aria-label="Produced by" data-testid="produced-by">
               <div className={px.label}>Produced by</div>
               {!artifact.producedBy ? (
@@ -312,10 +413,65 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
                   <dd>
                     {artifact.producedBy.invocation.kind} #{artifact.producedBy.invocation.seqNo}
                   </dd>
+                  <dt>run</dt>
+                  <dd className={s.hash}>{artifact.producedBy.runId}</dd>
                 </dl>
               )}
             </section>
 
+            {doc && (doc.basis || doc.sources.length > 0) && (
+              <section className={cx(px.parchment, s.produced)} aria-label="Sources" data-testid="sources">
+                <div className={px.label}>Sources</div>
+                {doc.basis && <p>{basisLine(doc.basis)}</p>}
+                {doc.basis && doc.basis.evidence.length > 0 && (
+                  <dl className={px.kv}>
+                    {doc.basis.evidence.map((e) => (
+                      <div key={`${e.capability}-${e.evidenceClass}`} style={{ display: "contents" }}>
+                        <dt>{e.capability}</dt>
+                        <dd>
+                          {e.evidenceClass} · {e.calls} {e.calls === 1 ? "call" : "calls"}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {doc.sources.length === 0 ? (
+                  <p>The document cites no sources.</p>
+                ) : (
+                  <ol>
+                    {doc.sources.map((src, i) => (
+                      <li key={i}>
+                        {src.label}
+                        {src.origin ? ` · ${src.origin}` : ""}
+                        {src.ref ? ` · ${src.ref}` : ""}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
+            )}
+
+            <section className={s.referenced} aria-label="Referenced by">
+              <span className={px.tab}>Referenced by</span>
+              {artifact.referencedBy.length === 0 ? (
+                <p className={px.dim}>No compiled context has included this artifact.</p>
+              ) : (
+                <ol className={cx(px.vellum, s.refs)} data-testid="referenced-by">
+                  {artifact.referencedBy.map((r, i) => (
+                    <li key={`${r.invocationId ?? "none"}-${i}`}>
+                      <span className={px.dim}>{formatTime(r.occurredAt)}</span> {shown(r.kind)} · tier {shown(r.tier)} · version {shown(r.version)}
+                      {typeof r.hash === "string" && <span className={px.dim}> · {r.hash.slice(0, 12)}…</span>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {artifact.referencedByTruncated && <p className={px.detail}>Only the newest references are shown.</p>}
+            </section>
+          </div>
+        )}
+
+        {a && artifact && activeView === "raw" && (
+          <div className={s.panels}>
             <section className={s.reading} aria-label="Content">
               <span className={px.tab}>{content !== undefined ? "Full content" : "Preview"}</span>
               {mismatch && <p className={s.untrustedNote}>Untrusted: this content does not match its stored hash.</p>}
@@ -350,23 +506,6 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
                   Couldn&apos;t load the full content. {contentError}
                 </p>
               )}
-            </section>
-
-            <section className={s.referenced} aria-label="Referenced by">
-              <span className={px.tab}>Referenced by</span>
-              {artifact.referencedBy.length === 0 ? (
-                <p className={px.dim}>No compiled context has included this artifact.</p>
-              ) : (
-                <ol className={cx(px.vellum, s.refs)} data-testid="referenced-by">
-                  {artifact.referencedBy.map((r, i) => (
-                    <li key={`${r.invocationId ?? "none"}-${i}`}>
-                      <span className={px.dim}>{formatTime(r.occurredAt)}</span> {shown(r.kind)} · tier {shown(r.tier)} · version {shown(r.version)}
-                      {typeof r.hash === "string" && <span className={px.dim}> · {r.hash.slice(0, 12)}…</span>}
-                    </li>
-                  ))}
-                </ol>
-              )}
-              {artifact.referencedByTruncated && <p className={px.detail}>Only the newest references are shown.</p>}
             </section>
           </div>
         )}

@@ -47,7 +47,7 @@ const agent = {
 const artifact: ArtifactDetail = {
   artifact: {
     id: "art-1",
-    type: "report",
+    type: "invocation_result",
     version: 1,
     size: 42,
     hash: "c".repeat(64),
@@ -94,19 +94,21 @@ describe("Artifact detail", () => {
     api.getArtifact.mockResolvedValue(artifact);
     await renderArtifact("art-1");
 
-    expect(await screen.findByRole("heading", { name: "report v1" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "invocation_result v1" })).toBeInTheDocument();
     expect(api.getArtifact).toHaveBeenCalledWith("art-1", false);
     expect(screen.getByText("the content matches its hash")).toBeInTheDocument();
 
+    // A non-document Artifact opens on Raw; provenance is the Evidence view.
+    const preview = screen.getByTestId("artifact-preview");
+    expect(preview).toHaveTextContent("<i>draft</i> start");
+    expect(preview.querySelector("i")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Evidence" }));
     const produced = screen.getByTestId("produced-by");
     expect(within(produced).getByRole("link", { name: "Compare EV batteries" })).toHaveAttribute("href", "/workflows/wr-1");
     expect(within(produced).getByRole("link", { name: "Researcher v1" })).toHaveAttribute("href", "/agents/agent-1");
     expect(produced).toHaveTextContent("Research-Report v1");
     expect(produced).toHaveTextContent("llm #2");
 
-    const preview = screen.getByTestId("artifact-preview");
-    expect(preview).toHaveTextContent("<i>draft</i> start");
-    expect(preview.querySelector("i")).toBeNull();
     expect(screen.getByTestId("referenced-by")).toHaveTextContent("artifact · tier 2 · version 1");
 
     // The vault comes from the producing agent's outputs: one entry per output, the open one selected.
