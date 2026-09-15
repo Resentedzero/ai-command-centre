@@ -583,3 +583,17 @@ Implementation status only; nothing here is verified. Every item needs QA confir
 | **Verified resolved** | #43b (by hash), #57 (code, pending live capture) |
 | **Open** | #37 (1280 time column, span full width), #58 → #59 (1280 single-column regression) |
 | **Pending live recapture** | #57, #37, #58/#59, once the API and UI are running |
+
+### CLI1 implementation status, Round 16 (2026-09-15)
+
+Implementation status only; nothing here is verified. Every item needs QA confirmation.
+
+**Method:**
+- Web `npx vitest run` passes 78 tests in 11 files, web `npx tsc --noEmit` exits 0, and `next build` exits 0.
+- Captures over CDP at `http://localhost:3100` against the live API, at 1920, 1440 and 1280. Page loads only. Each capture waited for real rows and measured cell x, width and `scrollWidth > clientWidth`.
+
+| # | Status |
+|---|---|
+| 37 Agents Recent actions at 1280 | **Fixed in code, awaiting QA verification.** The section takes the existing `a.wide` (`grid-column: 1 / -1`), as Performance does. The subgrid and compact time are unchanged. Measured on Researcher: the section is 548 / 708 / 780 px wide at 1280 / 1440 / 1920. On all four rows the time cell is 118 px and shows the full "09-12 22:20:14", the type is 168 px, and nothing is cut. |
+| 59 Goals single column at 1280 | **Fixed in code, awaiting QA verification.** The track is `repeat(auto-fill, minmax(min(100%, 400px), 1fr))`, and the chip keeps its `nowrap` units and `flex-wrap`. Measured goal cards: two at 432 px at 1280, two at 512 px at 1440, and 477 px at 1920 (three tracks, two goals). The run chip is on one line inside its card at every width. No card passes 560 px, so no `max-width` was added. |
+| 57 Overview (live recapture) | **Captured with real data.** Rows show "09-12 22:20:14", type and cursor. At 1920, 1440 and 1280, every row shares the time x, the type x and the cursor x, and no cell is cut. |

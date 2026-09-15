@@ -308,7 +308,7 @@ function AgentBoard({
           )}
         </section>
 
-        <section className={a.section} aria-label="Recent actions">
+        <section className={cx(a.section, a.wide)} aria-label="Recent actions">
           <span className={px.tab}>Recent actions</span>
           {detail.recentEvents.length === 0 ? (
             <p className={px.dim}>No events for this agent&apos;s runs yet.</p>

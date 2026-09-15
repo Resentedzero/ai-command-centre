@@ -127,8 +127,8 @@
   margin: 0;
   padding: 2px;
   display: grid;
-  /* Cards grow with the room, capped so parchment never glares across it (#58). */
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 520px));
+  /* Tracks share the room: two cards at 1280, three at 1920 (#58, #59). */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr));
   gap: var(--space-md);
 }
 
