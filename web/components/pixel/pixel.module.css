@@ -46,7 +46,8 @@
   gap: var(--space-sm);
   font: 16px/20px var(--font-pixel), monospace;
   color: var(--pixel-label);
-  background: var(--pixel-wood);
+  --fill: var(--pixel-wood);
+  background: var(--fill);
   border: 2px solid var(--pixel-wood-edge);
   box-shadow: 0 0 0 2px var(--pixel-outline);
   padding: 6px 14px;
@@ -55,19 +56,19 @@
   white-space: nowrap;
 }
 .button:hover:not(:disabled) {
-  filter: brightness(1.25);
+  background: color-mix(in srgb, var(--fill) 85%, var(--pixel-label));
 }
 .button:active:not(:disabled) {
-  filter: brightness(0.8);
+  background: color-mix(in srgb, var(--fill) 75%, var(--pixel-outline));
   padding: 8px 14px 4px;
 }
 .danger {
   border-color: var(--state-fail);
-  background: color-mix(in srgb, var(--state-fail) 22%, var(--pixel-wood-dark));
+  --fill: color-mix(in srgb, var(--state-fail) 22%, var(--pixel-wood-dark));
 }
 .approve {
   border-color: var(--state-done);
-  background: color-mix(in srgb, var(--state-done) 20%, var(--pixel-wood-dark));
+  --fill: color-mix(in srgb, var(--state-done) 20%, var(--pixel-wood-dark));
 }
 .button:disabled {
   background: var(--pixel-wood-dark);
@@ -115,7 +116,7 @@
   text-decoration: none;
 }
 .plaque:hover {
-  filter: brightness(1.2);
+  background: color-mix(in srgb, var(--pixel-wood) 85%, var(--pixel-label));
 }
 .selected {
   border-color: var(--pixel-label);

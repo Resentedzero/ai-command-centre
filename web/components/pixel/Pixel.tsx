@@ -20,8 +20,9 @@ export function cx(...names: (string | false | null | undefined)[]): string {
 /** "· · ·": a value not loaded yet. Never a bar (it would read as a partly filled gauge). */
 export function Skeleton({ label = "loading" }: { label?: string }) {
   return (
-    <span className={s.skeleton} aria-label={label}>
-      · · ·
+    <span className={s.skeleton}>
+      <span aria-hidden>· · ·</span>
+      <span className="visually-hidden">{label}</span>
     </span>
   );
 }

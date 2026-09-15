@@ -33,7 +33,7 @@ function activeHref(path: string): string | undefined {
 /** How often the chips re-read when no event arrives (an Approval can expire silently). */
 const CHIP_REFRESH_MS = 30_000;
 
-type Counts = { agents: number; pending: number } | "error" | null;
+type Counts = { agents: number; working: boolean; pending: number } | "error" | null;
 
 /** PixelTopBar (Figma 95:242): seven 120 px PixelTab slots and three chips from real reads. */
 export function PixelTopBar() {
@@ -47,7 +47,7 @@ export function PixelTopBar() {
       const [agents, approvals] = await Promise.all([listActiveAgents(), listPendingApprovals()]);
       // One per Agent Definition (ROADMAP §7); an unbound Run counts on its own.
       const distinct = new Set(agents.map((a) => a.agentDefinitionId ?? `run:${a.runId}`));
-      setCounts({ agents: distinct.size, pending: approvals.length });
+      setCounts({ agents: distinct.size, working: agents.some((a) => a.taskStatus === "active"), pending: approvals.length });
     } catch {
       setCounts("error");
     }
@@ -80,7 +80,8 @@ export function PixelTopBar() {
       </nav>
       <div className={s.chips}>
         <span className={s.chip}>
-          <StatusMark state={num("agents") ? "active" : "none"} tone={num("agents") ? "active" : "neutral"}>
+          {/* Cyan only while some Run is working; waiting and pending Runs count but stay neutral. */}
+          <StatusMark state="agents" tone={counts !== null && counts !== "error" && counts.working ? "active" : "neutral"}>
             <span className={s.chipText}>Agents {value(num("agents"))}</span>
           </StatusMark>
         </span>

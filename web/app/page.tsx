@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  engageAgentStop,
-  liftAgentStop,
   listActiveAgents,
   listActiveStops,
   listGoals,
@@ -14,13 +12,16 @@ import {
   type AgentCardData,
 } from "../lib/api";
 import { isStale, useLive, useRefetchOnEvents } from "../components/live";
-import { ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, buttonClass, cx, px } from "../components/pixel/Pixel";
+import { PixelButton, Skeleton, StateNotice, StatusMark, buttonClass, cx, px } from "../components/pixel/Pixel";
+import { StopControl } from "../components/StopControl";
 import { AgentSprite, WorldViewport, world } from "../components/world/World";
 import {
   KEEP,
   SYSTEM_ROOMS,
   WORKSHOP_SLOTS,
+  agentState,
   characterFor,
+  placeInWorkshops,
   countLabel,
   errorText,
   floorOf,
@@ -52,13 +53,8 @@ type Group = {
 
 type Read<T> = T | "error" | null;
 
-/** Group state: a working Run lights the room; otherwise waiting beats pending. */
-function groupState(runs: AgentCardData[]): string {
-  for (const s of ["active", "awaiting_approval", "pending"]) if (runs.some((r) => r.taskStatus === s)) return s;
-  return runs[0]!.taskStatus;
-}
-
 const WORKFLOW_LIST_CAP = 100;
+const OVERVIEW_REFRESH_MS = 30_000;
 const GOAL_LIST_CAP = 500;
 
 function plaqueAt(r: Rect) {
@@ -77,7 +73,7 @@ function Floor({ rect, children }: { rect: Rect; children: ReactNode }) {
 }
 
 export default function OverviewPage() {
-  const { status, events } = useLive();
+  const { status } = useLive();
   const [agents, setAgents] = useState<AgentCardData[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pending, setPending] = useState<Read<number>>(null);
@@ -111,6 +107,11 @@ export default function OverviewPage() {
     void load();
   }, [load]);
   useRefetchOnEvents(load);
+  // An Approval can expire with no event; re-read on the same cadence as the top bar.
+  useEffect(() => {
+    const timer = setInterval(() => void load(), OVERVIEW_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [load]);
 
   const groups = useMemo<Group[]>(() => {
     const byKey = new Map<string, Group>();
@@ -123,35 +124,40 @@ export default function OverviewPage() {
     const stopList = Array.isArray(stops) ? stops : [];
     return [...byKey.values()].map((g) => ({
       ...g,
-      state: groupState(g.runs),
+      state: agentState(g.runs.map((r) => r.taskStatus)),
       stop: g.id
         ? (stopList.find((s) => s.scope === "agent_definition" && s.scopeRefId?.toLowerCase() === g.id!.toLowerCase()) ?? null)
         : null,
     }));
   }, [agents, stops]);
 
-  // Workshops go to active Agent Definitions in stable id order; the rest are listed on the board.
-  const placed = useMemo(() => groups.filter((g) => g.id).sort((a, b) => (a.id! < b.id! ? -1 : 1)).slice(0, WORKSHOP_SLOTS.length), [groups]);
+  // Each active Agent Definition takes its preferred workshop; any past the two are listed on the board.
+  const slots = useMemo(() => placeInWorkshops(groups), [groups]);
+  const placed = useMemo(() => slots.filter((g): g is Group => g !== undefined), [slots]);
   const needsAttention = (g: Group) => g.stop !== null || g.state === "awaiting_approval";
   const selected = groups.find((g) => g.key === selectedKey) ?? groups.find(needsAttention) ?? groups[0] ?? null;
+  // Pin the first automatic choice, so a refresh never moves the board (and its Stop) to another agent.
+  useEffect(() => {
+    if (selectedKey === null && selected) setSelectedKey(selected.key);
+  }, [selectedKey, selected]);
   const onSeal = placed.filter((g) => g.state === "awaiting_approval" && !g.stop);
   const pendingN = typeof pending === "number" ? pending : 0;
 
   const focus = useMemo(() => {
     if (selected) {
-      const slot = placed.indexOf(selected);
+      const slot = slots.indexOf(selected);
       if (onSeal.includes(selected)) return centreOf(SYSTEM_ROOMS.approvals);
       if (slot >= 0) return centreOf(WORKSHOP_SLOTS[slot]!);
     }
     return pendingN > 0 ? centreOf(SYSTEM_ROOMS.approvals) : centreOf(SYSTEM_ROOMS.runtime);
-  }, [selected, placed, onSeal, pendingN]);
+  }, [selected, slots, onSeal, pendingN]);
 
   const loaded = agents !== null;
   const count = (v: Read<number>, cap?: number) => (v === null ? <Skeleton /> : v === "error" ? "n/a" : cap ? countLabel(v, cap) : v);
 
   return (
     <main className={o.screen}>
-      <WorldViewport width={KEEP.width} height={KEEP.height} focus={focus} label="Keep map" className={cx(o.world, isStale(status) && world.stale)}>
+      <WorldViewport width={KEEP.width} height={KEEP.height} focus={focus} label="Keep map" className={cx(o.world, (isStale(status) || (agents !== null && loadError !== null)) && world.stale)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={KEEP.src} width={KEEP.width} height={KEEP.height} className={world.base} alt="" draggable={false} />
         <div className={world.night} />
@@ -184,7 +190,7 @@ export default function OverviewPage() {
         </Floor>
 
         {WORKSHOP_SLOTS.map((rect, slot) => {
-          const g = placed[slot];
+          const g = slots[slot];
           if (!g) return null;
           const pose = g.state === "awaiting_approval" && !g.stop ? null : poseFor(g.state, g.stop !== null);
           return (
@@ -197,8 +203,10 @@ export default function OverviewPage() {
         })}
 
         <SystemPlaque rect={SYSTEM_ROOMS.approvals} href="/approvals" name="Approvals">
-          {pending === null || pending === "error" ? (
+          {pending === null ? (
             <StatusMark state={null} />
+          ) : pending === "error" ? (
+            <span className={px.dim}>n/a</span>
           ) : (
             <StatusMark state="pending" tone={pending > 0 ? "wait" : "neutral"}>
               {pending} pending
@@ -209,8 +217,10 @@ export default function OverviewPage() {
           <span className={px.dim}>{count(goalCount, GOAL_LIST_CAP)} goals</span>
         </SystemPlaque>
         <SystemPlaque rect={SYSTEM_ROOMS.workflows} href="/workflows" name="Workflows">
-          {inProgress === null || inProgress === "error" ? (
+          {inProgress === null ? (
             <StatusMark state={null} />
+          ) : inProgress === "error" ? (
+            <span className={px.dim}>n/a</span>
           ) : (
             <StatusMark state="in_progress" tone={inProgress.n > 0 ? "active" : "neutral"}>
               {inProgress.n}
@@ -222,21 +232,23 @@ export default function OverviewPage() {
           <StatusMark state={status} tone={status === "live" ? "done" : "neutral"} />
         </SystemPlaque>
         <SystemPlaque rect={SYSTEM_ROOMS.artifacts} href="/artifacts" name="Artifacts" />
-        <span className={world.plaque} style={{ ...plaqueAt(SYSTEM_ROOMS.runtime), cursor: "default" }}>
+        <span className={cx(world.plaque, world.plaqueStatic)} style={plaqueAt(SYSTEM_ROOMS.runtime)}>
           Runtime
         </span>
 
-        {placed.map((g, slot) => (
+        {slots.map((g, slot) => g && (
           <button
-            key={`${g.key}-${g.stop ? "stopped" : g.state}`}
+            key={g.key}
             type="button"
-            className={cx(world.plaque, selected?.key === g.key && world.plaqueSelected, g.stop && world.flashFail)}
+            className={cx(world.plaque, selected?.key === g.key && world.plaqueSelected)}
             style={plaqueAt(WORKSHOP_SLOTS[slot]!)}
             aria-pressed={selected?.key === g.key}
             onClick={() => setSelectedKey(g.key)}
           >
             {g.name}
             <StatusMark state={g.stop ? "stopped" : g.state} />
+            {/* One flash when a stop engages (mounted per stop), then steady; the button keeps its focus. */}
+            {g.stop && <span key={g.stop.id} className={world.flashFail} aria-hidden />}
           </button>
         ))}
       </WorldViewport>
@@ -328,11 +340,13 @@ function AgentBoard({
       </div>
 
       <h2 className={px.heading}>{selected.name}</h2>
-      <StopControl group={selected} stopsUnreadable={stopsUnreadable} onChanged={onChanged} />
+      {selected.id && (
+        <StopControl agentId={selected.id} name={selected.name} stop={selected.stop} stopsUnreadable={stopsUnreadable} onChanged={onChanged} />
+      )}
       {!placed && (
         <p className={px.detail}>
           {selected.id
-            ? "This agent has no workshop in the keep: the keep has two, and they are taken."
+            ? "No workshop is free for this agent, so it is listed here only."
             : "This run has no agent bound yet, so it has no workshop."}
         </p>
       )}
@@ -360,72 +374,6 @@ function AgentBoard({
         </Link>
       )}
     </>
-  );
-}
-
-function StopControl({ group, stopsUnreadable, onChanged }: { group: Group; stopsUnreadable: boolean; onChanged: () => Promise<void> }) {
-  const [confirming, setConfirming] = useState(false);
-  const [acting, setActing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setConfirming(false);
-    setError(null);
-  }, [group.key]);
-
-  if (!group.id) return null;
-  const id = group.id;
-
-  async function act(action: () => Promise<void>) {
-    setActing(true);
-    setError(null);
-    try {
-      await action();
-      setConfirming(false);
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setActing(false);
-      await onChanged();
-    }
-  }
-
-  return (
-    <div className={o.stop}>
-      {group.stop ? (
-        <>
-          <div className={cx(px.parchment, o.grow)}>
-            <StatusMark state="stopped" surface="parchment" /> {group.stop.reason ? `Reason: ${group.stop.reason}` : "No reason given"}
-          </div>
-          <PixelButton disabled={acting} onClick={() => act(() => liftAgentStop(id, group.stop!.id))}>
-            Lift stop
-          </PixelButton>
-          <p className={px.detail}>Lifting does not revive work the stop already failed.</p>
-        </>
-      ) : confirming ? (
-        <>
-          <p className={o.confirm}>Stop {group.name}? Its next action is refused in every workflow. A call already running finishes.</p>
-          <PixelButton kind="danger" disabled={acting} onClick={() => act(() => engageAgentStop(id))}>
-            <ButtonMark tone="fail" />
-            Confirm stop
-          </PixelButton>
-          <PixelButton disabled={acting} onClick={() => setConfirming(false)}>
-            Cancel
-          </PixelButton>
-        </>
-      ) : (
-        <PixelButton kind="danger" onClick={() => setConfirming(true)}>
-          <ButtonMark tone="fail" />
-          Stop agent
-        </PixelButton>
-      )}
-      {stopsUnreadable && !group.stop && <p className={px.detail}>Couldn&apos;t read active stops, so a stop already in place may not show.</p>}
-      {error && (
-        <p role="alert" className={px.detail}>
-          {error}
-        </p>
-      )}
-    </div>
   );
 }
 

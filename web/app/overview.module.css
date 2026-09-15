@@ -30,11 +30,15 @@
   align-self: flex-start;
 }
 
+/* Capped so the heading and Stop stay above the fold however many agents are active. */
 .roster {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 2px;
+  padding: 4px;
+  max-height: 176px;
+  overflow: auto;
+  flex: none;
 }
 
 .grow {
@@ -42,21 +46,6 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.stop {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: 2px;
-}
-.stop p {
-  margin: 0;
-  flex-basis: 100%;
-}
-.confirm {
-  font: 14px/20px var(--font-mono), monospace;
 }
 
 .runs {
@@ -75,7 +64,7 @@
 
 .inkLink {
   color: var(--pixel-ink);
-  font: 14px/20px var(--font-pixel), monospace;
+  font: 16px/20px var(--font-pixel), monospace;
 }
 
 .events {

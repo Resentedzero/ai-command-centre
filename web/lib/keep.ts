@@ -33,19 +33,43 @@ export function floorOf(r: Rect): { left: number; top: number; width: number; he
   return { left: r.x, top: r.y + r.wall, width: r.w, height: r.h - r.wall };
 }
 
-/** Workshop slot per Agent Definition id: stable order of the ids the API returned. */
-export function workshopSlots(ids: string[]): Map<string, number> {
-  const sorted = [...new Set(ids)].sort();
-  return new Map(sorted.map((id, i) => [id, i]));
+function hashOf(id: string): number {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
+  return Math.abs(h);
+}
+
+/** Preferred workshop for an Agent Definition (a hash of its id), so the Overview room and the Agents close-up agree. */
+export function preferredSlot(id: string): number {
+  return (hashOf(id) >>> 3) % WORKSHOP_SLOTS.length;
+}
+
+/**
+ * Workshop per slot: each Agent Definition takes its preferred workshop, or the
+ * other one when it is taken, in stable id order. Groups past the slot count get
+ * no workshop (the screen lists them). Unbound entries (no id) get none.
+ */
+export function placeInWorkshops<T extends { id: string | null }>(groups: T[]): (T | undefined)[] {
+  const slots: (T | undefined)[] = WORKSHOP_SLOTS.map(() => undefined);
+  for (const g of groups.filter((x) => x.id).sort((a, b) => (a.id! < b.id! ? -1 : 1))) {
+    const preferred = preferredSlot(g.id!);
+    const slot = slots[preferred] === undefined ? preferred : slots.findIndex((x) => x === undefined);
+    if (slot >= 0) slots[slot] = g;
+  }
+  return slots;
+}
+
+/** One agent's state from its unfinished Runs' statuses: working beats waiting beats pending. */
+export function agentState(statuses: string[]): string {
+  for (const s of ["active", "awaiting_approval", "pending"]) if (statuses.includes(s)) return s;
+  return statuses[0] ?? "unknown";
 }
 
 export type Character = "knight" | "wizard";
 
 /** Visual identity from the Agent Definition id (a hash), never from role or name. */
 export function characterFor(id: string): Character {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
-  return Math.abs(h) % 2 === 0 ? "knight" : "wizard";
+  return hashOf(id) % 2 === 0 ? "knight" : "wizard";
 }
 
 export type Tone = "active" | "done" | "wait" | "fail" | "idle" | "neutral";

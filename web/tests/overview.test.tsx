@@ -126,7 +126,7 @@ describe("Overview page", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Stop agent/ }));
     expect(api.engageAgentStop).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /Confirm stop/ }));
-    await waitFor(() => expect(api.engageAgentStop).toHaveBeenCalledWith("agent-1"));
+    await waitFor(() => expect(api.engageAgentStop).toHaveBeenCalledWith("agent-1", undefined));
     expect(await screen.findByText(/400 Bad Request/)).toBeInTheDocument();
   });
 

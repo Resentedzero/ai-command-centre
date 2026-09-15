@@ -48,7 +48,7 @@
   text-decoration: none;
 }
 .tab:hover {
-  filter: brightness(1.25);
+  background: color-mix(in srgb, var(--pixel-wood) 85%, var(--pixel-label));
   color: var(--pixel-label);
 }
 .tabActive {

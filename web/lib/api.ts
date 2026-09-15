@@ -234,8 +234,18 @@ export type WorkflowStepDetail = {
   taskInstance: { id: string; status: string } | null;
   /** The current Run. A Task Instance can have several Runs (retries); see `attempts`. */
   run: RunDetail | null;
-  /** Every Run of the step in start order (additive; absent from older API builds). */
-  attempts?: { id: string; status: string; outcomeReason: string | null; startedAt: string; completedAt: string | null }[];
+  /** Every Run of the step, ordered by attempt (1..3; retries). Absent from older API builds. */
+  attempts?: {
+    id: string;
+    attempt: number;
+    status: string;
+    outcomeReason: string | null;
+    /** Redacted by the API. */
+    failureReason: string | null;
+    errorCode: string | null;
+    startedAt: string;
+    completedAt: string | null;
+  }[];
 };
 
 export type WorkflowRunDetail = {

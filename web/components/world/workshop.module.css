@@ -1,0 +1,48 @@
+.closeup {
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+  background: var(--void);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+}
+
+/* Centred crop: a laptop shows the middle of the 768 px room. */
+.room {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 768px;
+  height: 640px;
+  transform: translate(-384px, -320px);
+}
+
+.key {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 48px;
+}
+
+.keyIcon {
+  width: 48px;
+  height: 48px;
+  background: url(/world/key_item_anim_strip_6.png) 0 0 / 288px 48px no-repeat;
+  image-rendering: pixelated;
+}
+
+.keyTag {
+  font: 16px/20px var(--font-pixel), monospace;
+  color: var(--pixel-label);
+  background: var(--pixel-wood);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+  padding: 0 6px;
+}
+
+.revoked {
+  opacity: 0.4;
+}

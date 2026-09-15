@@ -47,7 +47,10 @@
   opacity: 0.85;
 }
 /* Stale while the live feed is down (tile-pack.md SSE offline). */
-.stale .light {
+.stale .light,
+.stale .seal,
+.stale .barrier,
+.stale .rune {
   opacity: 0.45;
 }
 
@@ -129,7 +132,7 @@
   gap: 6px;
   padding: 3px 8px;
   white-space: nowrap;
-  font: 14px/18px var(--font-pixel), monospace;
+  font: 16px/20px var(--font-pixel), monospace;
   color: var(--pixel-label);
   background: var(--pixel-wood);
   border: 2px solid var(--pixel-wood-edge);
@@ -138,7 +141,13 @@
   cursor: pointer;
 }
 .plaque:hover {
-  filter: brightness(1.25);
+  background: color-mix(in srgb, var(--pixel-wood) 85%, var(--pixel-label));
+}
+.plaqueStatic {
+  cursor: default;
+}
+.plaqueStatic:hover {
+  background: var(--pixel-wood);
 }
 .plaqueSelected {
   border-color: var(--pixel-label);
@@ -147,22 +156,18 @@
   opacity: 0.6;
 }
 
-/* Failure or stop: one sharp flash, then steady. Completion: one green flash. Remounted per state, so a stale class never replays. */
+/* Failure or stop: one sharp flash overlay, mounted once per stop, then steady. */
 .flashFail {
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  border: 2px solid transparent;
   animation: flash-fail 160ms steps(1) 1;
 }
 @keyframes flash-fail {
   0% {
     border-color: var(--state-fail);
-    background: color-mix(in srgb, var(--state-fail) 30%, var(--pixel-wood-dark));
-  }
-}
-.flashDone {
-  animation: flash-done 300ms steps(1) 1;
-}
-@keyframes flash-done {
-  0% {
-    border-color: var(--state-done);
+    background: color-mix(in srgb, var(--state-fail) 30%, transparent);
   }
 }
 
