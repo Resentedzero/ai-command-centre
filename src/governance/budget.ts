@@ -387,21 +387,26 @@ export async function reserveBudget(
   }
 
   // ---- Run + day and/or Task Instance: additive containment (Phase 8 day; D20 Task Instance).
+  // Every Run of a Task Instance, retries included, holds the same counter. A Run
+  // with no row has no Task Instance to charge: refused, never skipped, and before
+  // any counter row is created, so a refusal leaves no side effect.
+  const taskInstanceId =
+    taskInstanceLimit === undefined ? undefined : (await tx.query.runs.findFirst({ where: eq(runs.id, scopeRefId) }))?.taskInstanceId;
+  if (taskInstanceLimit !== undefined && taskInstanceId === undefined) {
+    return deny(tx, request, { scope: "task_instance", scopeRefId: `unresolved (no run ${scopeRefId})`, row: undefined });
+  }
+
+  // Missing day / Task Instance rows are inserted (ON CONFLICT DO NOTHING) before any
+  // row lock is taken; DURABLE_EXECUTION §6 records that this precedes the lock order.
   const unsorted: Hold[] = [{ scope, scopeRefId }];
   if (dailyLimit !== undefined) {
     const dayRef = dayScopeRef(options.now ?? new Date());
     await ensureGovernedCounter(tx, "day", dayRef, resourceUnit, dailyLimit);
     unsorted.push({ scope: "day", scopeRefId: dayRef });
   }
-  if (taskInstanceLimit !== undefined) {
-    // Every Run of a Task Instance, retries included, holds the same counter.
-    // A Run with no row has no Task Instance to charge: refused, never skipped.
-    const run = await tx.query.runs.findFirst({ where: eq(runs.id, scopeRefId) });
-    if (!run) {
-      return deny(tx, request, { scope: "task_instance", scopeRefId: `unresolved (no run ${scopeRefId})`, row: undefined });
-    }
-    await ensureGovernedCounter(tx, "task_instance", run.taskInstanceId, resourceUnit, taskInstanceLimit);
-    unsorted.push({ scope: "task_instance", scopeRefId: run.taskInstanceId });
+  if (taskInstanceLimit !== undefined && taskInstanceId !== undefined) {
+    await ensureGovernedCounter(tx, "task_instance", taskInstanceId, resourceUnit, taskInstanceLimit);
+    unsorted.push({ scope: "task_instance", scopeRefId: taskInstanceId });
   }
   const holds = sortHolds(unsorted);
 

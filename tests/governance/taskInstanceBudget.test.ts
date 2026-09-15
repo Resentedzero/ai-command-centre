@@ -155,6 +155,19 @@ describe("fails closed", () => {
       expect(await tx.select().from(schema.budgetCounters).where(eq(schema.budgetCounters.scope, "task_instance"))).toEqual([]);
     });
   });
+
+  it("refuses a Run with no row before creating a day counter, so a refusal leaves no side effect", async () => {
+    await withRollback(async (tx) => {
+      const runId = randomUUID();
+      const now = new Date(2031, 0, 2, 12);
+      await tx.insert(schema.budgetCounters).values({ scope: "run", scopeRefId: runId, resourceUnit: "usd", limitAmount: "10.00", reservedAmount: "0", consumedAmount: "0" });
+      expect(await reserveBudget(tx, "run", runId, "metered_api", "usd", 0.1, { dailyCeilings: { usd: "5.00" }, now })).toEqual({
+        authorized: false,
+        reason: "insufficient_budget",
+      });
+      expect(await counter(tx, "day", dayScopeRef(now), "usd")).toBeUndefined();
+    });
+  });
 });
 
 describe("accounting", () => {

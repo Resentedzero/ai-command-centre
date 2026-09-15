@@ -3,8 +3,9 @@
  *
  * Properties under test, each written so a regression fails it:
  *
- *  1. INERT BY DEFAULT. With no daily ceiling configured, no day counter exists
- *     and the reservation id is byte-for-byte the pre-Phase-8 shape.
+ *  1. INERT WITHOUT A CEILING. With no daily ceiling configured, no day counter
+ *     exists and the reservation id is byte-for-byte the pre-Phase-8 shape.
+ *     (Shipped since D3: usd 5.00 and subscription_tokens 200,000 per local day.)
  *  2. ADDITIVE. With a ceiling, BOTH the run and the day counter must have
  *     room; exhausting either refuses. The day scope never weakens the run.
  *  3. N RUNS CANNOT BYPASS IT. Independent runs share one day counter.
@@ -14,8 +15,8 @@
  *     together; a refusal writes to neither; concurrent reservations cannot
  *     jointly overspend and cannot deadlock.
  *
- * Ceilings are injected: the shipped configuration is empty by design, and no
- * production limit value is invented here.
+ * Mechanics tests inject their own ceilings (the shipped D3 values are mocked off
+ * file-wide below); one test asserts the shipped values themselves.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { randomUUID } from "node:crypto";

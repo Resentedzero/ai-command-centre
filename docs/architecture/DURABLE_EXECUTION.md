@@ -181,6 +181,8 @@ Once a request commits in several transactions, concurrent requests can interlea
 
 **Global lock order:** `workflow_runs` → `runs` → `invocations` → `budget_counters` (day → run → task_instance, per `budget.ts`). `completeModelDispatch`, `completeToolDispatch`, `failInterruptedInvocation`, `settleRunAfterStepFailure` and the startup sweep all take row locks in this order.
 
+**Counter rows are created before that order applies.** `reserveBudget` first inserts a missing day row, then a missing Task Instance row (`INSERT … ON CONFLICT DO NOTHING`), and only then locks day → run → task_instance. A freshly inserted row is held by its uncommitted insert, so the real acquisition is day insert → Task Instance insert → day → run → task_instance. A cycle would need two concurrent reservations for the same Task Instance on a day neither has yet charged, each holding what the other inserts next; retries of a Task Instance are sequential and one executor process serves the database, so none can form today.
+
 **The event advisory lock is not strictly last.** It is taken at emit time; `invocation_started`, for example, is emitted before `reserveBudget` locks the counters. The real invariant is narrower. All work on one Run is serialized by its `runs` row lock, so its own event lock never contends with itself. And no transaction that holds a DAY counter waits for ANOTHER Run's event lock. An Approval row is always locked before any event lock (`resolveApproval`, the stop path and step-failure settlement).
 
 **Pause and resume** are conditional updates (`… WHERE status = 'in_progress'` / `'paused'`). Otherwise a pause racing an advance that is finishing the Workflow Run waits for its row lock, then overwrites `completed` with `paused`.
