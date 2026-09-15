@@ -288,6 +288,10 @@ CLI1 worked through this review. Verified in the committed tree:
 | 40 | Low | Goals and Approvals notice cards | The error and empty cards span the whole column (about 1490 px) for 2–3 lines, leaving the war room and council hall as small thumbnails beside large wood. | `max-width: 640px` on these notice cards. The world vignette keeps its size. |
 | 41 | Low | Agents roster, stops warning | With the roster read failed, "Couldn't read active stops, so a stop may not show." adds a second warning under a roster that doesn't exist. | Show the stops warning only when the roster itself loaded. |
 
+| 42 | Low | `app/costs/page.tsx` side board, failed ledger | With `GET /costs` failed (captured at 1920), the six scope filters stay live and the "Totals" tab sits under them in the same plaque style, so it reads as a seventh filter. The note on how totals are summed also stays up, over no data. A filter over nothing is a control without an object. | While `!data && error`, render the scope filters disabled and hide the totals note. Style "Totals" as a section tab (`px.tab`, not a plaque) with space above it, so it can't read as a chip. |
+
+**Registry capture at `022557a`:** one Retry ("Retry from the roster on the left"), confirming #21 resolved. The missing world on a failed read is covered by #35.
+
 **Still open from round 8:** #31 (cyan "started" and amber "approval required" on history rows, still in the capture), #32–#34.
 
 **Rejected:** none new. The critic's laptop panning note was already an accepted decision.
