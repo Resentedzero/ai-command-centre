@@ -144,6 +144,7 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
           <div className={s.vault} role="img" aria-label={outputs ? `Vault: ${countLabel(outputs.length, OUTPUTS_CAP)} outputs` : "Vault"}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/world/room-v5-vault-2x.png" width={352} height={256} alt="" className={world.base} draggable={false} />
+            <div className={s.floorPatch} />
             <div className={world.night} />
             {outputs?.map((o, i) => (
               <span

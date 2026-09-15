@@ -184,7 +184,7 @@ function AgentBoard({
                     {run.goal.title}
                   </Link>
                 ) : (
-                  <span>{run.goal?.title ?? "Standalone task"}</span>
+                  <span>{run.goal?.title ?? "no goal"}</span>
                 )}
                 <span className={px.dim}>›</span>
                 <span>{run.taskDefinitionName ?? "task definition not found"}</span>

@@ -69,7 +69,7 @@ describe("Overview page", () => {
     expect(within(roster).getAllByRole("button")).toHaveLength(2);
     const run = screen.getByTestId("agent-run");
     expect(run).toHaveTextContent("Review-and-Publish");
-    expect(run).toHaveTextContent("Standalone task");
+    expect(run).toHaveTextContent("no goal");
     expect(run).toHaveTextContent("awaiting approval");
     expect(screen.getByRole("button", { name: /Stop agent/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Approvals.*1 pending/ })).toHaveAttribute("href", "/approvals");

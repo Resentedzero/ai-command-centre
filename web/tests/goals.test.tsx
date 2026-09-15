@@ -49,7 +49,7 @@ describe("Goals page", () => {
     expect(within(goal).getByRole("link", { name: /Workflow run/ })).toHaveAttribute("href", "/workflows/wr-1");
     expect(within(goal).getByRole("link", { name: /Workflow run/ })).toHaveTextContent("in progress");
     expect(screen.queryByText("Empty Project")).not.toBeInTheDocument();
-    expect(screen.getByText("1 goal in 1 project")).toBeInTheDocument();
+    expect(screen.getByText("1 goal across 1 project with goals")).toBeInTheDocument();
   });
 
   it("says so when there are no goals", async () => {

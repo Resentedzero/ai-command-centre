@@ -116,7 +116,7 @@ export default function GoalsPage() {
             ) : (
               <>
                 <div>
-                  {countLabel(goalCount, GOAL_LIST_CAP)} goal{goalCount === 1 ? "" : "s"} in {withGoals.length} project{withGoals.length === 1 ? "" : "s"}
+                  {countLabel(goalCount, GOAL_LIST_CAP)} goal{goalCount === 1 ? "" : "s"} across {withGoals.length} project{withGoals.length === 1 ? "" : "s"} with goals
                 </div>
                 <div className={g.row}>
                   {(["in_progress", "paused", "failed", "completed"] as const).map((s) => {

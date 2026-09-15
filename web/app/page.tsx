@@ -381,7 +381,7 @@ function AgentBoard({
         {selected.runs.map((run) => (
           <div key={run.runId} className={px.parchment} data-testid="agent-run">
             <div className={px.label}>{run.taskDefinitionName ?? "Task definition not found"}</div>
-            <div>{run.goalTitle ?? "Standalone task"}</div>
+            <div>{run.goalTitle ?? "no goal"}</div>
             <div className={o.row}>
               <StatusMark state={run.taskStatus} surface="parchment" />
               {run.latestActivitySummary && <span>latest: {stateWord(run.latestActivitySummary)}</span>}

@@ -6,4 +6,4 @@
 4. **Values:** agents and missions `GET /agents/active` (`AgentCardData`, grouped by `agentDefinitionId`); stops `GET /execution-stops`; pending `GET /approvals` rows; goals `GET /goals` rows (500+); in progress `GET /workflow-runs` status (100+ when capped); feed status and events are client state from `subscribeToActivity`.
 5. **States:** loading (dots), empty ("Nothing is running…" + Start a goal), load failed (Retry), refresh failed (last read kept, alert), feed reconnecting/offline (lights 45%, notice strip Reconnect), stopped (barrier, frozen sprite, Lift stop), awaiting approval (agent on the seal, workshop dark).
 
-**Not drawn, and why:** the event-arrival room flash needs an agent id on events (not in `EventDisplayItem`); a third active agent has no workshop (listed on the board); the 4x portrait is omitted (the room shows the sprite).
+**Not drawn, and why:** the event-arrival room flash needs an agent id on events (not in `EventDisplayItem`); a third active agent has no workshop (listed on the board). The 4x portrait shows on the board at 1080 px tall and above; the wizard uses its own death strip.
