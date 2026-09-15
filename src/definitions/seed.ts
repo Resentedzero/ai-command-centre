@@ -31,7 +31,9 @@
  * kinds and step bindings.
  */
 import { and, eq } from "drizzle-orm";
-import { goals, projects, taskDefinitions, workflowDefinitions } from "../db/schema.js";
+import { agentDefinitions, capabilities, goals, projects, taskDefinitions, workflowDefinitions } from "../db/schema.js";
+import { REVIEW_CHECKPOINT_CAPABILITY, REVIEW_CHECKPOINT_PERMISSION } from "../capabilities/reviewCheckpoint/capability.js";
+import { REVIEW_CHECKPOINT_RECORD } from "../capabilities/reviewCheckpoint/adapter.js";
 import { findSeededPublishWorkflow } from "./lookupSeed.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitLifecycleEvent, NO_CORRELATION } from "../events/lifecycle.js";
@@ -42,7 +44,7 @@ import { RESEARCH_RETRIEVE_CAPABILITY } from "../capabilities/researchRetrieve/c
 import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capability.js";
 import { RESEARCH_RETRIEVE_SYNTHETIC } from "../capabilities/researchRetrieve/adapter.js";
 import { PUBLISH_REPORT_FILESYSTEM } from "../capabilities/publishReport/adapter.js";
-import { PUBLISH_REPORT_TASK_KIND, RESEARCH_REPORT_TASK_KIND } from "../capabilities/taskPlans.js";
+import { AGENT_TASK_KIND, OPERATOR_CHECKPOINT_KIND, PUBLISH_REPORT_TASK_KIND, RESEARCH_REPORT_TASK_KIND } from "../capabilities/taskPlans.js";
 import {
   createAgentDefinition,
   createCapability,
@@ -335,9 +337,12 @@ export async function seedResearchReportWorkflow(
  * `research_report` Task Definition, whatever versions a Registry edit has since made;
  * rows under that name with none of them fail closed rather than counting as seeded.
  */
-export async function seedMissingWorkflows(tx: DrizzleTransaction): Promise<{ seededPublish: boolean; seededResearchReport: boolean }> {
+export async function seedMissingWorkflows(
+  tx: DrizzleTransaction
+): Promise<{ seededPublish: boolean; seededResearchReport: boolean; seededV11: boolean }> {
   const seededPublish = !(await findSeededPublishWorkflow(tx));
   if (seededPublish) await seedPublishWorkflow(tx);
+  const seededV11 = await seedV11Definitions(tx);
 
   const isResearchStep = async (step: LinearGraphStep) =>
     (
@@ -359,7 +364,7 @@ export async function seedMissingWorkflows(tx: DrizzleTransaction): Promise<{ se
           "Research-Report workflow (fail closed)."
       );
     }
-    return { seededPublish, seededResearchReport: false };
+    return { seededPublish, seededResearchReport: false, seededV11 };
   }
 
   const publishRows = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, "Research-and-Publish") });
@@ -372,5 +377,91 @@ export async function seedMissingWorkflows(tx: DrizzleTransaction): Promise<{ se
     throw new Error("seedMissingWorkflows: Research-and-Publish has no research_report step to build Workflow 1 from (fail closed).");
   }
   await seedResearchReportWorkflow(tx, researchStep);
-  return { seededPublish, seededResearchReport: true };
+  return { seededPublish, seededResearchReport: true, seededV11 };
+}
+
+// ---------------------------------------------------------------------------
+// seedV11Definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * V1.1 Task Definition default Context Budget for writing steps (`agent_task`).
+ * Documented placeholders, like `DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET`: room for a
+ * few input documents and a full deliverable. An operator wanting other values creates
+ * another Task Definition version through the Registry.
+ */
+export const AGENT_TASK_CONTEXT_BUDGET: ContextBudget = {
+  maxInputTokens: 16_000,
+  maxArtifactTokens: 6_000,
+  maxRetrievedItems: 8,
+  maxToolSchemaTokens: 0,
+  compressionThreshold: 6_000,
+  freshnessRequirementSeconds: 0,
+  expectedOutputTokens: 2_500,
+};
+
+export const AGENT_TASK_DEFINITION_NAME = "Agent Task";
+export const APPROVAL_GATE_DEFINITION_NAME = "Approval Gate";
+export const REVIEWER_AGENT_NAME = "Reviewer";
+
+/**
+ * The V1.1 building blocks, each created through the Registry only if missing (by
+ * name), so it is idempotent and adds nothing to an operator's own Definitions:
+ * - the `review.checkpoint` Capability with its binding;
+ * - Task Definitions for the general agent step and the approval gate;
+ * - an ordinary "Reviewer" Agent holding `review.checkpoint` at ALWAYS_APPROVE, the
+ *   agent an approval-gate step binds unless the operator picks another.
+ * Returns whether anything was created.
+ */
+export async function seedV11Definitions(tx: DrizzleTransaction): Promise<boolean> {
+  let created = false;
+
+  let checkpoint = await tx.query.capabilities.findFirst({ where: eq(capabilities.name, REVIEW_CHECKPOINT_CAPABILITY.id) });
+  if (!checkpoint) {
+    const c = await createCapability(
+      tx,
+      {
+        name: REVIEW_CHECKPOINT_CAPABILITY.id,
+        description: REVIEW_CHECKPOINT_CAPABILITY.description,
+        staticRiskTag: REVIEW_CHECKPOINT_CAPABILITY.staticRiskTag,
+        costProfile: REVIEW_CHECKPOINT_CAPABILITY.costProfile,
+      },
+      SEED_ACTOR
+    );
+    await createToolBinding(tx, { capabilityId: c.id, kind: "internal", config: { function: REVIEW_CHECKPOINT_RECORD }, trustLevel: 2 }, SEED_ACTOR);
+    checkpoint = await tx.query.capabilities.findFirst({ where: eq(capabilities.id, c.id) });
+    created = true;
+  }
+
+  if (!(await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.name, AGENT_TASK_DEFINITION_NAME) }))) {
+    await createTaskDefinition(tx, { name: AGENT_TASK_DEFINITION_NAME, kind: AGENT_TASK_KIND, defaultContextBudget: AGENT_TASK_CONTEXT_BUDGET }, SEED_ACTOR);
+    created = true;
+  }
+  if (!(await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.name, APPROVAL_GATE_DEFINITION_NAME) }))) {
+    await createTaskDefinition(tx, { name: APPROVAL_GATE_DEFINITION_NAME, kind: OPERATOR_CHECKPOINT_KIND }, SEED_ACTOR);
+    created = true;
+  }
+
+  if (!(await tx.query.agentDefinitions.findFirst({ where: eq(agentDefinitions.name, REVIEWER_AGENT_NAME) }))) {
+    await createAgentDefinition(
+      tx,
+      {
+        name: REVIEWER_AGENT_NAME,
+        role: "Approval gate",
+        objective: "Hold a workflow at a checkpoint until the operator approves the outputs shown.",
+        instructions: "Ask the operator to approve continuing with the exact outputs pinned by the checkpoint. Take no other action.",
+        grants: [
+          {
+            capabilityId: checkpoint!.id,
+            permissions: [REVIEW_CHECKPOINT_PERMISSION],
+            autonomyState: "ALWAYS_APPROVE",
+            maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED,
+          },
+        ],
+      },
+      SEED_ACTOR
+    );
+    created = true;
+  }
+  return created;
 }

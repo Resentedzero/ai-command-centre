@@ -277,9 +277,10 @@ export function fenceUntrusted(artifactId: string, mode: "content" | "ref", text
  */
 export function buildInvocationInstruction(
   intent: CompileContextInput["intent"],
-  expectedOutputShape: Record<string, unknown>
+  expectedOutputShape: Record<string, unknown>,
+  directive?: string
 ): string {
-  return `Intent: ${intent}.\nRespond with JSON matching this shape: ${JSON.stringify(expectedOutputShape)}`;
+  return `Intent: ${intent}.\n${directive ? `${directive}\n` : ""}Respond with JSON matching this shape: ${JSON.stringify(expectedOutputShape)}`;
 }
 
 function trustedArtifactHeader(artifactId: string, mode: "content" | "ref"): string {
@@ -419,7 +420,7 @@ export async function compileContext(
   tx: DrizzleTransaction,
   input: CompileContextInput
 ): Promise<CompiledContext> {
-  const { intent, expectedOutputShape, taskInstanceId, candidateArtifactIds, candidateToolCapabilityIds, budget, runId } = input;
+  const { intent, expectedOutputShape, taskInstanceId, candidateArtifactIds, candidateToolCapabilityIds, budget, runId, directive } = input;
 
   // --- Steps 1-3: resolve + validate every id up front, before any packing ---
 
@@ -464,7 +465,7 @@ export async function compileContext(
   // budget, and together they are what tier 1 may never be truncated for.
   const instructionsText = await resolveInstructions(tx, runRow);
   const instructionsTokens = estimateTokens(instructionsText);
-  const invocationInstructionText = buildInvocationInstruction(intent, expectedOutputShape);
+  const invocationInstructionText = buildInvocationInstruction(intent, expectedOutputShape, directive);
   const invocationInstructionTokens = estimateTokens(invocationInstructionText);
   if (taskStateTokens + instructionsTokens + invocationInstructionTokens > budget.maxInputTokens) {
     throw new ContextBudgetError(

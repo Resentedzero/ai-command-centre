@@ -21,6 +21,11 @@ import type { PlannedInvocationSpec } from "../execution/types.js";
 import type { InvocationSpecBuilder } from "../workflow/interpreter.js";
 import { buildResearchReportInvocationSpecs } from "./researchRetrieve/buildInvocationSpecs.js";
 import { buildPublishReportInvocationSpecs } from "./publishReport/buildInvocationSpecs.js";
+import type { LinearGraphDefinition } from "../workflow/graphTypes.js";
+import { buildAgentTaskInvocationSpecs, validateAgentTaskStep, type AgentTaskParameters } from "./agentTask/buildInvocationSpecs.js";
+import { buildCheckpointInvocationSpecs, validateCheckpointStep, type CheckpointParameters } from "./reviewCheckpoint/buildInvocationSpecs.js";
+import { loadExecutionProfile } from "./shared/agentProfile.js";
+import { parseStepInputs } from "./shared/stepInputs.js";
 
 export type TaskPlanContext = {
   taskDefinition: typeof taskDefinitions.$inferSelect;
@@ -32,12 +37,30 @@ export type TaskPlanContext = {
 
 export type TaskPlanBuilder = (tx: DrizzleTransaction, ctx: TaskPlanContext) => Promise<PlannedInvocationSpec[]>;
 
-const planBuilders = new Map<string, TaskPlanBuilder>();
+/**
+ * V1.1 (R3): a kind's check of a workflow step's parameters, run by the Registry when a
+ * Workflow Definition is saved, so an invalid workflow fails before it can run. Returns
+ * why the step is invalid, or null. The plan still fails closed at run time.
+ */
+export type StepParameterValidator = (
+  tx: DrizzleTransaction,
+  ctx: { parameters: Record<string, unknown>; graph: LinearGraphDefinition; stepIndex: number; agentDefinitionId: string; agentDefinitionVersion: number }
+) => Promise<string | null>;
 
-/** Registers the plan for a Task Definition `kind`. A kind is never reassigned. */
-export function registerTaskPlanBuilder(kind: string, builder: TaskPlanBuilder): void {
+const planBuilders = new Map<string, TaskPlanBuilder>();
+const stepValidators = new Map<string, StepParameterValidator>();
+
+/** Registers the plan (and optionally the step-parameter check) for a Task Definition `kind`. A kind is never reassigned. */
+export function registerTaskPlanBuilder(kind: string, builder: TaskPlanBuilder, options: { validateStepParameters?: StepParameterValidator } = {}): void {
   if (planBuilders.has(kind)) throw new Error(`registerTaskPlanBuilder: kind "${kind}" is already registered.`);
   planBuilders.set(kind, builder);
+  if (options.validateStepParameters) stepValidators.set(kind, options.validateStepParameters);
+}
+
+/** The kind's save-time verdict on a step's parameters: why it is invalid, or null (also for a kind with no check). */
+export async function validateStepParameters(tx: DrizzleTransaction, kind: string, ctx: Parameters<StepParameterValidator>[1]): Promise<string | null> {
+  const validate = stepValidators.get(kind);
+  return validate ? await validate(tx, ctx) : null;
 }
 
 export function hasTaskPlan(kind: string): boolean {
@@ -108,15 +131,76 @@ registerTaskPlanBuilder(RESEARCH_REPORT_TASK_KIND, async (tx, ctx) =>
   )
 );
 
-registerTaskPlanBuilder(PUBLISH_REPORT_TASK_KIND, async (tx, ctx) =>
-  buildPublishReportInvocationSpecs(
-    tx,
-    {
-      agentDefinitionId: ctx.agentDefinitionId,
-      agentDefinitionVersion: ctx.agentDefinitionVersion,
-      researchReportTaskDefinitionId: requireStringParameter(ctx, "sourceTaskDefinitionId"),
-      destinationRelativePath: `reports/${ctx.params.taskInstanceId}.json`,
+registerTaskPlanBuilder(
+  PUBLISH_REPORT_TASK_KIND,
+  async (tx, ctx) =>
+    buildPublishReportInvocationSpecs(
+      tx,
+      {
+        agentDefinitionId: ctx.agentDefinitionId,
+        agentDefinitionVersion: ctx.agentDefinitionVersion,
+        researchReportTaskDefinitionId: requireStringParameter(ctx, "sourceTaskDefinitionId"),
+        destinationRelativePath: `reports/${ctx.params.taskInstanceId}.json`,
+      },
+      ctx.params
+    ),
+  {
+    validateStepParameters: async (_tx, ctx) => {
+      const source = ctx.parameters.sourceTaskDefinitionId;
+      if (typeof source !== "string" || source === "") return `publish_report requires the step parameter "sourceTaskDefinitionId".`;
+      if (!ctx.graph.steps.slice(0, ctx.stepIndex).some((s) => s.taskDefinitionId === source)) {
+        return `"sourceTaskDefinitionId" must be the Task Definition of an earlier step.`;
+      }
+      return null;
     },
-    ctx.params
-  )
+  }
+);
+
+/** V1.1: a general agent step that writes a deliverable from an instruction and explicitly selected earlier outputs. */
+export const AGENT_TASK_KIND = "agent_task";
+
+/** V1.1: an explicit approval gate over earlier outputs (`review.checkpoint`, ALWAYS_APPROVE). */
+export const OPERATOR_CHECKPOINT_KIND = "operator_checkpoint";
+
+/** Step parameters, re-checked at run time with the same rules as at save time (a Definition edited by SQL still fails closed). */
+function stepParameters<T>(ctx: TaskPlanContext, check: (p: Record<string, unknown>) => string | null): T {
+  const problem = check(ctx.parameters);
+  if (problem) throw new Error(`Task Definition kind "${ctx.taskDefinition.kind}": ${problem} (fail closed).`);
+  const inputs = parseStepInputs(ctx.parameters.inputs);
+  if (!inputs.ok) throw new Error(`Task Definition kind "${ctx.taskDefinition.kind}": ${inputs.reason} (fail closed).`);
+  return { ...ctx.parameters, inputs: inputs.inputs } as T;
+}
+
+registerTaskPlanBuilder(
+  AGENT_TASK_KIND,
+  async (tx, ctx) =>
+    buildAgentTaskInvocationSpecs(
+      tx,
+      {
+        parameters: stepParameters<AgentTaskParameters>(ctx, (p) =>
+          typeof p.instruction === "string" && p.instruction.trim() !== "" ? null : `requires the step parameter "instruction"`
+        ),
+        contextBudget: requireContextBudget(ctx.taskDefinition.defaultContextBudget, ctx.taskDefinition.name),
+        profile: await loadExecutionProfile(tx, ctx.agentDefinitionId, ctx.agentDefinitionVersion),
+      },
+      ctx.params
+    ),
+  { validateStepParameters: async (_tx, ctx) => validateAgentTaskStep(ctx) }
+);
+
+registerTaskPlanBuilder(
+  OPERATOR_CHECKPOINT_KIND,
+  async (tx, ctx) =>
+    buildCheckpointInvocationSpecs(
+      tx,
+      {
+        agentDefinitionId: ctx.agentDefinitionId,
+        agentDefinitionVersion: ctx.agentDefinitionVersion,
+        parameters: stepParameters<CheckpointParameters>(ctx, (p) =>
+          typeof p.question === "string" && p.question.trim() !== "" ? null : `requires the step parameter "question"`
+        ),
+      },
+      ctx.params
+    ),
+  { validateStepParameters: validateCheckpointStep }
 );

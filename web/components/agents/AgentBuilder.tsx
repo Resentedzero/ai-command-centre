@@ -323,7 +323,7 @@ function BuilderForm({
         <p className={px.detail}>
           Ceilings: {limits.maxIterations} iterations and {limits.maxActiveSeconds / 60} active minutes per run (approval waits
           don&apos;t count); each task instance is held to{" "}
-          {Object.entries(limits.taskInstanceCeilings)
+          {Object.entries(limits.taskInstanceBudgetCeilings)
             .map(([unit, amount]) => `${amount} ${unit}`)
             .join(" and ")}
           . An agent can only ask for less.

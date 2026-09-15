@@ -157,7 +157,7 @@ describe("GET /registry builder options", () => {
         autonomyStates: string[];
         tiers: string[];
         providers: { name: string; enabled: boolean; tiers: string[]; resourceUnits: string[] }[];
-        autonomyLimits: { maxIterations: number; maxActiveSeconds: number; taskInstanceCeilings: Record<string, string> };
+        autonomyLimits: { maxIterations: number; maxActiveSeconds: number; taskInstanceBudgetCeilings: Record<string, string> };
       };
     };
     expect(body.agentDefinitions.find((a) => a.name === "Architect" && a.version === 2)!.executionProfile).toEqual({ preferredTier: "STRONG" });
@@ -166,12 +166,12 @@ describe("GET /registry builder options", () => {
     expect(body.builder.autonomyStates).toEqual(["ALWAYS_APPROVE", "CONDITIONAL", "AUTONOMOUS"]);
     expect(body.builder.tiers).toEqual(["CHEAP", "MID", "STRONG"]);
     expect(body.builder.providers.find((p) => p.name === "claude_subscription")).toMatchObject({ enabled: true, resourceUnits: ["subscription_tokens"] });
-    expect(body.builder.autonomyLimits).toMatchObject({ maxIterations: 12, maxActiveSeconds: 900, taskInstanceCeilings: { subscription_tokens: "50000" } });
+    expect(body.builder.autonomyLimits).toMatchObject({ maxIterations: 12, maxActiveSeconds: 900, taskInstanceBudgetCeilings: { subscription_tokens: "50000" } });
   });
 
-  it("GET /agents/:id carries instructions and the execution profile", async () => {
+  it("GET /agents/:id carries the execution profile (instructions stay in the Registry read)", async () => {
     const v2 = await testDb.query.agentDefinitions.findFirst({ where: and(eq(schema.agentDefinitions.name, "Architect"), eq(schema.agentDefinitions.version, 2)) });
     const res = await app.inject({ method: "GET", url: `/agents/${v2!.id}` });
-    expect(res.json().agent).toMatchObject({ instructions: "Challenge every idea.", executionProfile: { preferredTier: "STRONG" } });
+    expect(res.json().agent).toMatchObject({ executionProfile: { preferredTier: "STRONG" } });
   });
 });

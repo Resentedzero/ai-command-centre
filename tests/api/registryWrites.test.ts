@@ -238,8 +238,16 @@ describe("POST /capability-grants", () => {
     expect((await post("/capability-grants", { ...base, permissions: ["PUBLISH"], autonomyState: "CONDITIONAL" })).status).toBe(201);
 
     // Once a Workflow names the version, its authorization is fixed.
-    const step = { taskDefinitionId: seed.reviewAndPublishTaskDefinitionId, taskDefinitionVersion: 1, agentDefinitionId: publisherV2.body.id, agentDefinitionVersion: 2 };
-    expect((await post("/workflow-definitions", { name: "Publish-Only", graphDefinition: { kind: "linear", steps: [step] } })).status).toBe(201);
+    // V1.1 (R3): a publish step must name an earlier step's report, so the graph is saved valid.
+    const research = { taskDefinitionId: seed.taskDefinitionId, taskDefinitionVersion: 1, agentDefinitionId: seed.agentDefinitionId, agentDefinitionVersion: 1 };
+    const step = {
+      taskDefinitionId: seed.reviewAndPublishTaskDefinitionId,
+      taskDefinitionVersion: 1,
+      agentDefinitionId: publisherV2.body.id,
+      agentDefinitionVersion: 2,
+      parameters: { sourceTaskDefinitionId: seed.taskDefinitionId },
+    };
+    expect((await post("/workflow-definitions", { name: "Publish-Only", graphDefinition: { kind: "linear", steps: [research, step] } })).status).toBe(201);
     expect((await post("/capability-grants", { ...base, capabilityId: seed.capabilityId, permissions: ["READ"], autonomyState: "AUTONOMOUS" })).status).toBe(409);
   });
 });

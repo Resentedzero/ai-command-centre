@@ -313,7 +313,7 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
         version: agent.version,
         role: agent.role,
         objective: agent.objective,
-        instructions: agent.instructions,
+        // Instructions stay in the Registry read (`GET /registry`); this read model never carries them.
         executionProfile: agent.executionProfile,
       },
       activeStop: activeStop ?? null,

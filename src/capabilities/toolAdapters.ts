@@ -41,6 +41,7 @@ import type { ToolExecutionContext, ToolInvocationSpec } from "../execution/type
 import type { CostClass } from "../governance/costClass.js";
 import type { CapabilityPermission } from "../governance/policy.js";
 import { PUBLISH_REPORT_FILESYSTEM, publishReportFilesystem } from "./publishReport/adapter.js";
+import { REVIEW_CHECKPOINT_RECORD, reviewCheckpointRecord } from "./reviewCheckpoint/adapter.js";
 import {
   RESEARCH_RETRIEVE_LOCAL_CORPUS,
   RESEARCH_RETRIEVE_SYNTHETIC,
@@ -60,7 +61,18 @@ export type PreparedToolCall = {
   estimatedCost: number;
 };
 
+/**
+ * V1.1: what a function's results are as evidence, recorded on deliverables by code
+ * (`./shared/deliverable.ts`) so a document never implies research that did not happen.
+ * - `fixture`: fixed test data, not research.
+ * - `local_corpus`: documents already held locally ("retrieve what we have").
+ * - `external`: newly discovered external information (a future `research.search`).
+ */
+export type EvidenceClass = "fixture" | "local_corpus" | "external";
+
 export type InternalToolFunction = {
+  /** V1.1: this function's results as evidence; absent for effects (publish, checkpoint). */
+  evidenceClass?: EvidenceClass;
   /**
    * The one Capability this function fulfils. A binding that names it under any
    * other Capability fails closed: otherwise a READ Capability's binding could
@@ -100,6 +112,12 @@ export function registerInternalToolFunction(name: string, fn: InternalToolFunct
 registerInternalToolFunction(RESEARCH_RETRIEVE_SYNTHETIC, researchRetrieveSynthetic);
 registerInternalToolFunction(RESEARCH_RETRIEVE_LOCAL_CORPUS, researchRetrieveLocalCorpus);
 registerInternalToolFunction(PUBLISH_REPORT_FILESYSTEM, publishReportFilesystem);
+registerInternalToolFunction(REVIEW_CHECKPOINT_RECORD, reviewCheckpointRecord);
+
+/** The evidence class of a registered internal function, or undefined (not evidence, or not registered). */
+export function evidenceClassOfFunction(name: unknown): EvidenceClass | undefined {
+  return typeof name === "string" ? internalFunctions.get(name)?.evidenceClass : undefined;
+}
 
 /**
  * The adapter a binding selects, or throws if it has none here. Also the Registry's

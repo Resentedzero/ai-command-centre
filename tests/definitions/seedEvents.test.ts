@@ -80,7 +80,7 @@ describe("the seed logs what it creates", () => {
     });
   });
 
-  it("npm run seed on a database seeded before Workflow 1 adds exactly its Workflow Definition, and a second run adds nothing", async () => {
+  it("npm run seed on a database seeded before Workflow 1 adds exactly its Workflow Definition and the V1.1 building blocks, and a second run adds nothing", async () => {
     await withRollback(async (tx) => {
       const seeded = await seedPublishWorkflow(tx);
       const counts = async () =>
@@ -91,9 +91,11 @@ describe("the seed logs what it creates", () => {
         );
       const before = await counts();
 
-      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: true });
+      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: true, seededV11: true });
       const after = await counts();
-      expect(after).toEqual([...before.slice(0, -1), before.at(-1)! + 1]);
+      // V1.1: + the Reviewer agent, Agent Task and Approval Gate task definitions, review.checkpoint with its binding and Grant; + Workflow 1.
+      const [agents, tasks, caps, grants, bindings, projects, goals, workflows] = before;
+      expect(after).toEqual([agents! + 1, tasks! + 2, caps! + 1, grants! + 1, bindings! + 1, projects, goals, workflows! + 1]);
 
       const row = await tx.query.workflowDefinitions.findFirst({ where: eq(schema.workflowDefinitions.name, "Research-Report") });
       expect(row).toMatchObject({ version: 1 });
@@ -102,14 +104,14 @@ describe("the seed logs what it creates", () => {
       ]);
       expect(await eventFor(tx, `definition_version_created:${row!.id}`)).toMatchObject({ actor: "human:operator", payload: { definitionType: "workflow_definition" } });
 
-      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: false });
+      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: false, seededV11: false });
       expect(await counts()).toEqual(after);
     });
   });
 
   it("seeds both workflows on an empty database", async () => {
     await withRollback(async (tx) => {
-      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: true, seededResearchReport: true });
+      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: true, seededResearchReport: true, seededV11: true });
     });
   });
 
@@ -134,7 +136,7 @@ describe("the seed logs what it creates", () => {
         },
         "human:operator"
       );
-      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: false });
+      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: false, seededV11: false });
     });
   });
 
@@ -147,7 +149,14 @@ describe("the seed logs what it creates", () => {
           name: "Research-Report",
           graphDefinition: {
             kind: "linear",
+            // V1.1 (R3): a publish step must follow its source, so the imposter is a valid two-step graph.
             steps: [
+              {
+                taskDefinitionId: seeded.taskDefinitionId,
+                taskDefinitionVersion: 1,
+                agentDefinitionId: seeded.agentDefinitionId,
+                agentDefinitionVersion: 1,
+              },
               {
                 taskDefinitionId: seeded.reviewAndPublishTaskDefinitionId,
                 taskDefinitionVersion: 1,

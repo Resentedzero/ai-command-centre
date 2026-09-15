@@ -21,8 +21,8 @@ import { seedMissingWorkflows } from "./seed.js";
 
 export async function runSeed(): Promise<{ seeded: boolean }> {
   return db.transaction(async (tx) => {
-    const { seededPublish, seededResearchReport } = await seedMissingWorkflows(tx);
-    return { seeded: seededPublish || seededResearchReport };
+    const { seededPublish, seededResearchReport, seededV11 } = await seedMissingWorkflows(tx);
+    return { seeded: seededPublish || seededResearchReport || seededV11 };
   });
 }
 

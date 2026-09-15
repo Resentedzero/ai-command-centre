@@ -54,7 +54,9 @@ import { emitEvent } from "../events/emit.js";
 import { validateCapabilityGrant, type CapabilityGrant, type CapabilityPermission } from "../governance/policy.js";
 import { TIER_ORDER, type RiskTier } from "../governance/risk.js";
 import { adapterFor } from "../capabilities/toolAdapters.js";
-import { hasTaskPlan, requireContextBudget } from "../capabilities/taskPlans.js";
+import { hasTaskPlan, requireContextBudget, validateStepParameters } from "../capabilities/taskPlans.js";
+
+const STEP_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 import { isLinearGraphDefinition } from "../workflow/graphTypes.js";
 import { parseExecutionProfile } from "./executionProfile.js";
 
@@ -334,6 +336,19 @@ export async function createWorkflowDefinition(tx: DrizzleTransaction, body: Bod
   const graphDefinition = body.graphDefinition;
   if (!isLinearGraphDefinition(graphDefinition)) refuse(`"graphDefinition" must be a linear graph with at least one valid step.`);
   if (graphDefinition.steps.length > MAX_GRAPH_STEPS) refuse(`"graphDefinition" may have at most ${MAX_GRAPH_STEPS} steps.`);
+  if (graphDefinition.description !== undefined && graphDefinition.description.length > MAX_TEXT_LENGTH) {
+    refuse(`"graphDefinition.description" must be at most ${MAX_TEXT_LENGTH} characters.`);
+  }
+  // V1.1: step ids are how later steps address earlier outputs, so they are unique and well formed.
+  const stepIds = new Set<string>();
+  for (const [index, step] of graphDefinition.steps.entries()) {
+    if (step.stepId !== undefined) {
+      if (!STEP_ID_PATTERN.test(step.stepId)) refuse(`step ${index}: "stepId" must be 1–64 letters, digits, "-" or "_".`);
+      if (stepIds.has(step.stepId)) refuse(`step ${index}: "stepId" "${step.stepId}" is used by an earlier step.`);
+      stepIds.add(step.stepId);
+    }
+    if (step.label !== undefined && (step.label.trim() === "" || step.label.length > 200)) refuse(`step ${index}: "label" must be 1 to 200 characters.`);
+  }
 
   for (const [index, step] of graphDefinition.steps.entries()) {
     const at = `step ${index}`;
@@ -356,6 +371,15 @@ export async function createWorkflowDefinition(tx: DrizzleTransaction, body: Bod
       .where(and(eq(agentDefinitions.id, step.agentDefinitionId), eq(agentDefinitions.version, step.agentDefinitionVersion!)))
       .for("share");
     if (!agent) refuse(`${at}: no Agent Definition ${step.agentDefinitionId} version ${step.agentDefinitionVersion}.`);
+    // R3: the kind validates this step's parameters now, so an invalid workflow never reaches a run.
+    const invalid = await validateStepParameters(tx, taskDefinition.kind, {
+      parameters: step.parameters ?? {},
+      graph: graphDefinition,
+      stepIndex: index,
+      agentDefinitionId: step.agentDefinitionId,
+      agentDefinitionVersion: step.agentDefinitionVersion!,
+    });
+    if (invalid) refuse(`${at} (${taskDefinition.kind}): ${invalid}`);
   }
 
   await lock(tx, `workflow_definitions:${name}`);

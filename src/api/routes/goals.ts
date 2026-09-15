@@ -27,7 +27,7 @@ import { emitLifecycleEvent, NO_CORRELATION } from "../../events/lifecycle.js";
 import { isUuid } from "../requestGuards.js";
 import { MAX_TEXT_LENGTH } from "../../definitions/registryWrites.js";
 
-type CreateGoalBody = { title?: string; description?: string; workflowDefinitionId?: string; projectId?: string };
+type CreateGoalBody = { title?: string; description?: string; workflowDefinitionId?: string; projectId?: string; async?: boolean };
 
 /** Most recent Goals returned by `GET /goals`. Ample for a single operator; a paged listing can follow real volume. */
 const GOALS_LIST_LIMIT = 500;
@@ -87,8 +87,11 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
   });
 
   app.post<{ Body: CreateGoalBody }>("/goals", async (request, reply) => {
-    const { title, description, workflowDefinitionId: requestedWorkflowDefinitionId, projectId: requestedProjectId } =
+    const { title, description, workflowDefinitionId: requestedWorkflowDefinitionId, projectId: requestedProjectId, async: runAsync } =
       request.body ?? {};
+    if (runAsync !== undefined && typeof runAsync !== "boolean") {
+      return reply.status(400).send({ error: "async must be a boolean" });
+    }
     if (!title || typeof title !== "string") {
       return reply.status(400).send({ error: "title is required" });
     }
@@ -147,6 +150,19 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
 
     await relay.track(created.workflowRunId, { fresh: true });
     await relay.flush();
+
+    if (runAsync) {
+      // R2 (V1.1): the Goal and Workflow Run are committed; the same driver continues in
+      // this process after the response. Postgres stays authoritative: the run's state is
+      // in its rows and events, the UI follows the event stream, and if the process dies
+      // the startup re-drive (`../start.ts`) picks the run up. No queue, no broker.
+      void advanceWorkflowRunUntilBlocked(relay.runInTx, created.workflowRunId, buildInvocationSpecsFromDefinitions).catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error(`Driving workflow run ${created.workflowRunId} in the background failed; POST /workflow-runs/${created.workflowRunId}/advance retries:`, error);
+      });
+      return reply.status(202).send({ goalId: created.goalId, workflowRunId: created.workflowRunId, status: "in_progress" });
+    }
+
     const advanceResult = await advanceWorkflowRunUntilBlocked(relay.runInTx, created.workflowRunId, buildInvocationSpecsFromDefinitions);
 
     return reply.status(201).send({ goalId: created.goalId, workflowRunId: created.workflowRunId, status: advanceResult.status });

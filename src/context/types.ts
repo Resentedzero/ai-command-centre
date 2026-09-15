@@ -76,8 +76,34 @@ export type CompiledContext = {
  * the brief's interface listing — pulling it into a named export changes
  * nothing about the public contract.
  */
+/**
+ * What an LLM Invocation is for, rendered as `Intent: <intent>.` The V1 intents plus
+ * the V1.1 thinking actions an autonomous agent may take (plan, brainstorm, analyse,
+ * compare, critique, write). Thinking is not a Capability: it needs no Grant, and is
+ * governed like every model call by the Router, the Budget Governor and stops.
+ */
+export type InvocationIntent =
+  | "classify"
+  | "synthesize"
+  | "extract"
+  | "decide"
+  | "summarize"
+  | "plan"
+  | "brainstorm"
+  | "analyse"
+  | "compare"
+  | "critique"
+  | "write";
+
 export type CompileContextInput = {
-  intent: "classify" | "synthesize" | "extract" | "decide" | "summarize";
+  intent: InvocationIntent;
+  /**
+   * V1.1: a trusted directive for this Invocation, rendered in the invocation-instruction
+   * layer and counted in the budget. Only plan code and operator-authored Definitions
+   * (a workflow step's instruction) supply it; model output never does (that stays
+   * fenced as untrusted artifact data).
+   */
+  directive?: string;
   taskInstanceId: string;
   /**
    * The Run this compilation serves (added 2026-09-14). Its bound Agent

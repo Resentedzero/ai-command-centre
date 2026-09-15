@@ -19,8 +19,9 @@
 import type { CostClass } from "../governance/costClass.js";
 import type { CapabilityPermission } from "../governance/policy.js";
 import type { RiskTier } from "../governance/risk.js";
-import type { CompiledContext, ContextBudget } from "../context/types.js";
+import type { CompiledContext, ContextBudget, InvocationIntent } from "../context/types.js";
 import type { RouteResult } from "../router/types.js";
+import type { ProviderName } from "../router/tierConfig.js";
 
 export type InvocationKind = "llm" | "tool" | "retrieval" | "deterministic";
 
@@ -60,7 +61,11 @@ export type ToolInvocationSpec = {
 export type LlmInvocationSpec = {
   kind: "llm";
   costClass: "llm";
-  intent: "classify" | "synthesize" | "extract" | "decide" | "summarize";
+  intent: InvocationIntent;
+  /** V1.1: a trusted directive for the Compiler's invocation-instruction layer (`CompileContextInput.directive`). Never model output. */
+  directive?: string;
+  /** V1.1: the Agent's provider restriction, passed to the Router (`RouteRequest.requiredProvider`). */
+  requiredProvider?: ProviderName;
   candidateArtifactIds: string[];
   candidateToolCapabilityIds: string[];
   contextBudget: ContextBudget;

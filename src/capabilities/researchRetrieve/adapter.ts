@@ -22,6 +22,8 @@ export const RESEARCH_RETRIEVE_SYNTHETIC = "research.retrieve.synthetic";
 
 export const researchRetrieveSynthetic: InternalToolFunction = {
   capabilityName: RESEARCH_RETRIEVE_CAPABILITY.id,
+  // Fixed synthetic results: test data, never presented as research.
+  evidenceClass: "fixture",
   async prepare(_tx, { proposedActionSnapshot }) {
     const query = requireQuery(RESEARCH_RETRIEVE_SYNTHETIC, proposedActionSnapshot);
     // The cost declaration this binding carried before the adapter registry,
@@ -36,6 +38,8 @@ export const RESEARCH_RETRIEVE_LOCAL_CORPUS = "research.retrieve.local_corpus";
 
 export const researchRetrieveLocalCorpus: InternalToolFunction = {
   capabilityName: RESEARCH_RETRIEVE_CAPABILITY.id,
+  // Documents we already hold: retrieval, not external research (`research.search` would be).
+  evidenceClass: "local_corpus",
   async prepare(_tx, { config, proposedActionSnapshot }) {
     const query = requireQuery(RESEARCH_RETRIEVE_LOCAL_CORPUS, proposedActionSnapshot);
     const maxResults = config.maxResults ?? DEFAULT_MAX_RESULTS;

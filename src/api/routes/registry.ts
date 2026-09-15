@@ -70,6 +70,13 @@ import {
   type Created,
 } from "../../definitions/registryWrites.js";
 
+/** Thrown to roll back a dry-run write after every check has passed. */
+class DryRunRollback extends Error {
+  constructor(readonly created: Created) {
+    super("dry run");
+  }
+}
+
 const CREATE_ROUTES: [string, (tx: DrizzleTransaction, body: Record<string, unknown>, actor: string) => Promise<Created>][] = [
   ["/capabilities", createCapability],
   ["/tool-bindings", createToolBinding],
@@ -121,7 +128,7 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
           maxIterations: MAX_LOOP_ITERATIONS,
           maxActiveSeconds: MAX_ACTIVE_SECONDS,
           minActiveSeconds: MIN_ACTIVE_SECONDS,
-          taskInstanceCeilings: TASK_INSTANCE_BUDGET_CEILINGS,
+          taskInstanceBudgetCeilings: TASK_INSTANCE_BUDGET_CEILINGS,
         },
       },
       capabilities: capabilityRows.map((c) => ({
@@ -178,10 +185,20 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
       if (body === null || typeof body !== "object" || Array.isArray(body)) {
         return reply.status(400).send({ error: "The request body must be a JSON object." });
       }
+      // `?dryRun=1` (V1.1 builders): every check a real write makes, in a transaction that is
+      // then rolled back, so nothing is written and no event is recorded or relayed.
+      const dryRun = (request.query as { dryRun?: string } | undefined)?.dryRun === "1";
       let created: Created;
       try {
-        created = await deps.db.transaction((tx) => create(tx, body as Record<string, unknown>, V1_RESOLUTION_ACTOR));
+        created = await deps.db.transaction(async (tx) => {
+          const result = await create(tx, body as Record<string, unknown>, V1_RESOLUTION_ACTOR);
+          if (dryRun) throw new DryRunRollback(result);
+          return result;
+        });
       } catch (error) {
+        if (error instanceof DryRunRollback) {
+          return reply.status(200).send({ valid: true, name: error.created.name, version: error.created.version });
+        }
         if (error instanceof RegistryWriteError) return reply.status(error.status).send({ error: error.message });
         // The unique (capability_id, version) index backs the version lock for Tool Bindings.
         if (sqlStateOf(error) === "23505") return reply.status(409).send({ error: "A concurrent write created this version first; re-read and retry." });

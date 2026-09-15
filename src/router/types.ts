@@ -173,6 +173,13 @@ export type RouteRequest = {
    * never make one eligible that was not already.
    */
   allowedResourceUnits?: ResourceUnit[];
+  /**
+   * V1.1: the one provider this invocation may be served by (an Agent Definition's
+   * execution profile). Absent, the configured candidate order applies. Present,
+   * every other provider's candidates are excluded as `provider_mismatch`; with none
+   * left the route is refused, never served by another provider.
+   */
+  requiredProvider?: ProviderName;
 };
 
 export type RouteResult = {

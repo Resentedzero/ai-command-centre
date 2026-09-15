@@ -36,11 +36,21 @@ export type LinearGraphStep = {
   agentDefinitionVersion?: number;
   /** Parameters for the step's Task Definition kind (spec Phase 11: reusable kinds, different parameters). */
   parameters?: Record<string, unknown>;
+  /**
+   * V1.1: a stable id, unique within the graph, by which later steps address this
+   * step's output (`parameters.inputs[].fromStepId`) and a richer graph form can name
+   * nodes later. Optional: V1 graphs have none.
+   */
+  stepId?: string;
+  /** V1.1: the operator's name for the step. */
+  label?: string;
 };
 
 export type LinearGraphDefinition = {
   kind: "linear";
   steps: LinearGraphStep[];
+  /** V1.1: what the workflow is for, in the operator's words. */
+  description?: string;
 };
 
 function isStep(value: unknown): value is LinearGraphStep {
@@ -53,6 +63,8 @@ function isStep(value: unknown): value is LinearGraphStep {
   if (step.parameters !== undefined && (step.parameters === null || typeof step.parameters !== "object" || Array.isArray(step.parameters))) {
     return false;
   }
+  if (step.stepId !== undefined && typeof step.stepId !== "string") return false;
+  if (step.label !== undefined && typeof step.label !== "string") return false;
   return true;
 }
 
@@ -62,5 +74,6 @@ export function isLinearGraphDefinition(value: unknown): value is LinearGraphDef
   if (graph.kind !== "linear") return false;
   if (!Array.isArray(graph.steps)) return false;
   if (graph.steps.length === 0) return false;
+  if (graph.description !== undefined && typeof graph.description !== "string") return false;
   return graph.steps.every(isStep);
 }

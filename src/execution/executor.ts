@@ -657,6 +657,7 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
     runId,
     taskInstanceId,
     invocationId,
+    ...(spec.requiredProvider !== undefined ? { requiredProvider: spec.requiredProvider } : {}),
   });
 
   if ("authorized" in route) {
@@ -679,6 +680,7 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
   try {
     compiledContext = await compileContext(tx, {
       intent: spec.intent,
+      ...(spec.directive !== undefined ? { directive: spec.directive } : {}),
       expectedOutputShape: spec.expectedOutputShape,
       taskInstanceId,
       runId,

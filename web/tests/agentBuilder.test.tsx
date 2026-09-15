@@ -47,7 +47,7 @@ const registry: RegistryData = {
       { name: "claude_subscription", enabled: true, tiers: ["CHEAP", "MID", "STRONG"], resourceUnits: ["subscription_tokens"] },
       { name: "openai", enabled: false, tiers: [], resourceUnits: [] },
     ],
-    autonomyLimits: { maxIterations: 12, maxActiveSeconds: 900, minActiveSeconds: 60, taskInstanceCeilings: { subscription_tokens: "50000" } },
+    autonomyLimits: { maxIterations: 12, maxActiveSeconds: 900, minActiveSeconds: 60, taskInstanceBudgetCeilings: { subscription_tokens: "50000" } },
   },
 };
 

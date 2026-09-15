@@ -117,7 +117,8 @@ export type ExclusionReason =
   | "capability_mismatch"
   | "resource_mismatch"
   | "quota_refused"
-  | "provider_unavailable";
+  | "provider_unavailable"
+  | "provider_mismatch";
 
 export type ExcludedCandidate = {
   provider: ProviderName;
@@ -141,9 +142,12 @@ function staticExclusion(
   candidate: ProviderCandidate,
   tier: ModelTier,
   requiredCapabilities: CandidateCapability[],
-  allowedResourceUnits: ResourceUnit[] | undefined
+  allowedResourceUnits: ResourceUnit[] | undefined,
+  requiredProvider?: ProviderName
 ): ExclusionReason | null {
   if (!candidate.enabled) return "disabled";
+  // V1.1: an Agent that requires one provider is never served by another (spec 10.6.7).
+  if (requiredProvider !== undefined && candidate.provider !== requiredProvider) return "provider_mismatch";
   if (!candidate.tiers.includes(tier)) return "tier_mismatch";
   if (!requiredCapabilities.every((required) => candidate.capabilities.includes(required))) {
     return "capability_mismatch";
@@ -185,6 +189,7 @@ export async function selectCandidates(
     tier: ModelTier;
     requiredCapabilities?: CandidateCapability[];
     allowedResourceUnits?: ResourceUnit[];
+    requiredProvider?: ProviderName;
     invocationId?: string | null;
     runId?: string | null;
   },
@@ -195,7 +200,7 @@ export async function selectCandidates(
   const excluded: ExcludedCandidate[] = [];
 
   for (const candidate of candidates) {
-    const staticReason = staticExclusion(candidate, req.tier, requiredCapabilities, req.allowedResourceUnits);
+    const staticReason = staticExclusion(candidate, req.tier, requiredCapabilities, req.allowedResourceUnits, req.requiredProvider);
     if (staticReason) {
       excluded.push({ provider: candidate.provider, modelId: candidate.modelId, reason: staticReason });
       continue;
@@ -465,6 +470,7 @@ export async function authorizeRoute(
     escalationFloor,
     historicalPerformance,
     tierSource,
+    ...(req.requiredProvider !== undefined ? { requiredProvider: req.requiredProvider } : {}),
   };
 
   // Step 1 — ROUTING (Phase 7D): which candidates are eligible, in what order.
@@ -475,6 +481,7 @@ export async function authorizeRoute(
     tier,
     requiredCapabilities: req.requiredCapabilities,
     allowedResourceUnits,
+    requiredProvider: req.requiredProvider,
     invocationId: req.invocationId,
     runId: req.runId,
   });
@@ -559,6 +566,7 @@ export async function authorizeRoute(
       tier: fallbackTier,
       requiredCapabilities: req.requiredCapabilities,
       allowedResourceUnits: [routedCandidate.accounting.unit],
+      requiredProvider: req.requiredProvider,
       invocationId: req.invocationId,
       runId: req.runId,
     });
