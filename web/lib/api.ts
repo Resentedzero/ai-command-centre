@@ -212,6 +212,12 @@ export type InvocationDetail = {
   artifactIds: string[];
   /** Policy's latest recorded decision; null for Invocations Policy does not govern (llm, deterministic). Absent from older API builds. */
   policyDecision?: PolicyDecisionRecord | null;
+  /**
+   * The Budget Governor's outcome for this Invocation, assembled by the API from what was recorded; null when
+   * no reservation was made or none is recorded. Only `authorized` and `denied` exist: downgrade and degrade are
+   * undecided and never produced. Display it; never infer it from a failure reason.
+   */
+  budgetOutcome?: "authorized" | "denied" | null;
 };
 
 /**

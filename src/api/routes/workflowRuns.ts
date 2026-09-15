@@ -55,6 +55,7 @@ import { buildInvocationSpecsFromDefinitions } from "../../workflow/buildInvocat
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
 import { readPolicyDecisions } from "../policyDecisionRecord.js";
+import { budgetOutcomeOf } from "../budgetOutcome.js";
 
 function replyForWorkflowRunError(error: unknown, reply: FastifyReply): FastifyReply {
   if (error instanceof WorkflowRunNotFoundError) return reply.status(404).send({ error: error.message });
@@ -103,6 +104,14 @@ async function runDetail(deps: ApiDeps, runId: string) {
     .from(events)
     .where(and(eq(events.runId, runId), eq(events.eventType, "invocation_failed")));
   const failureByInvocation = new Map(failures.map((f) => [f.invocationId, f.payload as Record<string, unknown>]));
+  // Facts `budgetOutcome` reads (never returned): the Router's budget authorization on
+  // `invocation_started`, and `approval_required`, emitted only after a tool's reservation.
+  const reservationFacts = await deps.db
+    .select({ invocationId: events.invocationId, eventType: events.eventType, payload: events.payload })
+    .from(events)
+    .where(and(eq(events.runId, runId), inArray(events.eventType, ["invocation_started", "approval_required"])));
+  const startByInvocation = new Map(reservationFacts.filter((e) => e.eventType === "invocation_started").map((e) => [e.invocationId, e.payload]));
+  const approvalRequiredFor = new Set(reservationFacts.filter((e) => e.eventType === "approval_required").map((e) => e.invocationId));
 
   // Ids only, so screen 3 can link each Invocation's outputs to `GET /artifacts/:id`.
   const produced = invocationRows.length
@@ -144,6 +153,12 @@ async function runDetail(deps: ApiDeps, runId: string) {
         errorCode: typeof failure?.errorCode === "string" ? failure.errorCode : null,
         artifactIds: produced.filter((a) => a.invocationId === i.id).map((a) => a.id),
         policyDecision: policyDecisions.get(i.id)?.at(-1) ?? null,
+        budgetOutcome: budgetOutcomeOf(i, {
+          startedPayload: startByInvocation.get(i.id),
+          failedPayload: failure,
+          preDispatchChecked: (policyDecisions.get(i.id) ?? []).some((d) => d.checkpoint === "pre_dispatch"),
+          approvalRequired: approvalRequiredFor.has(i.id),
+        }),
       };
     }),
     budget: counters.map((c) => ({

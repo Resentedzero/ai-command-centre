@@ -20,7 +20,7 @@ Every value, count, gauge, badge and animation state on a screen names its sourc
 | `AgentCardData[]` | `GET /agents/active` | agent name, `taskStatus`, `latestActivitySummary`, `runId` |
 | `AgentDetail` | `GET /agents/:id` | role, objective, `activeStop`, grants (capability, permissions, `autonomyState`, trust, revoked), runs with goal lineage and latest invocation `kind`/`status`, `budgetTotals` per unit, `recentEvents`, `outputs`, `contextLineage` (tiers, exclusions, token estimate vs max). `performance` is always `null`. |
 | `WorkflowRunSummary[]` | `GET /workflow-runs` | status, goal title, definition name/version, timestamps |
-| `WorkflowRunDetail` | `GET /workflow-runs/:id` | ordered `steps` (task definition, task instance status, run, invocations with failure reason and `policyDecision` — Policy's recorded decision and basis, tool Invocations only, null otherwise — budget per unit), `stepsUnavailableReason` |
+| `WorkflowRunDetail` | `GET /workflow-runs/:id` | ordered `steps` (task definition, task instance status, run, invocations with failure reason, `policyDecision` — Policy's recorded decision and basis, tool Invocations only, null otherwise — and `budgetOutcome` (`authorized` / `denied` / null, the Governor's recorded outcome), budget per unit), `stepsUnavailableReason` |
 | `ProjectGoals[]` | `GET /goals` | projects → goals → workflow runs with status |
 | `ApprovalData[]` | `GET /approvals` | risk tier, status, TTL, snapshot, `context` (capability, permission, agent, goal, artifact preview, `hashMatchesSnapshot`, `policyDecision`: why approval is required) |
 | `EventDisplayItem` stream | `GET /events/stream` (SSE) | `eventType`, `occurredAt`, `eventCursor`, summary |
@@ -45,6 +45,7 @@ Seeded reality: 2 agents (Researcher, Publisher), 2 capabilities (`research.retr
 | Invocation kind | `llm`, `tool`, `retrieval`, `deterministic` (`browser` in the spec; not built) |
 | Approval | `pending`, `approved`, `rejected`, `expired` |
 | Policy decision (`PolicyDecisionRecord`) | `ALLOW`, `REQUIRE_APPROVAL`, `DENY`; `basis`: `no_grant`, `permission_not_granted`, `binding_below_grant_trust_bar`, `autonomy_autonomous`, `autonomy_always_approve`, `autonomy_conditional_rule_undecided`, `unverified_binding_requires_approval`. Show as words (`policyToken`); never compute a decision, threshold or eligibility. `performanceEvidence` is always null today. |
+| Budget outcome (`InvocationDetail.budgetOutcome`) | `authorized`, `denied`, or null (no reservation recorded). `downgraded` / `degraded` do not exist: never render them. Denial is red on the failure line; authorized is neutral text. |
 | Execution stop scope | `global`, `agent_definition`, `capability_grant`, `goal`, `workflow_run`, `run` |
 | Autonomy | `ALWAYS_APPROVE`, `CONDITIONAL` (behaves as approve today), `AUTONOMOUS` |
 | Resource unit | `usd`, `subscription_tokens`, `local_tokens`: separate counters, never summed or converted |

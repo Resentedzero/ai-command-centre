@@ -11,7 +11,7 @@ The runtime milestones named next were checked against the frozen spec and `ROAD
 | Stage | Settled by the spec? | Built here |
 |---|---|---|
 | Conditional Autonomy (§9.4) | **No.** The rule needs values the spec does not give: (a) which instances are "below threshold", (b) what performance leans toward `ALLOW` and its value, (c) which `agent_performance` row a tool action consults (spec §9.4 note; ROADMAP §6 "`CONDITIONAL` autonomy rule"). | Not the rule. The settled half: an authoritative Policy decision record (§1 below). `CONDITIONAL` still requires approval. |
-| Budget Governor downgrade / degrade (Phase 4) | **No.** When to downgrade, to which tier, and how far to tighten a Context Budget have no values and meet the no-fallback rule (ROADMAP §6). | See the budget outcome section when built. |
+| Budget Governor downgrade / degrade (Phase 4) | **No.** When to downgrade, to which tier, and how far to tighten a Context Budget have no values and meet the no-fallback rule (ROADMAP §6). | Not the outcomes. The settled half: a per-Invocation budget outcome for the two the Governor produces (§2 below). |
 | Routing / tier observability | Yes: additive exposure of facts already recorded. | See its section when built. |
 
 ## 1. Policy decision record
@@ -47,3 +47,21 @@ No decision changed; only the reason is now recorded. `policy_evaluated` carries
 **Tests.** `tests/governance/policy.test.ts` (each basis on its path, including `CONDITIONAL`); `tests/execution/executor.test.ts` (`basis` and `performanceEvidence` on the event); `tests/api/routes.integration.test.ts` (the Workflow detail and Approvals context through a real seeded run); `tests/api/traceRoute.test.ts` (every checkpoint, none for LLM or deterministic); `web/tests/workflows.test.tsx`, `web/tests/approvals.test.tsx` (the rendered token).
 
 **Not built, by decision boundary.** The `CONDITIONAL` rule and anything that lets performance reach Policy; a `policies` table or rule versions.
+
+## 2. Budget outcome per Invocation
+
+The Governor authorizes or denies; it never downgrades or degrades (undecided). `budgetOutcome` (`api/budgetOutcome.ts`) is `authorized`, `denied` or null, assembled only from what the runtime recorded when it reserved:
+
+| Kind | authorized | denied | null |
+|---|---|---|---|
+| `llm` | the Router's `budgetAuthorization.authorized: true` on `invocation_started` | its refused route's `budgetAuthorization.authorized: false` on `invocation_failed.routingDecision` | the route was refused before the Governor was asked (no eligible candidate, quota) |
+| `tool` | any recorded fact of a successful reservation: the Invocation reached `awaiting_approval`, `executing` or `completed` (written only after one); an `approval_required` event (emitted only after one); a pre-dispatch check (a pending dispatch exists only with one); or a failure recording its settlement (`reservationSettlement` reconciled, released or charged at estimate) | the Executor failed it with `insufficient_budget` (proposal) or `insufficient_budget_on_resume`, checked first | refused before reserving (a stop, a Policy DENY), or no reservation recorded (`none_recorded`) |
+| deterministic cost class, `deterministic`, `retrieval` | — | — | never reserved |
+
+The outcome is the Governor's, not the action's: an authorized reservation stays `authorized` after an LLM call fails at its provider, an approval is rejected or expires, a dispatch is refused, or an interrupted tool is charged at its estimate. A pending approval shows `authorized`, because its reservation is held (`BUDGET_CONTAINMENT_CLOSURE.md`). Exposed on `GET /workflow-runs/:id` (`invocations[].budgetOutcome`) and `GET /runs/:id/trace`.
+
+**UI.** A `budget` column on the Workflow view's Invocations table, the API's word as given. A denial's red stays on the failure line; `authorized` is neutral.
+
+**Tests.** `tests/api/budgetOutcome.test.ts` (every row of the table from recorded payload shapes, including a rejected approval and an interrupted, charged tool staying authorized, and that only the two outcomes are produced); `tests/api/routes.integration.test.ts` and `tests/api/traceRoute.test.ts` (a real seeded run: tool and LLM authorized, deterministic null, a publish awaiting approval authorized); `web/tests/workflows.test.tsx`. A denial is covered by the unit test only; no route test drives one end to end.
+
+**Not built, by decision boundary.** `authorized-at-downgraded-tier` and `degrade`: when to downgrade, to which tier, and how far to tighten a budget. Linking `budget_denied` to its Invocation would need `reserveBudget` to take the Invocation id, which its fixed six-argument production signature does not; the outcome above does not need it.

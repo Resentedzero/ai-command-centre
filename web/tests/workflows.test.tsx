@@ -116,8 +116,10 @@ describe("Workflow run detail", () => {
                 bindingTrustLevel: 2,
                 performanceEvidence: null,
               },
+              budgetOutcome: "authorized",
             },
-            { id: "i-2", seqNo: 2, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "interrupted_outcome_unknown", errorCode: "timeout", artifactIds: [], policyDecision: null },
+            { id: "i-2", seqNo: 2, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "interrupted_outcome_unknown", errorCode: "timeout", artifactIds: [], policyDecision: null, budgetOutcome: "authorized" },
+            { id: "i-3", seqNo: 3, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "insufficient_budget", errorCode: null, artifactIds: [], policyDecision: null, budgetOutcome: "denied" },
           ],
           budget: [
             { resourceUnit: "subscription_tokens", limitAmount: "200000", reservedAmount: "0", consumedAmount: "1050" },
@@ -158,16 +160,22 @@ describe("Workflow run detail", () => {
     expect(screen.getByTestId("attempts")).toHaveTextContent("timed out (timeout)");
 
     const rows = screen.getAllByTestId("invocation-row");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     // The failure reason is its own full-width line under the failed invocation, never a scrolled-away column (#46).
     const failures = screen.getAllByTestId("invocation-failure");
-    expect(failures).toHaveLength(1);
+    expect(failures).toHaveLength(2);
     expect(failures[0]).toHaveTextContent("interrupted_outcome_unknown (timeout)");
     expect(rows[1]!.nextElementSibling).toBe(failures[0]);
     expect(within(rows[0]!).getByRole("link", { name: "output 1" })).toHaveAttribute("href", "/artifacts/art-1");
     // Policy's recorded decision and basis, as words; nothing for a kind Policy does not govern.
     expect(within(rows[0]!).getByTestId("invocation-policy")).toHaveTextContent("allowed · autonomous · at pre dispatch");
     expect(within(rows[1]!).getByTestId("invocation-policy")).toHaveTextContent(/^$/);
+    // The Governor's outcome is the API's word, shown as given.
+    expect(within(rows[0]!).getByTestId("invocation-budget")).toHaveTextContent("authorized");
+    expect(within(rows[1]!).getByTestId("invocation-budget")).toHaveTextContent("authorized");
+    expect(within(rows[2]!).getByTestId("invocation-budget")).toHaveTextContent("denied");
+    expect(rows[2]!.nextElementSibling).toBe(failures[1]);
+    expect(failures[1]).toHaveTextContent("insufficient_budget");
 
     const budget = screen.getByTestId("run-budget");
     expect(budget).toHaveTextContent("1050 consumed of 200000");

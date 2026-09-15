@@ -515,6 +515,7 @@ type WorkflowRunDetailBody = {
         failureReason: string | null;
         artifactIds: string[];
         policyDecision: Record<string, unknown> | null;
+        budgetOutcome: string | null;
       }>;
       budget: Array<{ resourceUnit: string; consumedAmount: string; limitAmount: string }>;
     } | null;
@@ -680,6 +681,8 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
     // Policy's own record, never re-derived: the seeded research Grant is AUTONOMOUS, the
     // publish Grant ALWAYS_APPROVE; LLM and deterministic Invocations are not Policy-governed.
     expect(research!.run?.invocations.map((i) => i.policyDecision?.decision ?? null)).toEqual(["ALLOW", null, null]);
+    // The Governor's outcome as recorded: the tool and the LLM call reserved; the deterministic step never does.
+    expect(research!.run?.invocations.map((i) => i.budgetOutcome)).toEqual(["authorized", "authorized", null]);
     expect(research!.run?.invocations[0]!.policyDecision).toMatchObject({
       checkpoint: "pre_dispatch",
       basis: "autonomy_autonomous",
@@ -705,6 +708,8 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
 
     expect(publish!.taskInstance?.status).toBe("awaiting_approval");
     expect(publish!.run?.invocations).toEqual([expect.objectContaining({ kind: "tool", status: "awaiting_approval", artifactIds: [] })]);
+    // Held for approval on a reservation that was authorized (pending approval keeps its hold).
+    expect(publish!.run?.invocations[0]!.budgetOutcome).toBe("authorized");
     expect(publish!.run?.invocations[0]!.policyDecision).toMatchObject({
       checkpoint: "propose",
       decision: "REQUIRE_APPROVAL",
