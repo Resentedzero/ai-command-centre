@@ -57,6 +57,8 @@ import { providerCandidates } from "../../router/tierConfig.js";
 import { MAX_ACTIVE_SECONDS, MAX_LOOP_ITERATIONS } from "../../governance/autonomyLimits.js";
 import { TASK_INSTANCE_BUDGET_CEILINGS } from "../../governance/runBudgetPolicy.js";
 import { MIN_ACTIVE_SECONDS, configuredProviders } from "../../definitions/executionProfile.js";
+import { loopActions } from "../../capabilities/shared/loopActions.js";
+import { THINKING_INTENTS } from "../../capabilities/agentObjective/buildInvocationSpecs.js";
 import {
   GRANT_AUTONOMY_STATES,
   GRANT_PERMISSIONS,
@@ -124,6 +126,9 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
             resourceUnits: [...new Set(own.map((c) => c.accounting.unit))],
           };
         }),
+        // What an autonomous objective may use: thinking actions (no Grant) and capabilities with a loop action (Grant required).
+        thinkingIntents: THINKING_INTENTS,
+        loopActions: loopActions().map((a) => ({ capability: a.capabilityName, permission: a.permission, describe: a.describe })),
         autonomyLimits: {
           maxIterations: MAX_LOOP_ITERATIONS,
           maxActiveSeconds: MAX_ACTIVE_SECONDS,

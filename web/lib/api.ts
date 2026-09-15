@@ -331,7 +331,8 @@ export type RunDetail = {
 
 export type WorkflowStepDetail = {
   index: number;
-  taskDefinition: { id: string; name: string; version: number } | null;
+  /** `kind` is absent from older API builds. */
+  taskDefinition: { id: string; name: string; version: number; kind?: string } | null;
   taskInstance: { id: string; status: string } | null;
   /** The current Run. A Task Instance can have several Runs (retries); see `attempts`. */
   run: RunDetail | null;
@@ -572,6 +573,10 @@ export type BuilderOptions = {
   autonomyStates: string[];
   tiers: string[];
   providers: { name: string; enabled: boolean; tiers: string[]; resourceUnits: string[] }[];
+  /** Thinking actions an autonomous objective may take (no Grant needed). Absent from older API builds. */
+  thinkingIntents?: string[];
+  /** Capabilities an autonomous loop can use (each still needs the agent's Grant). Absent from older API builds. */
+  loopActions?: { capability: string; permission: string; describe: string }[];
   autonomyLimits: { maxIterations: number; maxActiveSeconds: number; minActiveSeconds: number; taskInstanceBudgetCeilings: Record<string, string> };
 };
 

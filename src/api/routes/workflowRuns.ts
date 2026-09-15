@@ -276,7 +276,7 @@ export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps):
         attempts,
         index,
         taskDefinition: taskDefinition
-          ? { id: taskDefinition.id, name: taskDefinition.name, version: taskDefinition.version }
+          ? { id: taskDefinition.id, name: taskDefinition.name, version: taskDefinition.version, kind: taskDefinition.kind }
           : null,
         taskInstance: taskInstance ? { id: taskInstance.id, status: taskInstance.status } : null,
         run: runId ? await runDetail(deps, runId) : null,

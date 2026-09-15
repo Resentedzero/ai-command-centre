@@ -10,6 +10,7 @@ import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, cx, px }
 import { WorkshopCloseup, type WorkshopState } from "../../components/world/Workshop";
 import { agentState, eligibilityWord, errorText, formatAmount, formatTime, stateWord } from "../../lib/keep";
 import a from "./agents.module.css";
+import { DelegateObjective } from "../../components/agents/DelegateObjective";
 
 /**
  * Agents (spec 15.1 screen 2; Figma "Agents v2 — pixel"): what is this agent
@@ -216,6 +217,7 @@ function AgentBoard({
   const { agent, contextLineage: ctx } = detail;
   const tiers = ctx ? [...new Set(ctx.included.map((i) => i.tier))].sort((x, y) => x - y) : [];
   const profile = agent.executionProfile ?? {};
+  const [delegating, setDelegating] = useState(false);
 
   return (
     <>
@@ -275,6 +277,15 @@ function AgentBoard({
             : "runtime defaults"}
         </div>
       </div>
+
+      <section className={a.section} aria-label="Objective">
+        <span className={px.tab}>Give an objective</span>
+        {delegating ? (
+          <DelegateObjective agent={agent} grants={grants} />
+        ) : (
+          <PixelButton onClick={() => setDelegating(true)}>Give {agent.name} an objective</PixelButton>
+        )}
+      </section>
 
       <section className={a.section} aria-label="Work">
         <span className={px.tab}>Work</span>

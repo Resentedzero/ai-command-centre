@@ -74,7 +74,7 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { isDeepStrictEqual } from "node:util";
-import { and, asc, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt } from "drizzle-orm";
 import { isTransientDatabaseError, sqlStateOf } from "../db/databaseErrors.js";
 import { approvals, artifacts, invocations, runs, taskInstances, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
@@ -126,6 +126,7 @@ import type {
   RunOutcome,
   ToolDispatchOutcome,
   ToolInvocationSpec,
+  SkippedPosition,
 } from "./types.js";
 
 /** Documented MVP default (Ruling 4 step 8) — no product-specified approval TTL exists yet. */
@@ -1430,13 +1431,13 @@ async function resolvePlannedSpec(
   runId: string,
   seqNo: number,
   planned: PlannedInvocationSpec
-): Promise<InvocationSpec> {
+): Promise<InvocationSpec | SkippedPosition> {
   if (typeof planned !== "function") return planned;
   const ctx: InvocationSpecContext = { priorArtifacts: await collectPriorArtifacts(tx, runId, seqNo) };
   return planned(ctx);
 }
 
-function assertToolSpec(spec: InvocationSpec): asserts spec is ToolInvocationSpec {
+function assertToolSpec(spec: InvocationSpec | SkippedPosition): asserts spec is ToolInvocationSpec {
   if (spec.kind !== "tool") {
     throw new Error(`executeRun: expected a "tool" spec while resuming an awaiting_approval invocation, got "${spec.kind}".`);
   }
@@ -1544,6 +1545,12 @@ export async function executeRun(
   }
 
   async function runInvocationLoop(run: RunRow): Promise<RunOutcome> {
+  // R1 (V1.1): the highest position that already has an Invocation when this call starts.
+  // Positions run in order, so a position below it with no Invocation was skipped by an
+  // earlier call. It stays skipped: never resolved again, never run out of order.
+  const highestExisting =
+    (await tx.query.invocations.findFirst({ where: eq(invocations.runId, runId), orderBy: desc(invocations.seqNo) }))?.seqNo ?? 0;
+
   for (let i = 0; i < invocationSpecs.length; i++) {
     const seqNo = i + 1;
     const planned = invocationSpecs[i]!;
@@ -1644,8 +1651,19 @@ export async function executeRun(
       );
     }
 
+    if (seqNo < highestExisting) {
+      // R1: only a deferred position can have been skipped; a static one missing here is a broken plan.
+      if (typeof planned === "function") continue;
+      throw new Error(
+        `executeRun: run "${runId}" has no invocation at seqNo ${seqNo} but has one at ${highestExisting}, and the position is not deferred (invariant violation).`
+      );
+    }
+
     await assertRunNotStopped();
     const spec = await resolvePlannedSpec(tx, runId, seqNo, planned);
+    // R1: a skipped position proposes nothing; the next position is processed as usual
+    // (its own stop check, Grant, Policy, budget and routing all still apply).
+    if (spec.kind === "skip") continue;
     const outcome = await processFreshSpec(tx, run, seqNo, spec);
     if (outcome.status !== "completed") return outcome;
   }

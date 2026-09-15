@@ -34,7 +34,7 @@
  * output is not a validation failure here; Task output schemas are unvalidated (§6).
  */
 import { and, desc, eq, sql } from "drizzle-orm";
-import { approvals, events, invocations, runs } from "../db/schema.js";
+import { approvals, events, invocations, runs, taskDefinitions, taskInstances } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { MODEL_TIERS, type ModelTier } from "../router/types.js";
 
@@ -43,6 +43,18 @@ export const RETRY_LIMIT = 2;
 
 /** The Runs a Task Instance may have in total. */
 export const MAX_RUN_ATTEMPTS = 1 + RETRY_LIMIT;
+
+const AUTOMATIC_RETRY_EXCLUDED_KINDS = new Set<string>();
+
+/**
+ * V1.1 (operator decision 2026-09-15): a Task Definition kind whose failed Runs are never
+ * retried automatically. An autonomous loop's retry would repeat every iteration it
+ * already paid for; a retry is an explicit new Run started by the operator. Registered
+ * by the kind's plan (`../capabilities/taskPlans.ts`), so this module names no kind.
+ */
+export function excludeTaskKindFromAutomaticRetry(kind: string): void {
+  AUTOMATIC_RETRY_EXCLUDED_KINDS.add(kind);
+}
 
 /** The `invocation_failed` reason for an Invocation whose dispatcher died mid-call (`executor.ts`). */
 const INTERRUPTED_REASON = "interrupted_outcome_unknown";
@@ -64,6 +76,8 @@ export type RunFailureFacts = {
   lastResultingTier: ModelTier | null;
   /** The tier floor the failed Run itself was created with. */
   minimumModelTier: ModelTier | null;
+  /** V1.1: the Run's Task Definition kind; a kind excluded from automatic retry is never retried. */
+  taskKind?: string | null;
 };
 
 export type RetryCause = "provider_outcome_unknown" | "output_validation_failed";
@@ -77,6 +91,7 @@ function isModelTier(value: unknown): value is ModelTier {
 }
 
 function retryCause(facts: RunFailureFacts): RetryCause | null {
+  if (facts.taskKind != null && AUTOMATIC_RETRY_EXCLUDED_KINDS.has(facts.taskKind)) return null;
   if (facts.halted || facts.priorEffect || facts.invocationKind !== "llm") return null;
   if (facts.errorCode === VALIDATION_ERROR_CODE) return "output_validation_failed";
   if (facts.providerConsumption === "unknown" || facts.reason === INTERRUPTED_REASON) return "provider_outcome_unknown";
@@ -101,6 +116,12 @@ export function retryDecision(facts: RunFailureFacts, attemptsSoFar: number): Re
 /** Reads the failed Run's facts from its row and its own records. */
 export async function readRunFailure(tx: DrizzleTransaction, runId: string): Promise<RunFailureFacts> {
   const run = await tx.query.runs.findFirst({ where: eq(runs.id, runId) });
+  const taskInstance = run ? await tx.query.taskInstances.findFirst({ where: eq(taskInstances.id, run.taskInstanceId) }) : undefined;
+  const taskDefinition = taskInstance
+    ? await tx.query.taskDefinitions.findFirst({
+        where: and(eq(taskDefinitions.id, taskInstance.taskDefinitionId), eq(taskDefinitions.version, taskInstance.taskDefinitionVersion)),
+      })
+    : undefined;
   const halted = await tx.query.events.findFirst({ where: and(eq(events.runId, runId), eq(events.eventType, "run_halted")) });
   const failure = await tx.query.events.findFirst({
     where: and(eq(events.runId, runId), eq(events.eventType, "invocation_failed")),
@@ -145,6 +166,7 @@ export async function readRunFailure(tx: DrizzleTransaction, runId: string): Pro
     providerConsumption: text(payload.providerConsumption),
     lastResultingTier: isModelTier(resultingTier) ? resultingTier : null,
     minimumModelTier: isModelTier(run?.minimumModelTier) ? run.minimumModelTier : null,
+    taskKind: taskDefinition?.kind ?? null,
   };
 }
 

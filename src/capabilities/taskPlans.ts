@@ -26,6 +26,10 @@ import { buildAgentTaskInvocationSpecs, validateAgentTaskStep, type AgentTaskPar
 import { buildCheckpointInvocationSpecs, validateCheckpointStep, type CheckpointParameters } from "./reviewCheckpoint/buildInvocationSpecs.js";
 import { loadExecutionProfile } from "./shared/agentProfile.js";
 import { parseStepInputs } from "./shared/stepInputs.js";
+import { registerLoopAction } from "./shared/loopActions.js";
+import { researchRetrieveLoopAction } from "./researchRetrieve/loopAction.js";
+import { buildAgentObjectiveInvocationSpecs, parseObjectiveParameters, validateObjectiveStep } from "./agentObjective/buildInvocationSpecs.js";
+import { excludeTaskKindFromAutomaticRetry } from "../governance/retryPolicy.js";
 
 export type TaskPlanContext = {
   taskDefinition: typeof taskDefinitions.$inferSelect;
@@ -186,6 +190,33 @@ registerTaskPlanBuilder(
       ctx.params
     ),
   { validateStepParameters: async (_tx, ctx) => validateAgentTaskStep(ctx) }
+);
+
+/** V1.1: an autonomous agent works toward the Goal in a bounded, governed loop inside one Run. */
+export const AGENT_OBJECTIVE_KIND = "agent_objective";
+
+registerLoopAction(researchRetrieveLoopAction);
+// Operator decision 2026-09-15: autonomous tasks are not retried automatically.
+excludeTaskKindFromAutomaticRetry(AGENT_OBJECTIVE_KIND);
+
+registerTaskPlanBuilder(
+  AGENT_OBJECTIVE_KIND,
+  async (tx, ctx) => {
+    const parsed = parseObjectiveParameters(ctx.parameters);
+    if (!parsed.ok) throw new Error(`Task Definition kind "${AGENT_OBJECTIVE_KIND}": ${parsed.reason} (fail closed).`);
+    return buildAgentObjectiveInvocationSpecs(
+      tx,
+      {
+        agentDefinitionId: ctx.agentDefinitionId,
+        agentDefinitionVersion: ctx.agentDefinitionVersion,
+        parameters: parsed.params,
+        contextBudget: requireContextBudget(ctx.taskDefinition.defaultContextBudget, ctx.taskDefinition.name),
+        profile: await loadExecutionProfile(tx, ctx.agentDefinitionId, ctx.agentDefinitionVersion),
+      },
+      ctx.params
+    );
+  },
+  { validateStepParameters: validateObjectiveStep }
 );
 
 registerTaskPlanBuilder(

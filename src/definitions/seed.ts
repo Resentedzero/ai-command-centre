@@ -44,7 +44,7 @@ import { RESEARCH_RETRIEVE_CAPABILITY } from "../capabilities/researchRetrieve/c
 import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capability.js";
 import { RESEARCH_RETRIEVE_SYNTHETIC } from "../capabilities/researchRetrieve/adapter.js";
 import { PUBLISH_REPORT_FILESYSTEM } from "../capabilities/publishReport/adapter.js";
-import { AGENT_TASK_KIND, OPERATOR_CHECKPOINT_KIND, PUBLISH_REPORT_TASK_KIND, RESEARCH_REPORT_TASK_KIND } from "../capabilities/taskPlans.js";
+import { AGENT_OBJECTIVE_KIND, AGENT_TASK_KIND, OPERATOR_CHECKPOINT_KIND, PUBLISH_REPORT_TASK_KIND, RESEARCH_REPORT_TASK_KIND } from "../capabilities/taskPlans.js";
 import {
   createAgentDefinition,
   createCapability,
@@ -400,6 +400,23 @@ export const AGENT_TASK_CONTEXT_BUDGET: ContextBudget = {
   expectedOutputTokens: 2_500,
 };
 
+/**
+ * V1.1 default Context Budget for autonomous objectives (`agent_objective`): the final
+ * write's budget; the loop's decide and act calls use smaller budgets derived from it
+ * (`../capabilities/agentObjective/buildInvocationSpecs.ts`). Documented placeholders,
+ * sized so several iterations and the final write fit the Task Instance ceiling.
+ */
+export const AGENT_OBJECTIVE_CONTEXT_BUDGET: ContextBudget = {
+  maxInputTokens: 7_000,
+  maxArtifactTokens: 3_000,
+  maxRetrievedItems: 6,
+  maxToolSchemaTokens: 0,
+  compressionThreshold: 3_000,
+  freshnessRequirementSeconds: 0,
+  expectedOutputTokens: 2_500,
+};
+
+export const AUTONOMOUS_OBJECTIVE_DEFINITION_NAME = "Autonomous Objective";
 export const AGENT_TASK_DEFINITION_NAME = "Agent Task";
 export const APPROVAL_GATE_DEFINITION_NAME = "Approval Gate";
 export const REVIEWER_AGENT_NAME = "Reviewer";
@@ -435,6 +452,14 @@ export async function seedV11Definitions(tx: DrizzleTransaction): Promise<boolea
 
   if (!(await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.name, AGENT_TASK_DEFINITION_NAME) }))) {
     await createTaskDefinition(tx, { name: AGENT_TASK_DEFINITION_NAME, kind: AGENT_TASK_KIND, defaultContextBudget: AGENT_TASK_CONTEXT_BUDGET }, SEED_ACTOR);
+    created = true;
+  }
+  if (!(await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.name, AUTONOMOUS_OBJECTIVE_DEFINITION_NAME) }))) {
+    await createTaskDefinition(
+      tx,
+      { name: AUTONOMOUS_OBJECTIVE_DEFINITION_NAME, kind: AGENT_OBJECTIVE_KIND, defaultContextBudget: AGENT_OBJECTIVE_CONTEXT_BUDGET },
+      SEED_ACTOR
+    );
     created = true;
   }
   if (!(await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.name, APPROVAL_GATE_DEFINITION_NAME) }))) {

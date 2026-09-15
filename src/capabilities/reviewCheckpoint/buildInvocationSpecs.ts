@@ -20,7 +20,7 @@ import { REVIEW_CHECKPOINT_CAPABILITY, REVIEW_CHECKPOINT_PERMISSION } from "./ca
 const MAX_QUESTION_CHARS = 2_000;
 
 /** Why the Agent cannot gate, or null when it holds the capability at ALWAYS_APPROVE only. */
-async function gateGrantProblem(tx: DrizzleTransaction, agentDefinitionId: string, agentDefinitionVersion: number): Promise<string | null> {
+export async function gateGrantProblem(tx: DrizzleTransaction, agentDefinitionId: string, agentDefinitionVersion: number): Promise<string | null> {
   const capability = await tx.query.capabilities.findFirst({ where: eq(capabilities.name, REVIEW_CHECKPOINT_CAPABILITY.id) });
   if (!capability) return `the "${REVIEW_CHECKPOINT_CAPABILITY.id}" capability is not registered`;
   const grants = (

@@ -148,6 +148,8 @@ describe("readRunFailure", () => {
         providerConsumption: "unknown",
         lastResultingTier: null,
         minimumModelTier: "MID",
+        // V1.1: the Run's Task Definition kind, read so an excluded kind is never retried automatically.
+        taskKind: expect.any(String),
       });
     });
   });

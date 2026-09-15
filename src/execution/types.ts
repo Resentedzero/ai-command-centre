@@ -147,7 +147,18 @@ export type InvocationSpecContext = {
  * `InvocationSpecBuilder` already carries (`../workflow/interpreter.ts`). No
  * such spec exists today; the type merely permits one.
  */
-export type DeferredInvocationSpec = (ctx: InvocationSpecContext) => Promise<InvocationSpec>;
+export type DeferredInvocationSpec = (ctx: InvocationSpecContext) => Promise<InvocationSpec | SkippedPosition>;
+
+/**
+ * V1.1 (R1, approved 2026-09-15): what a DEFERRED position resolves to when it must not
+ * run, e.g. every iteration after an autonomous agent's explicit finish. The Executor
+ * proposes no Invocation for it and moves on. The plan's maximum length is still fixed
+ * when the plan is built; a skip can only make a planned position not happen, never add
+ * one. A skip is sticky: once a later position has an Invocation, an earlier position
+ * without one is never resolved again (`executeRun`). A position that already has an
+ * Invocation can never skip.
+ */
+export type SkippedPosition = { kind: "skip"; reason: string };
 
 /**
  * One position in a Run's invocation plan: either a ready-made spec or a
@@ -155,8 +166,9 @@ export type DeferredInvocationSpec = (ctx: InvocationSpecContext) => Promise<Inv
  *
  * NOTE what this deliberately does NOT allow: the plan's LENGTH and ORDER are
  * still fixed by the caller before `executeRun` begins. A deferred position can
- * change WHAT an already-decided position is; it can never change WHETHER or
- * HOW MANY positions exist. Workflow topology stays deterministic and stays the
+ * change WHAT an already-decided position is, or (V1.1, R1) resolve to
+ * `SkippedPosition` so it does not happen; it can never add positions or
+ * reorder them. Workflow topology stays deterministic and stays the
  * Workflow Interpreter's decision (Phase 11 / Phase 3d — "The Workflow never
  * delegates topology decisions to a model"); this is only data flowing between
  * already-decided Invocations inside one Run, which Phase 11 explicitly permits

@@ -17,6 +17,7 @@ import { RefreshNotice, ButtonMark, PixelButton, Skeleton, StateNotice, StatusMa
 import { WorldViewport, world } from "../../components/world/World";
 import { budgetFallbackTitle, countLabel, errorText, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeTitle, routeToken, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
+import { LoopPanel } from "../../components/workflows/LoopPanel";
 
 /**
  * Workflows (spec 15.1 screen 3; Figma "Workflows — pixel (corridor of
@@ -369,6 +370,8 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
           </div>
 
           <div className={w.columns}>
+            {/* Autonomous objectives only: other steps keep their trace on demand. */}
+            {step.taskDefinition?.kind === "agent_objective" && <LoopPanel runId={run.id} runStatus={run.status} invocationCount={run.invocations.length} />}
             {step.attempts && step.attempts.length > 1 && (
               <div className={cx(w.col, w.wide)}>
                 <span className={px.tab}>Attempts</span>
