@@ -38,4 +38,31 @@ Severity:
 - **`costVsSuccess` and `AgentDetail.performance`:** measurements only. Show `sampleCount` beside every rate, list in a stable order (definition name, then tier), and never sort by success, badge a winner or recommend.
 - **`GET /execution-stops`:** a global or goal-scope stop exists as data. On the Overview, show an active global stop as a red barrier across the keep gate plus a board notice with its reason. Agent-scope stops stay on the Agents screen.
 
+## Round 2 (2026-09-15): Overview keep, commit `fab8323`
+
+**Status of round 1:** findings 1–5 are still present in the committed code. **Finding 6 is resolved:** `app/page.tsx` lists every active agent in the board roster, and a selected agent without a workshop gets an explanatory detail line.
+
+**Faithful, keep as is:**
+- **Council hall:** lit amber only while approvals are pending; waiting agents stand on the seal and their workshop goes dark (one approval, one place).
+- **Runtime core:** its light and runes show only while the live feed is up.
+- **Stale state:** lights dim to 45% while the feed is reconnecting or offline.
+- **Stopped agents:** a barrier and a frozen sprite; Lift stop is neutral.
+- **Stop placement:** directly under the selected agent's heading, with a confirmation step.
+- **Honest states:** loading dots, empty with Start a goal, load failed with Retry, and refresh failed keeps the last read with an alert.
+- **Counts:** capped lists show `100+` / `500+`, and unreadable ones show `n/a`.
+- **Missing room flash:** documented in `web/design/overview.md` as an API gap (events carry no agent id), not faked.
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 7 | Low | `components/world/world.module.css` `.plaque` | Keep plaques use 14 px Pixelify. `visual-language.md` sets Pixelify at 16 px or larger, since it breaks up below that at 1× pixel density. | Use `font: 16px/20px var(--font-pixel)` and keep `padding: 3px 8px`. The plaques are short, so the wider text still fits the rooms. |
+| 8 | Low | `app/page.tsx` board | The 4× portrait is dropped at every width. Figma keeps it at 1920 × 1080 and drops it only below 1080 px tall (`screens.md`, laptop rules). | Optional: show the 4× portrait when the viewport is at least 1080 px tall. If it's skipped, record it in `web/design/overview.md` (partly done). |
+| 9 | Low | `app/page.tsx` `AgentBoard` detail line | "This agent has no workshop in the keep: the keep has two, and they are taken." explains the implementation to the operator. | Operator copy: "No free workshop in the keep, so it's shown here only." |
+
+| 10 | Low | `app/page.tsx` Goals plaque | When the goals read fails, the plaque reads "Goals n/a goals". | Show the neutral unloaded mark plus "n/a" (`<StatusMark state={null} />`, or "Goals · n/a"), and only append "goals" to a real count. |
+| 11 | Medium (asset, fixed by design) | `assets/gamification/adapted/compose-keep-v4.ps1` | The command room's pit tile was composited without the slate shift, so a flat teal square sat under the runtime crystal and read as a block of cyan "active" light in the dark room. | Fixed in the compositor and regenerated `keep-v4-2x.png`. **CLI1:** re-run `npm run world-art` to pick it up. |
+
+**Review environment note for CLI1:** the API on port 3000 answered 404 for `GET /goals`, `/workflow-runs` and `/execution-stops` (2026-09-15), though those routes exist in `src/api/routes`. The process looks older than the code. The UI correctly showed "n/a" and stops-unreadable warnings. Restart the API before a visual review, so screenshots show real data rather than error states.
+
+**API gap confirmed for CLI1** (don't fake it): the event-arrival room flash (`visual-language.md` Motion) needs the Agent Definition id, or a run id resolvable to one, on `EventDisplayItem`. Today only the notice strip reacts to events.
+
 **Not yet reviewable:** the screen pages (`app/page.tsx`, `agents`, `approvals`, `goals`, `workflows`) are still the pre-pixel versions. A visual review at 1920, 1440 and 1280 follows once they are rebuilt and the web app runs against the API.

@@ -77,7 +77,7 @@ Room 0 1 dungeon 64 0 48 48 $slate
 Put workbench 112 115 80 61 40 208; Put anvil 80 36 79 56 92 264; Put furniture 736 165 32 27 4 276
 # Command room (runtime core)
 Room 1 1 dungeon 64 0 48 48 $slate
-Put dungeon 112 0 48 48 296 240
+Put dungeon 112 0 48 48 296 240 $slate   # the pit tile is teal too; unshifted it reads as a block of "active" light under the core
 Put apt 17 224 30 16 224 168 $dim; Put apt 17 224 30 16 305 168 $dim; Put apt 17 224 30 16 386 168 $dim
 Put apt 16 129 32 31 216 208 $dim; Put apt 16 129 32 31 392 208 $dim
 Put apt 16 182 32 24 216 244 $dim; Put apt 16 182 32 24 392 244 $dim
