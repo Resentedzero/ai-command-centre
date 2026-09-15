@@ -91,7 +91,10 @@ At the start of UI work, check whether a Figma MCP server is connected (search t
     - A wrapped row only wraps if its parent chain is fixed or fill width. Its container must hug its height, or the second row is clipped.
   - **Instances:** resizing a child layer inside an instance can be silently ignored (the top bar's tab slots stayed 120 px). Change the main component instead.
   - **Cloned bindings:** any cloned layer (vector or text) keeps its node-level `boundVariables.fills` and `boundVariables.strokes`. These override a rebound paint, so the clone keeps its old colour or renders near-black. Create a fresh node rather than recolouring the copy.
-  - **Uploads:** an `upload_assets` POST can return `success` with an `imageHash` but no `placedOnNodeId`. The image was stored but never applied. Set it yourself (`node.fills = [{type:"IMAGE", imageHash, scaleMode:"FILL"}]`), then confirm the fill hash changed.
+  - **Uploads:** an `upload_assets` POST with `nodeIds` can return `success` with an `imageHash` but no `placedOnNodeId`. The image was stored but never applied, and often never registered in the file either: `figma.getImageByHash(hash)` then returns `null`, so setting the fill from the hash fails. Print the full JSON response (don't grep a hash prefix) and check for `placedOnNodeId`. If it's missing:
+    1. Request one URL **without** `nodeIds`, and POST the file as multipart (`-F "file=@name.png;type=image/png"`). The response names the new frame in `placedOnNodeId`.
+    2. In `use_figma`, copy that frame's `fills[0].imageHash` onto the target layers.
+    3. Confirm each fill hash changed, then `remove()` the temporary frame. It lands on whatever page is current.
   - **Image effects:** effects on an image-filled rectangle apply to the rectangle's bounds, not the sprite's pixels, so they draw a box. Bake outlines into the PNG.
   - **Screenshots:**
     - `get_screenshot` of a node inside a clipping parent renders only the visible part. Clone large maps into a top-level review frame.
