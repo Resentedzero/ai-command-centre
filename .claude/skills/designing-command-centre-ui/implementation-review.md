@@ -232,4 +232,33 @@ CLI1 worked from this review. Verified in the diff:
 | 33 | Low | `app/artifacts/ArtifactsScreen.tsx` outputs detail line | "Recent outputs of this agent's recent runs (GET /agents/:id). No route lists every artifact." explains the implementation in operator copy. | "This agent's recent outputs." Record the missing list route in `web/design/artifacts-events.md` (already noted there), not on screen. |
 | 34 | Low | `app/events/page.tsx` stale notice | "Missed events replay from the last cursor when it returns." is implementation language. | "Missed events will be filled in when it's back." (the design state frame's copy). |
 
+## Round 9 (2026-09-15): CLI1's fix pass across the screens, commit `022557a`
+
+CLI1 worked through this review. Verified in the committed tree:
+
+| # | Status |
+|---|---|
+| 1 top-bar tabs as boxes | **Resolved:** inactive tabs have a transparent border and plain text; only the active tab is bevelled. |
+| 5 wizard death fallback | **Resolved:** `wizard-death-strip-2x-outlined.png`, 12 frames. |
+| 8 portrait at 1080 px tall | **Resolved** (per commit; confirm in the capture). |
+| 13 3× keys | **Resolved:** 64 px keys (4×) in the 4× workshop. |
+| 16 performance order | **Resolved** on Agents (task name, then tier) and Cost (agent, task, tier). Never sorted by success. |
+| 18 empty Overview board | **Resolved** (per commit): every Agent Definition is listed when nothing runs. |
+| 19 duplicate events | **Resolved:** the strip pins only notable events (`approval_required`, `*_failed`, stop engaged, run halted, artifact created). |
+| 20 half-cut note | **Resolved** (per commit; confirm at 1280). |
+| 21 double Retry on Registry | **Resolved.** |
+| 22 framework 404 | **Resolved:** `app/not-found.tsx` in pixel chrome. |
+| 23 identical step rooms | **Resolved:** the step room art is hashed from the task definition over the engine, researcher and publisher crops. |
+| 24 `/workflows` empty pane | **Resolved** (per commit): it opens the run needing attention. |
+| 25 mismatch warning at the decision point | **Resolved:** a changed hash is repeated in the action bar, and Approve renders `neutral`, not armed. |
+| 26 decision copy | **Resolved:** "Approving lets the workflow continue; rejecting stops this step." |
+| 28 Goals summary loading after a failure | **Resolved:** "n/a". |
+| 29 empty Approvals state | **Resolved:** "No approvals are pending". |
+| 30 oversized parchment summary | **Resolved** (per commit): it hugs its content. |
+| 31 cyan/amber markers on historical log rows | **Open:** `TYPE_TONES` still maps `started` → active and `approval_required` → wait. |
+| 32 empty vault still says "Choose an output" | **Open.** |
+| 33 route language in the Artifacts detail line | **Open.** |
+| 34 "replay from the last cursor" | **Open.** |
+| 9, 10, 17 (Workflows) | **To confirm in the capture of this commit.** |
+
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
