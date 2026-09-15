@@ -428,7 +428,7 @@ async function startRetryRun(
 
   const [runRow] = await tx
     .insert(runs)
-    .values({ taskInstanceId: step.taskInstanceId, status: "active", minimumModelTier: retry.minimumModelTier })
+    .values({ taskInstanceId: step.taskInstanceId, status: "active", attempt: retry.attempt, minimumModelTier: retry.minimumModelTier })
     .returning();
   const retryStep: StepRef = { ...step, runId: runRow!.id };
   await emitLifecycleEvent(tx, {

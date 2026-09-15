@@ -219,14 +219,32 @@ export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps):
       const attemptRows = taskInstance
         ? await deps.db.query.runs.findMany({
             where: eq(runs.taskInstanceId, taskInstance.id),
-            orderBy: (r, { asc }) => [asc(r.startedAt), asc(r.id)],
+            orderBy: (r, { asc }) => [asc(r.attempt), asc(r.startedAt)],
           })
         : [];
+      const attempts = [];
+      for (const r of attemptRows) {
+        const reason = (r.outcome as Record<string, unknown> | null)?.reason;
+        // Why the attempt failed, from its last `invocation_failed` (redacted at its write point):
+        // most failed Runs record no outcome reason of their own.
+        const lastFailure = await deps.db.query.events.findFirst({
+          where: and(eq(events.runId, r.id), eq(events.eventType, "invocation_failed")),
+          orderBy: (e, { desc }) => desc(e.sequenceNo),
+        });
+        const failure = (lastFailure?.payload ?? {}) as Record<string, unknown>;
+        attempts.push({
+          id: r.id,
+          attempt: r.attempt,
+          status: r.status,
+          outcomeReason: typeof reason === "string" ? reason : null,
+          failureReason: typeof failure.reason === "string" ? failure.reason : null,
+          errorCode: typeof failure.errorCode === "string" ? failure.errorCode : null,
+          startedAt: r.startedAt,
+          completedAt: r.completedAt,
+        });
+      }
       steps.push({
-        attempts: attemptRows.map((r) => {
-          const reason = (r.outcome as Record<string, unknown> | null)?.reason;
-          return { id: r.id, status: r.status, outcomeReason: typeof reason === "string" ? reason : null, startedAt: r.startedAt, completedAt: r.completedAt };
-        }),
+        attempts,
         index,
         taskDefinition: taskDefinition
           ? { id: taskDefinition.id, name: taskDefinition.name, version: taskDefinition.version }

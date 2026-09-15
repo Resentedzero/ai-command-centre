@@ -6,6 +6,8 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { createApproval } from "../../src/governance/approvals.js";
 import { closeTestDb, resetTestSchema, withRollback } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
 import { emitEvent, type DrizzleTransaction } from "../../src/events/emit.js";
@@ -54,6 +56,7 @@ async function failed(tx: DrizzleTransaction, run: { runId: string; taskInstance
 
 const unknownConsumption: RunFailureFacts = {
   halted: false,
+  priorEffect: false,
   invocationKind: "llm",
   reason: "provider boom",
   errorCode: null,
@@ -114,6 +117,7 @@ describe("retryDecision", () => {
     ["a provider failure that consumed nothing (expired login, exhausted quota)", { providerConsumption: "none", errorCode: "quota_exhausted" }],
     ["a failure whose reservation was already reconciled", { providerConsumption: null, reason: "persist failed" }],
     ["a Run halted by an operator stop", { halted: true }],
+    ["a Run that already completed a tool effect beyond a READ, or involved an Approval", { priorEffect: true }],
     ["a Policy denial", { providerConsumption: null, reason: "policy_denied" }],
     ["an insufficient budget", { providerConsumption: null, reason: "insufficient_budget" }],
     ["a rejected Approval", { providerConsumption: null, reason: "approval_rejected" }],
@@ -137,6 +141,7 @@ describe("readRunFailure", () => {
 
       expect(await readRunFailure(tx, run.runId)).toEqual({
         halted: false,
+        priorEffect: false,
         invocationKind: "llm",
         reason: "timeout",
         errorCode: "timeout",
@@ -144,6 +149,25 @@ describe("readRunFailure", () => {
         lastResultingTier: null,
         minimumModelTier: "MID",
       });
+    });
+  });
+
+  it("a completed tool effect beyond a READ, or any Approval, marks a prior effect; a completed READ does not", async () => {
+    await withRollback(async (tx) => {
+      const read = await seedRun(tx, null);
+      await tx.update(schema.invocations).set({ status: "completed", permission: "READ" }).where(eq(schema.invocations.id, read.tool.id));
+      expect((await readRunFailure(tx, read.runId)).priorEffect).toBe(false);
+
+      const publish = await seedRun(tx, null);
+      await tx.update(schema.invocations).set({ status: "completed", permission: "PUBLISH" }).where(eq(schema.invocations.id, publish.tool.id));
+      await failed(tx, publish, publish.llm.id, { reason: "timeout", providerConsumption: "unknown" });
+      const facts = await readRunFailure(tx, publish.runId);
+      expect(facts.priorEffect).toBe(true);
+      expect(retryDecision(facts, 1)).toEqual({ retry: false, reason: "not_retryable" });
+
+      const approved = await seedRun(tx, null);
+      await createApproval(tx, approved.tool.id, { query: "q" }, "low", 3600);
+      expect((await readRunFailure(tx, approved.runId)).priorEffect).toBe(true);
     });
   });
 

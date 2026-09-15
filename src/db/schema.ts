@@ -26,6 +26,7 @@ import {
   pgEnum,
   uniqueIndex,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -225,9 +226,14 @@ export const runs = pgTable("runs", {
   // after an output-validation failure (spec §10.4, `governance/retryPolicy.ts`).
   // Null for a first attempt. Read by the Model Router; never lowers a tier.
   minimumModelTier: text("minimum_model_tier"),
+  // Which attempt of its Task Instance this Run is: 1, then 2 and 3 for retries.
+  attempt: integer("attempt").notNull().default(1),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
-});
+}, (table) => [
+  // An unrecognized floor must not be read as "no floor": refuse it at the source.
+  check("runs_minimum_model_tier_check", sql`${table.minimumModelTier} is null or ${table.minimumModelTier} in ('CHEAP', 'MID', 'STRONG')`),
+]);
 
 export const invocations = pgTable("invocations", {
   id: uuid("id").primaryKey().$defaultFn(genId),

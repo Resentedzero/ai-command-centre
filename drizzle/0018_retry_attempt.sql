@@ -1,0 +1,2 @@
+ALTER TABLE "runs" ADD COLUMN "attempt" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE "runs" ADD CONSTRAINT "runs_minimum_model_tier_check" CHECK ("runs"."minimum_model_tier" is null or "runs"."minimum_model_tier" in ('CHEAP', 'MID', 'STRONG'));

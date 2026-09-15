@@ -44,7 +44,27 @@ Every entry is a reading of the brief's wording against the failure records this
 - **Each attempt has its own Run budget** (`RUN_BUDGET_CEILINGS`): a Task can spend up to three Run ceilings.
 - **Retries are samples.** A failed attempt counts toward `agent_performance` like any other agent failure, and `avg_retries` is no longer always 0. Escalated attempts produce samples on a second tier, which is what tier preference compares.
 
+## Independent review (Opus) and dispositions
+
+No Critical or High findings. Checked and fine: eligibility against what the executor and adapters actually write; attempt counting; the `workflow_runs` row lock serializing concurrent advances (no double retry); no stranded retry Run on the sweep, re-drive, resume and lazy-settlement paths; the driver bound; the floor never lowering a tier; invariants (no provider call in a transaction, events for every status write); the migration.
+
+| Finding | Disposition |
+|---|---|
+| M1: a retry re-runs the step's whole plan, so a tool effect already completed in the failed Run (or an approval-gated action) would be repeated | **Fixed, fail-closed**: a Run that completed a tool Invocation other than a READ, or has any Approval, is not retried (`priorEffect`). Today's research step runs a READ tool first, so its retries are unaffected |
+| M2: escalation (or any retry) could route to a `usd` candidate and spend money automatically | **Fixed, fail-closed**: a retried Run (`runs.attempt > 1`) routes only to non-`usd` candidates; with none eligible the route is refused, never falling back. `attempt` is recorded on `invocation_started`. Lifting this is an operator decision |
+| M3: the retry tests' "no billed adapter called" checks ran after `resetAllMocks`, so could never fail | **Fixed**: asserted before the reset |
+| L1: `attempts[].outcomeReason` null for most failures | **Fixed**: each attempt carries its last `failureReason` and `errorCode` |
+| L2: attempt order relied on transaction timestamps | **Fixed**: `runs.attempt` (migration `0018`), ordered by it |
+| L3: an unrecognized floor value was silently ignored | **Fixed**: a CHECK constraint limits `minimum_model_tier` to the three tiers |
+| L4: a stop during a retry permanently fails the Task | **Recorded** below; matches D34 |
+| L5: waiting steps re-check up to 3× per request | **Accepted**: cheap no-op reads |
+| L6: `avg_retries` is per tier, so escalated attempts land in another tier's row | **Recorded** below |
+
 ## Open, recorded for the operator (not decided here)
+
+- **`avg_retries` across tiers.** The projection groups by tier, so an escalated attempt counts in the higher tier's row and each row's `avg_retries` under-counts the Task's retries.
+- **A retry after a non-READ tool effect.** Not retried (fail-closed guard above). Retrying such steps safely needs per-Invocation reuse of completed effects, or the effect verification of DURABLE_EXECUTION §7 #19.
+- **Retries never spend money.** A deployment whose primary candidates are `usd` gets no retries (the retry's route is refused).
 
 - **Validation failure at STRONG.** §10.4 allows "task failure or REQUIRE_APPROVAL". No Approval path exists for an LLM Invocation, so it is task failure; an approval path would be new machinery.
 - **Which adapters validate.** Only the Claude CLI's structured output reports `schema_validation`. The API adapters do not check the shape, and Task output schemas are never validated (D18), so a malformed API result completes. A validator is not built: the Anthropic adapter's content-block result would fail a naive shape check on every call and escalate everything.
@@ -86,5 +106,10 @@ Each mutant was applied, its tests run, and the file restored byte-for-byte.
 | R15 publishing counts failed attempts | caught |
 | R16 the driver bound ignores retries | caught |
 | R17 the floor not recorded on the route | caught |
+| G1 (review fix) a prior tool effect ignored | caught |
+| G2 (review fix) a completed READ counted as an effect | caught |
+| G3 (review fix) Approvals ignored | caught |
+| G4 (review fix) a retry may route to `usd` | caught |
+| G5 (review fix) the retry Run records attempt 1 | caught |
 
 - Changed deliberately, none removed: the redaction test now sees three failure events (one per attempt); the sweep test's expected step state; the Router's exact payload gains `escalationFloor`.

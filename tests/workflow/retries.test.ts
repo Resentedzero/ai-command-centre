@@ -39,9 +39,10 @@ afterAll(async () => {
 });
 
 afterEach(() => {
-  vi.resetAllMocks();
+  // Before the reset, which clears recorded calls: no attempt ever reached a billed adapter.
   expect(callAnthropicModel).not.toHaveBeenCalled();
   expect(callOpenAiModel).not.toHaveBeenCalled();
+  vi.resetAllMocks();
 });
 
 const report = { result: { report: "retried report" }, usage: { tokensIn: 100, tokensOut: 50, costAmount: 150, costUnit: "subscription_tokens" as const } };
@@ -86,6 +87,7 @@ describe("retry policy through the API", () => {
     const { taskInstance, runs } = await taskA(created.workflowRunId);
     expect(taskInstance.status).toBe("completed");
     expect(runs.map((r) => r.status)).toEqual(["failed", "completed"]);
+    expect(runs.map((r) => r.attempt)).toEqual([1, 2]);
     expect(runs[1]!.minimumModelTier).toBeNull();
 
     // The retry is recorded on its own run_started; the Task Instance never recorded a failure.
@@ -98,11 +100,12 @@ describe("retry policy through the API", () => {
 
     // The detail view keeps the current Run and lists every attempt.
     const detail = await app.inject({ method: "GET", url: `/workflow-runs/${created.workflowRunId}` });
-    const step = (detail.json() as { steps: { run: { id: string } | null; attempts: { id: string; status: string }[] }[] }).steps[0]!;
+    type Attempt = { id: string; attempt: number; status: string; failureReason: string | null; errorCode: string | null };
+    const step = (detail.json() as { steps: { run: { id: string } | null; attempts: Attempt[] }[] }).steps[0]!;
     expect(step.run!.id).toBe(runs[1]!.id);
-    expect(step.attempts.map((a) => [a.id, a.status])).toEqual([
-      [runs[0]!.id, "failed"],
-      [runs[1]!.id, "completed"],
+    expect(step.attempts).toEqual([
+      expect.objectContaining({ id: runs[0]!.id, attempt: 1, status: "failed", failureReason: "the CLI exceeded its timeout", errorCode: "timeout" }),
+      expect.objectContaining({ id: runs[1]!.id, attempt: 2, status: "completed", failureReason: null, errorCode: null }),
     ]);
   });
 

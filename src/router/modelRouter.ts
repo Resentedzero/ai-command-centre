@@ -51,7 +51,7 @@ import { emitEvent } from "../events/emit.js";
 import { reserveBudget, reconcileBudget } from "../governance/budget.js";
 import { evaluateQuotaGuardrail } from "../governance/quotaGuardrail.js";
 import { recordInvocationQuotaObservation } from "../governance/quotaTelemetry.js";
-import type { ResourceUnit } from "../governance/resourceUnit.js";
+import { RESOURCE_UNITS, type ResourceUnit } from "../governance/resourceUnit.js";
 import type { ArtifactReferenceMeasurement, CompiledContext } from "../context/types.js";
 import {
   providerCandidates,
@@ -400,11 +400,18 @@ export async function authorizeRoute(
     escalationFloor !== null && MODEL_TIERS.indexOf(escalationFloor) > MODEL_TIERS.indexOf(defaultTier) ? escalationFloor : defaultTier;
   const historicalPerformance = await readTierPerformance(tx, req.runId, options.minPerformanceSamples);
   const tier = preferTier(baseTier, historicalPerformance);
+  // An automatic retry never spends money (fail-closed reading of §10.6.7: a billed call
+  // needs an explicit decision). A retried Run routes only to candidates outside `usd`;
+  // with none, the route is refused rather than falling back.
+  const attempt = run?.attempt ?? 1;
+  const allowedResourceUnits =
+    attempt > 1 ? (req.allowedResourceUnits ?? RESOURCE_UNITS).filter((unit) => unit !== "usd") : req.allowedResourceUnits;
   const inputs = {
     taskDifficulty: req.taskDifficulty,
     riskTier: req.riskTier,
     contextBudget: req.contextBudget,
     defaultTier,
+    attempt,
     escalationFloor,
     historicalPerformance,
   };
@@ -416,7 +423,7 @@ export async function authorizeRoute(
   const routing = await selectCandidates(tx, {
     tier,
     requiredCapabilities: req.requiredCapabilities,
-    allowedResourceUnits: req.allowedResourceUnits,
+    allowedResourceUnits,
     invocationId: req.invocationId,
     runId: req.runId,
   });

@@ -287,6 +287,36 @@ describe("authorizeRoute with measured tier preference", () => {
     });
   });
 
+  it("an escalation floor raises the tier, never lowers it, and the risk floor still applies", async () => {
+    await withRollback(async (tx) => {
+      const { request } = await seedBoundRun(tx);
+      await tx.update(schema.runs).set({ minimumModelTier: "MID" }).where(eq(schema.runs.id, request.runId));
+      expect(await routedTier(tx, request, null)).toBe("MID");
+      expect(await started(tx, request.invocationId)).toMatchObject({ defaultTier: "CHEAP", escalationFloor: "MID", resultingTier: "MID" });
+      // A default above the floor stands: high risk forces STRONG.
+      expect(await routedTier(tx, { ...request, riskTier: "high" }, null)).toBe("STRONG");
+    });
+  });
+
+  it("a retried Run never routes to a usd candidate, and is refused rather than falling back", async () => {
+    await withRollback(async (tx) => {
+      const { request } = await seedBoundRun(tx);
+      await tx.insert(schema.budgetCounters).values({ scope: "run", scopeRefId: request.runId, resourceUnit: "usd", limitAmount: "100", reservedAmount: "0", consumedAmount: "0" });
+      const usdOnly: RouteRequest = { ...request, allowedResourceUnits: ["usd"] };
+      const first = await authorizeRoute(tx, usdOnly, { minPerformanceSamples: null });
+      if ("authorized" in first) throw new Error(`a first attempt may route to usd; got ${first.reason}`);
+      expect(first.accounting.unit).toBe("usd");
+
+      await tx.update(schema.runs).set({ attempt: 2 }).where(eq(schema.runs.id, request.runId));
+      const [second] = await tx
+        .insert(schema.invocations)
+        .values({ runId: request.runId, seqNo: 2, kind: "llm", costClass: "llm", status: "pending", idempotencyKey: `test-inv-${randomUUID()}` })
+        .returning();
+      const retried = await authorizeRoute(tx, { ...usdOnly, invocationId: second!.id }, { minPerformanceSamples: null });
+      expect(retried).toMatchObject({ authorized: false, reason: "no_eligible_candidate", decision: { attempt: 2 } });
+    });
+  });
+
   it("a malformed N fails the route before anything is reserved or recorded", async () => {
     await withRollback(async (tx) => {
       const { request } = await seedBoundRun(tx);
