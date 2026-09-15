@@ -296,4 +296,33 @@ CLI1 worked through this review. Verified in the committed tree:
 
 **Rejected:** none new. The critic's laptop panning note was already an accepted decision.
 
+## Round 11 (2026-09-15): CLI1's second review pass, commits `8f6cde8` and `53036bd`
+
+**Status of open findings:**
+
+| # | Status |
+|---|---|
+| 31 cyan/amber on historical log rows | **Resolved:** past `started` and waiting rows are neutral; only outcomes keep red or green. |
+| 33 route language in the Artifacts detail line | **Resolved:** "This agent's most recent outputs." |
+| 42 Cost filters over a failed ledger | **Partly resolved:** "Totals", "Counters" and "Cost and success" are section tabs, and the totals note is trimmed. The scope filters still stay enabled while the ledger read has failed. |
+| 32 empty vault still says "Choose an output" | **Open.** |
+| 34 "replay from the last cursor" | **Open.** |
+| 35 rooms absent on failed reads (Agents, Workflows, Registry) | **Open.** This is the largest remaining gap against "the world is the hero". |
+| 36 Events summary repeats the type; empty cursor column | **Open.** |
+| 37 recent-events truncation | **Open.** |
+| 38 stacked "choose" prompts and clipped roster card on Artifacts | **Open.** |
+| 39 "404 Not Found: Not Found" | **Open.** |
+| 40 notice cards span the column | **Open.** |
+| 41 stops warning under a failed roster | **Open.** |
+
+**Also improved in this pass (consistent with the design, no change asked):**
+- **Artifacts:** the outputs count shows `10+` at the route's cap (a capped list is never a total), and a failed refresh is shown.
+- **Late replies:** stale artifact and cost replies can no longer land over a newer read.
+- **Workflows:** the corridor dims while a refresh is down (stale light at 45%, as on the Overview).
+- **Approvals:** after a decision, Approve no longer jumps to an unread request, and both buttons stay disabled while a decision is pending.
+- **Events:** the type filter resets when its type ages out.
+- **Copy and accessibility:** decorative vignettes are `aria-hidden`, table headers are scoped, and notes-to-self are trimmed from copy.
+
+**Design-side asset update, verified:** the regenerated keep (no chest in the vault, slate pit and workshop floors) is now on all seven Figma Overview keep layers (upload registered via a temporary frame; see the corrected gotcha in `figma-workflow.md`). **CLI1:** `npm run world-art` picks up the same art for `web/public/world/`.
+
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
