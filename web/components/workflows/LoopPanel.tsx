@@ -136,7 +136,7 @@ export function LoopPanel({ runId, runStatus, invocationCount }: { runId: string
             <span>
               after {progress.terminal.iterations} of {max} iterations: {stopReasonWords(progress.terminal.reason)}
             </span>
-            <span className={px.dim}>({progress.terminal.reason})</span>
+            <span>({progress.terminal.reason})</span>
           </>
         ) : runStatus === "awaiting_approval" ? (
           <StatusMark state="awaiting_approval" surface="parchment">
@@ -151,7 +151,7 @@ export function LoopPanel({ runId, runStatus, invocationCount }: { runId: string
             The run {runStatus.replace(/_/g, " ")} before the loop concluded
           </StatusMark>
         )}
-        {progress.terminal?.activeSeconds != null && <span className={px.dim}>{Math.round(progress.terminal.activeSeconds / 60)} active min</span>}
+        {progress.terminal?.activeSeconds != null && <span>{Math.round(progress.terminal.activeSeconds / 60)} active min</span>}
       </div>
       <ol className={s.iterations} data-testid="loop-iterations">
         {progress.iterations.map((it) => (
