@@ -211,4 +211,25 @@ CLI1 worked from this review. Verified in the diff:
 - **Grants:** revoked grants are neutral (a fact, not a failure); keys are numbered in one shared order on both screens.
 - **Refresh notices:** `RefreshNotice` puts routes on the detail line on every screen.
 
+## Round 8 (2026-09-15): Artifacts vault and Events log, commit `774d41e`: every screen now built
+
+**Faithful, keep as is:**
+- **Artifacts, browsing and vault:**
+  - browsing is per agent through `AgentDetail.outputs`, stated honestly (no list route);
+  - the vault at 2× with one chest per returned output (16 px source at 32 px, one scale), none drawn while loading, and the open chest selected with a cream outline.
+- **Artifacts, reading:**
+  - the hash check in all three states, with a mismatch marking the content untrusted;
+  - provenance links to goal, agent and invocation;
+  - the preview as text, never HTML, with the whole content on request or via `?full=1`;
+  - reference fields of unknown shape shown as "not recorded" rather than guessed;
+  - 404 and failure states with Retry.
+- **Events:** a thin library strip (almost no world, as designed); a parchment header with the feed status, received count and Reconnect when stale; type filters built from received events only (client state, no list route); a dense mono table with a sticky header; honest connecting and empty states.
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 31 | Medium | `app/events/page.tsx` `TYPE_TONES` | Log rows get a **cyan** marker for every `*_started` event and **amber** for `approval_required`. Those hues mean *active now* and *waiting now* (`visual-language.md`: light and colour carry real current state). A log row is history: an invocation that started an hour ago isn't active, and a past approval request may already be resolved. So the log paints stale state across the page. Red (failures, rejections) and green (completions, approvals) are outcomes, which the rule allows. | Keep `fail` and `done`. Map `started` and `approval_required` to `neutral`. If a type glyph helps scanning, use a neutral shape per family, never a state hue. |
+| 32 | Low | `app/artifacts/ArtifactsScreen.tsx` meta card (no `id`) | When the selected agent's vault is empty, the outputs list says "…'s vault is empty." while the main card still says "Choose an output to read it and see where it came from." That points at outputs that don't exist, the same pattern as findings 17 and 29. | When `outputs?.length === 0`, the meta card shows `px.heading` "Empty vault" and nothing to choose. Keep "Choose an output" only when outputs exist. |
+| 33 | Low | `app/artifacts/ArtifactsScreen.tsx` outputs detail line | "Recent outputs of this agent's recent runs (GET /agents/:id). No route lists every artifact." explains the implementation in operator copy. | "This agent's recent outputs." Record the missing list route in `web/design/artifacts-events.md` (already noted there), not on screen. |
+| 34 | Low | `app/events/page.tsx` stale notice | "Missed events replay from the last cursor when it returns." is implementation language. | "Missed events will be filled in when it's back." (the design state frame's copy). |
+
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
