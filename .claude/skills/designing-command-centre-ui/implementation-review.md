@@ -476,3 +476,65 @@ Implementation status only; nothing here is verified. Every item needs QA confir
 | 48 default vault agent | **Fixed in code, awaiting QA verification.** With no `?agent` and no artifact, the screen reads each definition's `GET /agents/:id` once and opens the one with the newest `outputs[0].createdAt`, else the first. |
 | 49 empty grant scope bar | **Fixed in code, awaiting QA verification.** The scope list renders only when the scope has keys. |
 | 51 JSON preview blob | **Fixed in code, awaiting QA verification.** A preview or full content that parses as a JSON object or array is shown indented, still as text. A truncated preview is shown as stored. |
+
+## Round 14 (design QA of web commit `15b7007`, live API, real data)
+
+**Method:**
+- Diff read in full. `npx vitest run` passes: 77 tests in 11 files.
+- Every screen and detail route was captured at 1920, 1440 and 1280, by navigation only. Captures are in `qa10`, `qa10b` and `qa10c`.
+- The run trace was opened with "Show the run trace" and refreshed once. Both are a `GET /runs/:id/trace`, with nothing started, approved or advanced.
+- An independent critic reviewed every capture.
+- **Capture caveat:** the first pass (`qa10`) raced the dev server's route compile, and about ten files hold the previous route's page (confirmed by hash). Every verdict below rests on a capture whose content was checked, not on its filename. Headless captures also hide scrollbars, and the Next.js dev "N" badge covers the notice strip. Both are capture artefacts, not product defects.
+
+**Verified resolved with real data:**
+- **#36 summary half:** the type is no longer repeated in the Events summary.
+- **#40:** the Approvals empty card and the Goals notices are capped at 640 px.
+- **#43a:** the vault shows only the real chest, with no CSS patches.
+- **#44:** the 4× workshop hugs the room at 1920 on Agents and Registry.
+- **#45:** "0.01 consumed · 0 reserved · limit 1" appears on Workflows, Agents and Cost.
+- **#46:** the failure reason is a full-width line under the llm row at every width.
+- **#47:** the trace shows "read at 14:33:29" with "Refresh the trace", and after a refresh the read time moved to 14:33:33. The "out of date" marker can't occur on a finished run; it's checked in code and in `workflows.test.tsx`.
+- **#48:** `/artifacts` opens on Researcher v1, the agent with the output.
+- **#49:** no empty scope bar.
+- **#50:** Researcher reads "No context was recorded for its model calls."; Publisher reads "No compiled context recorded."
+- **#51:** the JSON preview is indented, as text.
+- **#52:** `publish.report` is marked "not granted to this agent" under Researcher.
+- **#53:** "Latest run failed · Unit 11 smoke test goal" at 1920, 1440 and 1280 links to the run.
+- **#54:** Researcher is a knight and Publisher a wizard, on Overview, Agents and Registry.
+- **#55:** the failed Events row wraps its full reason.
+- **#56:** runs-list timestamps and "trust ≥ 1" no longer break mid-token, and "Referenced by" spans the row. The step detail no longer shrinks; below the fold it scrolls with the run column, which is acceptable (the scrollbar is hidden only in headless captures).
+
+**Verified in code only (error states can't be reproduced with a healthy API, and nothing was stopped to force them):**
+- **#34:** "Missed events will be filled in when it's back." on Events and the notice strip.
+- **#35:** an unlit "state unknown" workshop on Agents and Registry, and an unlit one-room corridor with no plaque on Workflows.
+- **#38:** the "The roster couldn't be read." lines.
+- **#39:** a body that repeats the status text is dropped.
+- **#41:** the stops warning is shown only with a loaded roster.
+- **#42:** scope plaques are disabled with the disabled treatment and no state colour.
+
+**#43b is not blocked.** The chest-free `room-researcher-workshop-4x-slate.png` has been in `assets/gamification/adapted/` since `efd821c`. `web/public/world/` still holds the Sep 14 copy (different hash), because `world-art` ran before the patch. **CLI1:** run `npm run world-art` again. No code change is needed. The chest pair still shows in `agent-researcher-1920` and `registry-researcher-1920`.
+
+**Critic reconciliation:**
+- **Accepted:** #37 is still open on Agents, #57 (new), #58 (new).
+- **Rejected as acceptable choices:**
+  - Overview plaques cut at the world edge at 1440 and 1280: already ruled out in the laptop rule (D16 panning, line "Scale the keep to fit…" above), and unchanged since round 13.
+  - The Agents board and step detail running below the fold with "no scroll cue": the scrollbar is hidden only in headless captures.
+  - The "(reason=…)" parentheses in Events summaries: that's the API's summary text.
+  - Cost highlighting the Workflows tab and Registry highlighting Agents.
+  - The red "Stop agent" on idle agents: it's a control.
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 37 | Low | `app/agents/AgentsScreen.tsx` Recent actions (1920, 1440) | **Still open on Agents.** The Overview half is fixed, but the Agents board's Recent actions still ellipsizes the event *type* ("invocation completed…" at 1920, "invocation faile…" at 1440) while the full timestamp keeps its width. | Apply the Overview fix here too: the time column shrinks first, and the type keeps `max-content`. See #57 for how the time should shrink. |
+| 57 | Low | `app/overview.module.css` `.events li` (1440, 1280, real data) | The #37 fix gives each `li` its own grid, so each row ellipsizes its timestamp at a different point ("22:20:14", "22:20:…", "22:2…"). The time column is ragged, and minutes are lost on some rows but not others. | Share one column track across rows: put the grid on the `ul` and use `display: contents` or `subgrid` on the `li`. Better still, shorten the timestamp before truncating: when the date isn't today, `formatTime` could give "09-12 22:20:14" in this compact list (full value in `title`), which fits at 1280 without an ellipsis. |
+| 58 | Low | `app/goals/goals.module.css` goal cards (1920) | At 1920 the goal cards stay about 340 px wide beside a mostly empty board, so the workflow-run chip wraps into "Workflow / run" and "2026-09-12 / 22:20:14". At 1280 the same chip fits on one line because the cards are wider. | Let the goal grid grow its cards (`repeat(auto-fill, minmax(340px, 1fr))`, capped around 520 px), or `nowrap` the chip's label and timestamp so it drops to two tidy lines at most. |
+
+**Round 14 status, at web commit `15b7007` with the live API:**
+
+| Status | Findings |
+|---|---|
+| **Verified resolved with real data** | #32 (Publisher's vault heading reads "Empty vault", with no choice offered and no chests; `qa10c/vault-publisher-*`), #36, #40, #43a, #44, #45, #46, #47, #48, #49, #50, #51, #52, #53, #54, #55, #56 |
+| **Verified in code (error states)** | #34, #35, #38, #39, #41, #42 |
+| **Open** | #37 (Agents half), #43b (re-run `world-art`), #57, #58 |
+
+**Visual identity:** still on track. The world stays the hero on every screen, and each screen keeps its own room: keep, workshop, corridor, war room, council hall, vault, library and forge. No red or green world light appears. Failure shows only as markers, words and unlit rooms. Every value matches the live API.
