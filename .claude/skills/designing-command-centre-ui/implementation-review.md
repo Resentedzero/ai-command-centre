@@ -353,9 +353,19 @@ CLI1 worked through this review. Verified in the committed tree:
   - plaques show real values in neutral tones ("2 goals", "0 in progress", "0 pending");
   - the workshops are unlit with no actors while nothing runs;
   - Recent events show their cursors (#1–#4).
+- **#23 and the Workflows screen:**
+  - the real failed run's corridor shows two distinct step rooms (researcher, then publisher workshop);
+  - step 1 is "failed" with no light, step 2 is dimmed and "not started";
+  - invocation outcomes use red and green only;
+  - the cream budget gauge reads "0.01 consumed of 1.00", with reserved hatched.
+- **Goals:**
+  - the summary hugs its content ("2 goals across 1 project with goals"), with zero counts neutral and "1 failed" red;
+  - the project wing shows both goals as banners with a neutral goal status (not runtime state), and the failed run as a chip.
 
 | # | Severity | Where | Finding | Fix |
 |---|---|---|---|---|
+| 46 | Medium | `app/workflows/WorkflowsScreen.tsx` Invocations table (1920 and 1280, real failed run) | The invocations table sits in a narrow column (about 360 px at 1920), so its "failure" and "outputs" columns are pushed behind a horizontal scroll. For the real failed run, the failure reason ("ANTHROPIC_API_KEY is not set…") is invisible without scrolling, although it answers this screen's question "…and what failed?", and the step detail has hundreds of empty pixels beside it. At 1280 even the time column is clipped. | Show the failure reason where it can't be hidden: under a failed invocation row, as a full-width line (red marker plus the reason in label ink, error code dim). Give the Invocations column the row's full width (`grid-column: 1 / -1`), with Budget beside or below it. |
+| 45 | Low | `app/workflows/WorkflowsScreen.tsx` budget line (real data) | Reserved renders as "0.000000000000000000", the raw 18-decimal string. It's exact, but it can't be read at a glance. | Display the decimal with trailing zeros trimmed ("0"), which is numerically the same exact value. Keep the full string in a `title`. Apply the same formatting wherever `consumed`/`reserved`/`limit` amounts render (Agents usage, Cost counters and totals). |
 | 44 | Medium | `components/world/workshop.module.css` `.closeup` / `.room` (Agents, Registry at 1920) | The 768 × 640 room sits centred in a world column about 940 px tall, leaving about 200 px of solid void above it and 150 px below. The void reads as letterboxing, not as part of the keep, and makes the hero room look like a pasted thumbnail. | Size the column to the room: `align-self: start; height: 644px` (room plus bevel) on wide screens, and let the board use the full height. Or keep the height and continue the keep around the room: tile the stone-wall strip above and the hall floor below (from `keep-v4-2x.png`), dimmed by the night layer. Don't scale the room fractionally. |
 
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
