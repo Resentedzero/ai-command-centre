@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getRegistry, listActiveAgents, listActiveStops, type ActiveStop, type AgentCardData, type RegistryData } from "../../lib/api";
 import { agentState, errorText } from "../../lib/keep";
 import { useRefetchOnEvents } from "../live";
-import { PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../pixel/Pixel";
+import { PixelButton, RefreshNotice, Skeleton, StateNotice, StatusMark, cx, px } from "../pixel/Pixel";
 import s from "./roster.module.css";
 
 export type RosterEntry = {
@@ -24,8 +24,19 @@ export type Roster = {
   entries: RosterEntry[];
   activeLoaded: boolean;
   activeUnreadable: boolean;
+  stopsUnreadable: boolean;
   reload: () => Promise<void>;
 };
+
+/** The stop that refuses this agent's next action: its own agent-scope stop, else a global one. */
+export function stopFor(stops: ActiveStop[] | "error" | null, agentId: string): ActiveStop | null {
+  if (!Array.isArray(stops)) return null;
+  return (
+    stops.find((x) => x.scope === "agent_definition" && x.scopeRefId?.toLowerCase() === agentId.toLowerCase()) ??
+    stops.find((x) => x.scope === "global") ??
+    null
+  );
+}
 
 /** Every Agent Definition (`GET /registry`) joined with active Runs (`GET /agents/active`) and stops (`GET /execution-stops`). */
 export function useAgentRoster(): Roster {
@@ -55,9 +66,7 @@ export function useAgentRoster(): Roster {
     () =>
       (registry?.agentDefinitions ?? []).map((d) => {
         const runs = Array.isArray(active) ? active.filter((a) => a.agentDefinitionId === d.id) : [];
-        const stop = Array.isArray(stops)
-          ? (stops.find((x) => x.scope === "agent_definition" && x.scopeRefId?.toLowerCase() === d.id.toLowerCase()) ?? null)
-          : null;
+        const stop = stopFor(stops, d.id);
         return {
           id: d.id,
           name: d.name,
@@ -70,11 +79,11 @@ export function useAgentRoster(): Roster {
     [registry, active, stops]
   );
 
-  return { registry, error, entries, activeLoaded: active !== null, activeUnreadable: active === "error", reload };
+  return { registry, error, entries, activeLoaded: active !== null, activeUnreadable: active === "error", stopsUnreadable: stops === "error", reload };
 }
 
 export function AgentRoster({ roster, selectedId, hrefFor }: { roster: Roster; selectedId?: string; hrefFor: (id: string) => string }) {
-  const { registry, error, entries, activeLoaded, activeUnreadable, reload } = roster;
+  const { registry, error, entries, activeLoaded, activeUnreadable, stopsUnreadable, reload } = roster;
   return (
     <nav className={cx(px.board, s.roster)} aria-label="Agent roster">
       <span className={px.tab}>Roster</span>
@@ -110,6 +119,8 @@ export function AgentRoster({ roster, selectedId, hrefFor }: { roster: Roster; s
           ))}
         </ul>
       )}
+      {registry && error && <RefreshNotice error={error} />}
+      {stopsUnreadable && <p className={px.detail}>Couldn&apos;t read active stops, so a stop may not show.</p>}
     </nav>
   );
 }

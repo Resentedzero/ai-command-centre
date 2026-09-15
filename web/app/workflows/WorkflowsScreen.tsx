@@ -12,7 +12,7 @@ import {
   type WorkflowStepDetail,
 } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
-import { PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
+import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
 import { WorldViewport, world } from "../../components/world/World";
 import { countLabel, errorText, formatTime, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
@@ -104,9 +104,7 @@ export function WorkflowsScreen({ id }: { id?: string }) {
           </ul>
         )}
         {runs && runsError && (
-          <p role="alert" className={px.detail}>
-            Couldn&apos;t refresh the list. {runsError}
-          </p>
+          <RefreshNotice error={runsError} message="Couldn't refreshthe list." />
         )}
         <Link href="/costs" className={w.link}>
           Open the cost ledger
@@ -185,9 +183,7 @@ function RunView({ id }: { id: string }) {
         {detail.goal?.description && <div>{detail.goal.description}</div>}
       </header>
       {loadError && (
-        <p role="alert" className={px.detail}>
-          Couldn&apos;t refresh; showing the last read. {loadError}
-        </p>
+        <RefreshNotice error={loadError} />
       )}
 
       {detail.stepsUnavailableReason ? (

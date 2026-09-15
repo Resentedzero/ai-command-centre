@@ -97,6 +97,20 @@ export function StateNotice({
   );
 }
 
+/** A refresh failed after a good read: the operator message, then the route and status on the detail line. */
+export function RefreshNotice({ error, message = "Couldn't refresh; showing the last read." }: { error: string; message?: string }) {
+  return (
+    <div role="alert" className={s.refresh}>
+      <p className={s.label} style={{ margin: 0 }}>
+        {message}
+      </p>
+      <p className={s.detail} style={{ margin: 0 }}>
+        {error}
+      </p>
+    </div>
+  );
+}
+
 /** One gauge per resource unit, drawn only from loaded values; never summed or converted. */
 export function UnitGauge({ consumed, reserved, limit }: { consumed: string; reserved: string; limit: string }) {
   const lim = Number(limit);

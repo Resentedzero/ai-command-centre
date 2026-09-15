@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BUDGET_SCOPES, getCosts, type CostsData } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
-import { PixelButton, Skeleton, StateNotice, UnitGauge, cx, px } from "../../components/pixel/Pixel";
+import { RefreshNotice, PixelButton, Skeleton, StateNotice, UnitGauge, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
 import { errorText, formatTime, stateWord } from "../../lib/keep";
 import c from "./costs.module.css";
@@ -109,9 +109,7 @@ export default function CostsPage() {
         ) : (
           <>
             {error && (
-              <p role="alert" className={px.detail}>
-                Couldn&apos;t refresh; showing the last read. {error}
-              </p>
+              <RefreshNotice error={error} />
             )}
             <span className={px.tab}>Counters</span>
             {data.counters.length === 0 ? (

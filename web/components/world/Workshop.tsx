@@ -5,14 +5,17 @@ import { StatusMark, cx } from "../pixel/Pixel";
 import { AgentSprite, world } from "./World";
 import s from "./workshop.module.css";
 
+/** `null` = not loaded; `unknown` = the read failed; `idle` = no unfinished Run. */
+export type WorkshopState = "active" | "awaiting_approval" | "pending" | "stopped" | "idle" | "unknown" | null;
+
 /** A grant drawn as a key: `n` matches the "Key n" card beside it. */
 export type KeyMark = { n: number; revoked: boolean };
 
 /**
  * One workshop at 4x (Agents and Registry): a centred crop of the close-up art,
  * lit by the agent's real state. `state` null = not loaded (unlit, no actor).
- * Awaiting approval: the workshop is dark and empty (the agent is at the
- * council seal). Stopped: a barrier, sprite frozen on frame 1.
+ * Awaiting approval: dark and empty (the agent is at the council seal).
+ * Pending: unlit, character absent. Stopped: a barrier, sprite frozen on frame 1.
  */
 export function WorkshopCloseup({
   agentId,
@@ -21,7 +24,7 @@ export function WorkshopCloseup({
   keys = [],
 }: {
   agentId: string;
-  state: "active" | "awaiting_approval" | "stopped" | "idle" | null;
+  state: WorkshopState;
   label: string;
   keys?: KeyMark[];
 }) {
@@ -43,8 +46,20 @@ export function WorkshopCloseup({
             <span className={s.keyTag}>{k.n}</span>
           </div>
         ))}
-        <span className={world.plaque} style={{ left: 384, top: 150, cursor: "default" }}>
-          {state === null ? <StatusMark state={null} /> : state === "idle" ? <StatusMark state="none" tone="neutral">no active run</StatusMark> : <StatusMark state={state} />}
+        <span className={cx(world.plaque, world.plaqueStatic)} style={{ left: 384, top: 150 }}>
+          {state === null ? (
+            <StatusMark state={null} />
+          ) : state === "idle" ? (
+            <StatusMark state="none" tone="neutral">
+              no active run
+            </StatusMark>
+          ) : state === "unknown" ? (
+            <StatusMark state="none" tone="neutral">
+              state unknown
+            </StatusMark>
+          ) : (
+            <StatusMark state={state} />
+          )}
         </span>
       </div>
     </div>

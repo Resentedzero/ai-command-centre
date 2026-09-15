@@ -169,10 +169,27 @@ describe("Agent Detail", () => {
 });
 
 describe("Agents roster page", () => {
-  it("asks the operator to choose an agent, listing every Agent Definition", async () => {
+  it("lists every Agent Definition and opens the one needing attention", async () => {
+    api.getAgentDetail.mockResolvedValue(base);
     render(<AgentsPage />);
     expect(await screen.findByRole("link", { name: /Researcher v1/ })).toHaveAttribute("href", "/agents/agent-9");
-    expect(screen.getByText("Choose an agent from the roster to see what it is doing.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Publisher v2" })).toBeInTheDocument();
+    expect(api.getAgentDetail).toHaveBeenCalledWith("agent-1");
+  });
+
+  it("says a global stop refuses the agent, without offering a lift it cannot perform", async () => {
+    api.listActiveStops.mockResolvedValue([{ id: "gs-1", scope: "global", scopeRefId: null, reason: "freeze" }]);
+    api.getAgentDetail.mockResolvedValue(base);
+    await act(async () => {
+      render(
+        <Suspense fallback={<p>suspended</p>}>
+          <AgentDetailPage params={Promise.resolve({ id: "agent-1" })} />
+        </Suspense>
+      );
+    });
+    expect(await screen.findByText(/A global stop refuses every agent/)).toBeInTheDocument();
+    expect(screen.getByTestId("stop-state")).toHaveTextContent("Reason: freeze");
+    expect(screen.queryByRole("button", { name: /Lift stop|Stop agent/ })).not.toBeInTheDocument();
   });
 
   it("shows a roster load failure with Retry", async () => {

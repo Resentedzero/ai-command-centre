@@ -12,8 +12,9 @@ import {
   type AgentCardData,
 } from "../lib/api";
 import { isStale, useLive, useRefetchOnEvents } from "../components/live";
-import { PixelButton, Skeleton, StateNotice, StatusMark, buttonClass, cx, px } from "../components/pixel/Pixel";
+import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, buttonClass, cx, px } from "../components/pixel/Pixel";
 import { StopControl } from "../components/StopControl";
+import { stopFor } from "../components/agents/roster";
 import { AgentSprite, WorldViewport, world } from "../components/world/World";
 import {
   KEEP,
@@ -121,13 +122,10 @@ export default function OverviewPage() {
       group.runs.push(row);
       byKey.set(key, group);
     }
-    const stopList = Array.isArray(stops) ? stops : [];
     return [...byKey.values()].map((g) => ({
       ...g,
       state: agentState(g.runs.map((r) => r.taskStatus)),
-      stop: g.id
-        ? (stopList.find((s) => s.scope === "agent_definition" && s.scopeRefId?.toLowerCase() === g.id!.toLowerCase()) ?? null)
-        : null,
+      stop: g.id ? stopFor(stops, g.id) : null,
     }));
   }, [agents, stops]);
 
@@ -288,9 +286,7 @@ export default function OverviewPage() {
           )
         )}
         {loaded && loadError && (
-          <p role="alert" className={px.detail}>
-            Couldn&apos;t refresh; showing the last read. {loadError}
-          </p>
+          <RefreshNotice error={loadError} />
         )}
         <RecentEvents />
       </aside>

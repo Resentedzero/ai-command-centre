@@ -54,7 +54,7 @@ describe("Registry page", () => {
   it("shows the selected agent's grants as numbered keys, every definition, and no controls", async () => {
     await renderPage();
 
-    expect(await screen.findByRole("heading", { name: "Researcher v1" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Registry · Researcher v1" })).toBeInTheDocument();
     const grants = screen.getAllByTestId("grant");
     expect(grants).toHaveLength(2);
     expect(grants[0]).toHaveTextContent("Key 1 · research.retrieve");
@@ -69,8 +69,15 @@ describe("Registry page", () => {
 
   it("selects the agent named in the query", async () => {
     await renderPage("a-2");
-    expect(await screen.findByRole("heading", { name: "Publisher v1" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Registry · Publisher v1" })).toBeInTheDocument();
     expect(screen.getAllByTestId("grant")).toHaveLength(1);
+  });
+
+  it("says an unknown agent id is unknown instead of showing another agent's keys", async () => {
+    await renderPage("no-such-agent");
+    expect(await screen.findByText("That agent isn't in the Registry.")).toBeInTheDocument();
+    expect(screen.queryByTestId("grant")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Registry" })).toBeInTheDocument();
   });
 
   it("shows a load failure with Retry", async () => {

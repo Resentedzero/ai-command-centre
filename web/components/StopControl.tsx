@@ -6,7 +6,7 @@ import { errorText, formatTime } from "../lib/keep";
 import { ButtonMark, PixelButton, StatusMark, cx, px } from "./pixel/Pixel";
 import s from "./stop.module.css";
 
-export type ShownStop = { id: string; reason: string | null; engagedAt?: string };
+export type ShownStop = { id: string; reason: string | null; engagedAt?: string; scope?: string };
 
 /**
  * The agent-scope emergency stop (spec 9.7), the one control on an agent. Stop
@@ -49,14 +49,23 @@ export function StopControl({
     } catch (err) {
       setError(errorText(err));
     } finally {
-      setActing(false);
+      // Re-enabled only after the re-read, so a second click can't send a second POST.
       await onChanged();
+      setActing(false);
     }
   }
 
   return (
     <div className={s.stop}>
-      {stop ? (
+      {stop?.scope === "global" ? (
+        <>
+          <div className={cx(px.parchment, s.grow)} data-testid="stop-state">
+            <StatusMark state="stopped" surface="parchment" /> A global stop refuses every agent&apos;s next action.
+            {stop.reason ? ` Reason: ${stop.reason}` : ""}
+          </div>
+          <p className={cx(px.detail, s.full)}>This screen lifts only an agent&apos;s own stop.</p>
+        </>
+      ) : stop ? (
         <>
           <div className={cx(px.parchment, s.grow)} data-testid="stop-state">
             <StatusMark state="stopped" surface="parchment" /> {stop.reason ? `Reason: ${stop.reason}` : "No reason given"}

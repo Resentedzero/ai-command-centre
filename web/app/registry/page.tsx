@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { use } from "react";
 import { AgentRoster, useAgentRoster } from "../../components/agents/roster";
-import { PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
-import { WorkshopCloseup } from "../../components/world/Workshop";
+import { PixelButton, RefreshNotice, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
+import { WorkshopCloseup, type WorkshopState } from "../../components/world/Workshop";
 import { formatTime } from "../../lib/keep";
 import a from "../agents/agents.module.css";
 
@@ -19,11 +19,23 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
   const { agent } = use(searchParams);
   const roster = useAgentRoster();
   const reg = roster.registry;
-  const def = reg ? (reg.agentDefinitions.find((d) => d.id === agent) ?? reg.agentDefinitions[0]) : undefined;
-  const grants = def ? reg!.capabilityGrants.filter((g) => g.agentDefinitionId === def.id && g.agentDefinitionVersion === def.version) : [];
+  // An unknown id is said to be unknown; another agent is never substituted for it.
+  const def = reg ? (agent ? reg.agentDefinitions.find((d) => d.id === agent) : reg.agentDefinitions[0]) : undefined;
+  const unknownAgent = reg !== null && agent !== undefined && def === undefined;
+  const grants = def
+    ? reg!.capabilityGrants.filter((g) => g.agentDefinitionId === def.id && g.agentDefinitionVersion === def.version).sort((x, y) => (x.id < y.id ? -1 : 1))
+    : [];
   const capabilityName = (id: string) => reg?.capabilities.find((c) => c.id === id)?.name ?? "capability not in the Registry";
   const entry = roster.entries.find((e) => e.id === def?.id);
-  const roomState = !def || !roster.activeLoaded ? null : entry?.state === "stopped" || entry?.state === "active" || entry?.state === "awaiting_approval" ? entry.state : "idle";
+  const roomState: WorkshopState = !def
+    ? null
+    : roster.activeUnreadable
+      ? "unknown"
+      : !roster.activeLoaded
+        ? null
+        : entry?.state === "stopped" || entry?.state === "active" || entry?.state === "awaiting_approval" || entry?.state === "pending"
+          ? entry.state
+          : "idle";
 
   return (
     <main className={cx(a.screen, !def && a.noWorld)}>
@@ -49,7 +61,11 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
         ) : (
           <>
             <header className={a.header}>
-              <h1 className={px.heading}>{def ? `${def.name} v${def.version}` : "Registry"}</h1>
+              <h1 className={px.heading}>{def ? `Registry · ${def.name} v${def.version}` : "Registry"}</h1>
+              {unknownAgent && (
+                <StateNotice role="alert" message="That agent isn't in the Registry." detail={`agent definition ${agent}`} />
+              )}
+              {roster.error && <RefreshNotice error={roster.error} />}
               <p className={px.parchment} data-testid="read-only">
                 Read-only. This screen changes nothing: definitions and grants are created, versioned and revoked through the Registry API.
               </p>
@@ -76,10 +92,18 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
                           <div>
                             {g.permissions.join(", ")} · {g.autonomyState} · trust ≥ {g.maxTrustLevelRequired}
                           </div>
-                          {g.scope && <div>scope {JSON.stringify(g.scope)}</div>}
+                          {g.scope && (
+                            <ul className={cx(px.vellum, a.plainList)} aria-label="Grant scope">
+                              {Object.entries(g.scope).map(([k, v]) => (
+                                <li key={k}>
+                                  {k}: {typeof v === "string" ? v : JSON.stringify(v)}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                           <div>granted {formatTime(g.createdAt)}</div>
                           {g.revokedAt && (
-                            <StatusMark state="revoked" tone="fail" surface="parchment">
+                            <StatusMark state="revoked" tone="neutral" surface="parchment">
                               revoked {formatTime(g.revokedAt)}
                             </StatusMark>
                           )}

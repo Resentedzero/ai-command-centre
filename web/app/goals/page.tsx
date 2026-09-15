@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { createGoal, listGoals, type ProjectGoals } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
-import { PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
+import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
 import { countLabel, errorText, formatTime } from "../../lib/keep";
 import g from "./goals.module.css";
@@ -150,9 +150,7 @@ export default function GoalsPage() {
         ) : (
           <>
             {loadError && (
-              <p role="alert" className={px.detail}>
-                Couldn&apos;t refresh; showing the last read. {loadError}
-              </p>
+              <RefreshNotice error={loadError} />
             )}
             {withGoals.map((project) => (
               <section key={project.id} className={cx(px.board, g.wing)} data-testid="project" aria-label={project.name}>

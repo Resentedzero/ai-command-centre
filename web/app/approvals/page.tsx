@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { approveApproval, listPendingApprovals, rejectApproval, type ApprovalData, type ApprovalResolution } from "../../lib/api";
 import { isStale, useLive, useRefetchOnEvents } from "../../components/live";
-import { ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
+import { RefreshNotice, ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
 import { errorText, formatTime } from "../../lib/keep";
 import s from "./approvals.module.css";
@@ -95,9 +95,7 @@ export default function ApprovalsPage() {
           </ul>
         )}
         {approvals && loadError && (
-          <p role="alert" className={px.detail}>
-            Couldn&apos;t refresh the queue; it may be out of date. {loadError}
-          </p>
+          <RefreshNotice error={loadError} message="Couldn't refreshthe queue; it may be out of date." />
         )}
       </nav>
 

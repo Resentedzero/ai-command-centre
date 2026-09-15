@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAgentDetail, type AgentDetail } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
 import { AgentRoster, useAgentRoster } from "../../components/agents/roster";
-import { StopControl } from "../../components/StopControl";
-import { PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
-import { WorkshopCloseup } from "../../components/world/Workshop";
+import { StopControl, type ShownStop } from "../../components/StopControl";
+import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
+import { WorkshopCloseup, type WorkshopState } from "../../components/world/Workshop";
 import { agentState, errorText, formatTime, stateWord } from "../../lib/keep";
 import a from "./agents.module.css";
 
@@ -20,18 +20,31 @@ import a from "./agents.module.css";
  * `GET /registry`, `GET /agents/active`, `GET /execution-stops` and
  * `GET /agents/:id` return.
  */
-export function AgentsScreen({ id }: { id?: string }) {
+export function AgentsScreen({ id: routeId }: { id?: string }) {
   const roster = useAgentRoster();
   const [detail, setDetail] = useState<AgentDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // With no agent in the URL, open the one needing attention (else the first), once.
+  const [autoId, setAutoId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (routeId || autoId || roster.entries.length === 0) return;
+    setAutoId((roster.entries.find((e) => e.stop || e.state === "awaiting_approval") ?? roster.entries[0])!.id);
+  }, [routeId, autoId, roster.entries]);
+  const id = routeId ?? autoId;
 
+  // Only the latest read may land: an older refetch resolving late must not overwrite a newer one.
+  const seq = useRef(0);
   const load = useCallback(async () => {
     if (!id) return;
+    const n = ++seq.current;
     try {
-      setDetail(await getAgentDetail(id));
-      setLoadError(null);
+      const d = await getAgentDetail(id);
+      if (n === seq.current) {
+        setDetail(d);
+        setLoadError(null);
+      }
     } catch (err) {
-      setLoadError(errorText(err));
+      if (n === seq.current) setLoadError(errorText(err));
     }
   }, [id]);
 
@@ -42,15 +55,16 @@ export function AgentsScreen({ id }: { id?: string }) {
   }, [load]);
   useRefetchOnEvents(load);
 
-  const { reload: reloadRoster, registry } = roster;
+  const { reload: reloadRoster, registry, error: rosterError } = roster;
   const reloadAll = useCallback(async () => {
     await Promise.all([load(), reloadRoster()]);
   }, [load, reloadRoster]);
 
   const taskName = useMemo(() => {
     const names = new Map((registry?.taskDefinitions ?? []).map((t) => [t.id, `${t.name} v${t.version}`]));
-    return (taskDefinitionId: string) => names.get(taskDefinitionId) ?? (registry ? "task definition not in the Registry" : "· · ·");
-  }, [registry]);
+    return (taskDefinitionId: string) =>
+      names.get(taskDefinitionId) ?? (registry ? "task definition not in the Registry" : rosterError ? "task name unavailable" : "· · ·");
+  }, [registry, rosterError]);
 
   const hrefFor = (x: string) => `/agents/${x}`;
 
@@ -59,15 +73,18 @@ export function AgentsScreen({ id }: { id?: string }) {
       <main className={cx(a.screen, a.noWorld)}>
         <AgentRoster roster={roster} hrefFor={hrefFor} />
         <section className={cx(px.board, a.board)} aria-label="Agent detail">
-          <StateNotice
-            message="Choose an agent from the roster to see what it is doing."
-            detail="The roster lists every Agent Definition version in the Registry."
-            action={
-              <Link href="/registry" className={a.link}>
-                Open the Registry (read-only)
-              </Link>
-            }
-          />
+          {!roster.registry && !roster.error ? (
+            <StateNotice role="status" message={<>Loading the roster <Skeleton /></>} />
+          ) : (
+            <StateNotice
+              message={roster.registry ? "No agent definitions exist yet." : "No agent is open: the roster couldn't be read."}
+              action={
+                <Link href="/registry" className={a.link}>
+                  Open the Registry (read-only)
+                </Link>
+              }
+            />
+          )}
         </section>
       </main>
     );
@@ -75,13 +92,18 @@ export function AgentsScreen({ id }: { id?: string }) {
 
   const unfinished = detail?.runs.filter((r) => r.status !== "completed" && r.status !== "failed") ?? [];
   const current = unfinished.length > 0 ? agentState(unfinished.map((r) => r.status)) : null;
-  const roomState = !detail
-    ? null
-    : detail.activeStop
+  const globalStop = roster.entries.find((e) => e.id === id)?.stop;
+  const shownStop = detail?.activeStop ?? (globalStop?.scope === "global" ? globalStop : null);
+  const roomState: WorkshopState = !detail
+    ? loadError
+      ? "unknown"
+      : null
+    : shownStop
       ? "stopped"
-      : current === "active" || current === "awaiting_approval"
+      : current === "active" || current === "awaiting_approval" || current === "pending"
         ? current
         : "idle";
+  const grants = detail ? [...detail.grants].sort((x, y) => (x.id < y.id ? -1 : 1)) : [];
 
   return (
     <main className={a.screen}>
@@ -90,7 +112,7 @@ export function AgentsScreen({ id }: { id?: string }) {
         agentId={id}
         state={roomState}
         label={detail ? `${detail.agent.name}'s workshop` : "Workshop"}
-        keys={detail?.grants.map((g, i) => ({ n: i + 1, revoked: g.revoked })) ?? []}
+        keys={grants.map((g, i) => ({ n: i + 1, revoked: g.revoked }))}
       />
       <section className={cx(px.board, a.board)} aria-label="Agent detail">
         {!detail && loadError ? (
@@ -103,7 +125,7 @@ export function AgentsScreen({ id }: { id?: string }) {
         ) : !detail ? (
           <StateNotice role="status" message={<>Loading this agent <Skeleton /></>} />
         ) : (
-          <AgentBoard detail={detail} taskName={taskName} refreshError={loadError} onChanged={reloadAll} />
+          <AgentBoard detail={detail} grants={grants} shownStop={shownStop} taskName={taskName} refreshError={loadError} onChanged={reloadAll} />
         )}
       </section>
     </main>
@@ -112,11 +134,15 @@ export function AgentsScreen({ id }: { id?: string }) {
 
 function AgentBoard({
   detail,
+  grants,
+  shownStop,
   taskName,
   refreshError,
   onChanged,
 }: {
   detail: AgentDetail;
+  grants: AgentDetail["grants"];
+  shownStop: ShownStop | null;
   taskName: (id: string) => string;
   refreshError: string | null;
   onChanged: () => Promise<void>;
@@ -130,17 +156,15 @@ function AgentBoard({
         <h1 className={px.heading}>
           {agent.name} v{agent.version}
         </h1>
-        <StopControl agentId={agent.id} name={agent.name} version={agent.version} stop={detail.activeStop} onChanged={onChanged} />
-        {!detail.activeStop && detail.runs.some((r) => r.status === "awaiting_approval") && (
+        <StopControl agentId={agent.id} name={agent.name} version={agent.version} stop={shownStop} onChanged={onChanged} />
+        {!shownStop && detail.runs.some((r) => r.status === "awaiting_approval") && (
           <Link href="/approvals" className={a.link}>
             Waiting at the council hall: review the approval
           </Link>
         )}
       </header>
       {refreshError && (
-        <p role="alert" className={px.detail}>
-          Couldn&apos;t refresh; showing the last read. {refreshError}
-        </p>
+        <RefreshNotice error={refreshError} />
       )}
       <div className={px.parchment}>
         <div className={px.label}>{agent.role}</div>
@@ -181,11 +205,11 @@ function AgentBoard({
       <div className={a.columns}>
         <section className={a.section} aria-label="Keys">
           <span className={px.tab}>Keys</span>
-          {detail.grants.length === 0 ? (
+          {grants.length === 0 ? (
             <p className={px.dim}>No capability grants.</p>
           ) : (
             <div className={a.cards} data-testid="agent-grants">
-              {detail.grants.map((g, i) => (
+              {grants.map((g, i) => (
                 <div key={g.id} className={px.parchment}>
                   <div className={px.label}>
                     Key {i + 1} · {g.capabilityName}
@@ -193,9 +217,7 @@ function AgentBoard({
                   <div>
                     {g.permissions.join(", ")} · {g.autonomyState} · trust ≥ {g.maxTrustLevelRequired}
                   </div>
-                  {g.revoked && (
-                    <StatusMark state="revoked" tone="fail" surface="parchment" />
-                  )}
+                  {g.revoked && <StatusMark state="revoked" tone="neutral" surface="parchment" />}
                 </div>
               ))}
             </div>
@@ -286,7 +308,7 @@ function AgentBoard({
           ) : (
             <ol className={cx(px.vellum, a.events)} data-testid="agent-events">
               {detail.recentEvents.map((e) => (
-                <li key={e.eventId}>
+                <li key={e.eventId} title={`${e.eventType} · ${e.occurredAt} · #${e.eventCursor}`}>
                   <span className={px.dim}>{formatTime(e.occurredAt)}</span> {stateWord(e.eventType)}{" "}
                   <span className={px.dim}>#{e.eventCursor}</span>
                 </li>
