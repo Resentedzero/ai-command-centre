@@ -95,7 +95,7 @@ These are known and documented; none has a safe unilateral fix.
 2. **Artifact storage threshold (spec §12/§13.3).** All artifacts are stored inline in Postgres today. Moving large ones to the filesystem needs a size threshold. It is not needed at current sizes.
 3. **Separate system channel on the Claude CLI.** It needs a live CLI verification run, which consumes subscription entitlement.
 4. **Carried over from Phase 8:**
-   - DAY ceiling values and timezone. These are no longer blocked by Phase 9.
-   - Whether stops should permanently fail parked Runs.
-   - A grant revocation route.
-5. **Confirm or reverse** the seven decisions made above, especially #2 (charge on timeout) and #4 (startup re-drive).
+   - DAY ceiling values and timezone. These are no longer blocked by Phase 9. **Decided 2026-09-15 (D3):** `usd` 5.00 and `subscription_tokens` 200,000 per local calendar day.
+   - Whether stops should permanently fail parked Runs. **Decided 2026-09-15 (D34):** yes, permanently terminated.
+   - A grant revocation route. (Built with the Capability Platform.)
+5. **Confirm or reverse** the seven decisions made above, especially #2 (charge on timeout) and #4 (startup re-drive). **Confirmed by the operator 2026-09-15 (R-P9):** all seven, as implemented. `BUDGET_CONTAINMENT_CLOSURE.md`.

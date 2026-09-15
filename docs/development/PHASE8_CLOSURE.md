@@ -49,7 +49,7 @@
 
 ## Deferred / human decisions required
 
-1. **Stops permanently fail parked Runs.** A re-drive during any stop, even a brief global one, fails an `awaiting_approval` Run for good. This matches the documented forward-only rule. Confirm it is intended.
+1. **Stops permanently fail parked Runs.** A re-drive during any stop, even a brief global one, fails an `awaiting_approval` Run for good. This matches the documented forward-only rule. Confirm it is intended. **Confirmed by the operator 2026-09-15 (D34):** a stopped parked Run is permanently terminated. `BUDGET_CONTAINMENT_CLOSURE.md`.
 2. **Auto-cancelled approvals are recorded as `expired`, not a new `cancelled` status.** Confirm.
 3. **One stopped Grant blocks even when another covering Grant exists.** Fail-closed is implemented. Confirm.
 4. **DAY ceiling values and timezone.** Nothing is configured. Enabling a ceiling first needs the Phase 9 (B-4) serialization work, because the day counter is a global lock held across long transactions.

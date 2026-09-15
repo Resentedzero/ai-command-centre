@@ -144,6 +144,7 @@
  *   points the step's `stepRunIds` slot at the retry Run; it runs after the
  *   failed attempt, possibly in the same call.
  */
+import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { goals, runs, taskInstances, workflowDefinitions, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
@@ -309,6 +310,8 @@ export async function startWorkflowRun(
     producer: "workflow-interpreter",
     payload: { workflowDefinitionId: definition.id, workflowDefinitionVersion: definition.version },
   });
+  // A new unfinished Workflow Run makes a finished Goal active again (R-GOAL1).
+  await recordGoalStatus(tx, goalId, row!.id, { ...NO_CORRELATION, goalId, workflowRunId: row!.id });
   return { workflowRunId: row!.id };
 }
 
@@ -356,6 +359,30 @@ export async function pauseWorkflowRun(tx: DrizzleTransaction, workflowRunId: st
       `pauseWorkflowRun: workflow_run "${workflowRunId}" stopped being "in_progress" before it could be paused.`
     );
   }
+  await recordPauseTransition(tx, "workflow_run_paused", row.id, row.goalId);
+}
+
+/**
+ * `workflow_run_paused` / `workflow_run_resumed` (operator decision R-EV1, spec §3e),
+ * same transaction as the status write. A Workflow Run can be paused and resumed many
+ * times, so each emission has its own key. Only the operator's routes pause or resume.
+ */
+async function recordPauseTransition(
+  tx: DrizzleTransaction,
+  eventType: "workflow_run_paused" | "workflow_run_resumed",
+  workflowRunId: string,
+  goalId: string
+): Promise<void> {
+  await emitLifecycleEvent(tx, {
+    eventType,
+    subjectId: workflowRunId,
+    idempotencyKey: `${eventType}:${workflowRunId}:${randomUUID()}`,
+    correlation: { ...NO_CORRELATION, goalId, workflowRunId },
+    producer: "workflow-interpreter",
+    actor: "human:operator",
+    payload:
+      eventType === "workflow_run_paused" ? { from: "in_progress", to: "paused" } : { from: "paused", to: "in_progress" },
+  });
 }
 
 export async function resumeWorkflowRun(tx: DrizzleTransaction, workflowRunId: string): Promise<void> {
@@ -379,6 +406,7 @@ export async function resumeWorkflowRun(tx: DrizzleTransaction, workflowRunId: s
       `resumeWorkflowRun: workflow_run "${workflowRunId}" stopped being "paused" before it could be resumed.`
     );
   }
+  await recordPauseTransition(tx, "workflow_run_resumed", row.id, row.goalId);
 }
 
 // ---------------------------------------------------------------------------
@@ -400,6 +428,46 @@ async function finishWorkflowRun(tx: DrizzleTransaction, step: StepRef, status: 
     subjectId: step.workflowRunId,
     correlation: stepCorrelation(step),
     producer: "workflow-interpreter",
+  });
+  await recordGoalStatus(tx, step.goalId, step.workflowRunId, stepCorrelation(step));
+}
+
+export type GoalStatus = "active" | "completed" | "failed";
+
+/**
+ * A Goal's status, derived from its Workflow Runs' statuses (operator decision R-GOAL1):
+ * `active` while it has no Workflow Run or any of them is not finished (`in_progress`,
+ * `paused`); once every one has finished, `completed` if every one completed, otherwise
+ * `failed`.
+ */
+export function deriveGoalStatus(workflowRunStatuses: readonly string[]): GoalStatus {
+  const finished = (s: string) => s === "completed" || s === "failed";
+  if (workflowRunStatuses.length === 0 || !workflowRunStatuses.every(finished)) return "active";
+  return workflowRunStatuses.every((s) => s === "completed") ? "completed" : "failed";
+}
+
+/**
+ * Re-derives a Goal's status after one of its Workflow Runs started or finished, and
+ * records a change as `goal_completed`, `goal_failed` or `goal_transitioned` in the same
+ * transaction (§3e). A no-op when the derived status is unchanged. Keyed by the Workflow
+ * Run that caused it, since a Goal can change status more than once.
+ */
+async function recordGoalStatus(tx: DrizzleTransaction, goalId: string, workflowRunId: string, correlation: Correlation): Promise<void> {
+  const goal = await tx.query.goals.findFirst({ where: eq(goals.id, goalId) });
+  if (!goal) return;
+  const statuses = await tx.select({ status: workflowRuns.status }).from(workflowRuns).where(eq(workflowRuns.goalId, goalId));
+  const to = deriveGoalStatus(statuses.map((r) => r.status));
+  if (to === goal.status) return;
+
+  await tx.update(goals).set({ status: to }).where(eq(goals.id, goalId));
+  const eventType = to === "completed" ? "goal_completed" : to === "failed" ? "goal_failed" : "goal_transitioned";
+  await emitLifecycleEvent(tx, {
+    eventType,
+    subjectId: goalId,
+    idempotencyKey: `${eventType}:${goalId}:${workflowRunId}`,
+    correlation,
+    producer: "workflow-interpreter",
+    payload: { from: goal.status, to, workflowRunId },
   });
 }
 

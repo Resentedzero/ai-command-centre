@@ -68,6 +68,19 @@ export async function deleteEventsForTest(where: SQL | undefined): Promise<void>
   });
 }
 
+/**
+ * Rewrites a committed Artifact's inline content, for tests that simulate tampering.
+ * Artifacts refuse UPDATE (migration 0019); only test code lifts that, inside one
+ * transaction, so the guard is back before anything else can write.
+ */
+export async function rewriteArtifactForTest(id: string, inlineContent: string | null): Promise<void> {
+  await testDb.transaction(async (tx) => {
+    await tx.execute(sql.raw('ALTER TABLE "artifacts" DISABLE TRIGGER "artifacts_immutable"'));
+    await tx.update(schema.artifacts).set({ inlineContent }).where(sql`${schema.artifacts.id} = ${id}`);
+    await tx.execute(sql.raw('ALTER TABLE "artifacts" ENABLE TRIGGER "artifacts_immutable"'));
+  });
+}
+
 export async function closeTestDb(): Promise<void> {
   await testPool.end();
 }

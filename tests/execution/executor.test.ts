@@ -21,6 +21,18 @@ import type {
 // compileContext/evaluatePolicy/reserveBudget code, only the outermost
 // provider boundary is mocked (same pattern as modelRouter.test.ts).
 // ---------------------------------------------------------------------------
+// Executor mechanics against a Run counter, with fixture estimates ($5–$100) sized before
+// the day (D3) and Task Instance (D20) ceilings existed. Those ceilings are proven in
+// dailyBudget.test.ts, taskInstanceBudget.test.ts and the integration tests, so they are
+// off here.
+vi.mock("../../src/governance/dailyBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/dailyBudgetPolicy.js")>()),
+  DAILY_BUDGET_CEILINGS: Object.freeze({}),
+}));
+vi.mock("../../src/governance/runBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/runBudgetPolicy.js")>()),
+  TASK_INSTANCE_BUDGET_CEILINGS: Object.freeze({}),
+}));
 vi.mock("../../src/router/providers/anthropic.js", () => ({
   callAnthropicModel: vi.fn(),
 }));

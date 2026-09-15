@@ -46,6 +46,7 @@ Module-level contracts live in the header comment of each source file. The root 
 - [`development/RETRY_POLICY_CLOSURE.md`](development/RETRY_POLICY_CLOSURE.md): the operator's retry policy (2 retries; unknown-consumption and validation failures) and §10.4 escalation; what stays open.
 - [`development/ROUTING_RECORD_CLOSURE.md`](development/ROUTING_RECORD_CLOSURE.md): the complete routing decision record (including refusals), provider cache hits recorded, the immutable event log, the seed through the Registry; the withdrawn output cap and audit residuals.
 - [`development/AUDIT_ROUND3_CLOSURE.md`](development/AUDIT_ROUND3_CLOSURE.md): the third audit round — tests that could not fail strengthened (mutation-checked), key redaction widened, backup procedure, CI and Phase 6 "Class 4" recorded as decisions.
+- [`development/BUDGET_CONTAINMENT_CLOSURE.md`](development/BUDGET_CONTAINMENT_CLOSURE.md): the operator's D3/D20 ceilings (local-day and Task Instance counters), pause/resume and Goal status events, immutable Artifacts (migration 0019), D34 and the Phase-9 behaviours confirmed.
 ## 4. Planning and research (advisory, authorizes nothing)
 - [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
 - [`roadmap/ROADMAP_STATUS.md`](roadmap/ROADMAP_STATUS.md): **where the implementation actually is**, by roadmap stage (V1–V6); what the phase labels mean; current milestone; open governance decisions. Status only, not an authorization.

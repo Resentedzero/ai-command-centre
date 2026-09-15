@@ -10,11 +10,15 @@
  * against it is rejected as `insufficient_budget`. Run rows are provisioned by
  * governance (`./runBudgetPolicy.ts`), never by the code being governed.
  *
- * The one exception is the DAY counter (Phase 8, `./dailyBudgetPolicy.ts`),
- * which this module creates on demand: nothing else runs at midnight to open
- * the next day's row. It is created only when a daily ceiling is configured for
- * the unit, only at that governance-configured limit, and never at a limit a
- * caller supplies.
+ * The exceptions are the DAY counter (Phase 8, `./dailyBudgetPolicy.ts`; values
+ * D3) and the TASK_INSTANCE counter (`./runBudgetPolicy.ts`; values D20), which
+ * this module creates on demand: nothing else runs at midnight to open the next
+ * day's row, and a retry Run must find its Task Instance's counter already
+ * holding the earlier attempts. Each is created only when a ceiling is
+ * configured for the unit, only at that governance-configured limit, and never
+ * at a limit a caller supplies. A run-scope reservation holds its Run counter
+ * plus, when configured for the unit, the local day's counter and the Run's
+ * Task Instance counter; all must have room.
  *
  * Reservation ID encoding
  * ------------------------
@@ -66,14 +70,16 @@
  */
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
-import { budgetCounters, events } from "../db/schema.js";
+import { budgetCounters, events, runs } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { correlationForRun, emitLifecycleEvent, NO_CORRELATION } from "../events/lifecycle.js";
 import type { CostClass } from "./costClass.js";
 import { DAILY_BUDGET_CEILINGS, dayScopeRef } from "./dailyBudgetPolicy.js";
 import { isResourceUnit, type ResourceUnit } from "./resourceUnit.js";
+import { TASK_INSTANCE_BUDGET_CEILINGS } from "./runBudgetPolicy.js";
 
-// `task_instance` has no production caller (only `run` is reserved; ROADMAP_STATUS §6); agent_definition/goal rollups deferred (Phase 18.1).
+// Production reserves only at `run` scope; a Run's day and Task Instance holds (D3, D20)
+// are added here, never requested by a caller. agent_definition/goal rollups deferred (Phase 18.1).
 export type BudgetScope = "run" | "task_instance";
 
 /** Every scope a reservation may hold a counter at. `day` is never requested by a caller directly. */
@@ -87,6 +93,8 @@ export type ReservationResult =
 export type ReserveBudgetOptions = {
   /** Daily ceilings to apply. Defaults to the governance configuration. */
   dailyCeilings?: Readonly<Partial<Record<ResourceUnit, string>>>;
+  /** Task Instance ceilings to apply. Defaults to the governance configuration. */
+  taskInstanceCeilings?: Readonly<Partial<Record<ResourceUnit, string>>>;
   /** The clock used to pick the day counter. Defaults to now. */
   now?: Date;
 };
@@ -227,20 +235,22 @@ async function lockCounterRow(
 }
 
 /**
- * Creates today's day counter for a unit if it does not exist, at the
- * governance-configured ceiling. Race-safe: `onConflictDoNothing` against the
- * full three-column unique key, so concurrent first-reservations of the day
- * converge on one row. Never raises an existing row's limit.
+ * Creates a day or Task Instance counter for a unit if it does not exist, at the
+ * governance-configured ceiling (`DAILY_BUDGET_CEILINGS`, `TASK_INSTANCE_BUDGET_CEILINGS`;
+ * never a caller's value). Race-safe: `onConflictDoNothing` against the full
+ * three-column unique key, so concurrent first reservations converge on one row.
+ * Never raises an existing row's limit.
  */
-async function ensureDayCounter(
+async function ensureGovernedCounter(
   tx: DrizzleTransaction,
+  scope: "day" | "task_instance",
+  scopeRefId: string,
   resourceUnit: ResourceUnit,
-  dayRef: string,
   limitAmount: string
 ): Promise<void> {
   await tx
     .insert(budgetCounters)
-    .values({ scope: "day", scopeRefId: dayRef, resourceUnit, limitAmount, reservedAmount: "0", consumedAmount: "0" })
+    .values({ scope, scopeRefId, resourceUnit, limitAmount, reservedAmount: "0", consumedAmount: "0" })
     .onConflictDoNothing({
       target: [budgetCounters.scope, budgetCounters.scopeRefId, budgetCounters.resourceUnit],
     });
@@ -337,9 +347,11 @@ export async function reserveBudget(
   const request: DenialRequest = { scope, scopeRefId, costClass, resourceUnit, requestedAmount: estimatedAmountStr };
   const dailyLimit =
     scope === "run" ? (options.dailyCeilings ?? DAILY_BUDGET_CEILINGS)[resourceUnit] : undefined;
+  const taskInstanceLimit =
+    scope === "run" ? (options.taskInstanceCeilings ?? TASK_INSTANCE_BUDGET_CEILINGS)[resourceUnit] : undefined;
 
-  // ---- Single counter: no daily ceiling for this unit. Unchanged pre-Phase-8 path.
-  if (dailyLimit === undefined) {
+  // ---- Single counter: no day or Task Instance ceiling for this unit. Unchanged pre-Phase-8 path.
+  if (dailyLimit === undefined && taskInstanceLimit === undefined) {
     // No row for THIS unit behaves exactly like a zero-limit budget for this
     // unit, independently of any other unit's counter on the same scope.
     const row = await lockCounterRow(tx, scope, scopeRefId, resourceUnit);
@@ -372,14 +384,24 @@ export async function reserveBudget(
     };
   }
 
-  // ---- Run + day: additive aggregate containment (Phase 8).
-  const dayRef = dayScopeRef(options.now ?? new Date());
-  await ensureDayCounter(tx, resourceUnit, dayRef, dailyLimit);
-
-  const holds = sortHolds([
-    { scope: "day", scopeRefId: dayRef },
-    { scope, scopeRefId },
-  ]);
+  // ---- Run + day and/or Task Instance: additive containment (Phase 8 day; D20 Task Instance).
+  const unsorted: Hold[] = [{ scope, scopeRefId }];
+  if (dailyLimit !== undefined) {
+    const dayRef = dayScopeRef(options.now ?? new Date());
+    await ensureGovernedCounter(tx, "day", dayRef, resourceUnit, dailyLimit);
+    unsorted.push({ scope: "day", scopeRefId: dayRef });
+  }
+  if (taskInstanceLimit !== undefined) {
+    // Every Run of a Task Instance, retries included, holds the same counter.
+    // A Run with no row has no Task Instance to charge: refused, never skipped.
+    const run = await tx.query.runs.findFirst({ where: eq(runs.id, scopeRefId) });
+    if (!run) {
+      return deny(tx, request, { scope: "task_instance", scopeRefId: `unresolved (no run ${scopeRefId})`, row: undefined });
+    }
+    await ensureGovernedCounter(tx, "task_instance", run.taskInstanceId, resourceUnit, taskInstanceLimit);
+    unsorted.push({ scope: "task_instance", scopeRefId: run.taskInstanceId });
+  }
+  const holds = sortHolds(unsorted);
 
   const rows = [];
   for (const hold of holds) {

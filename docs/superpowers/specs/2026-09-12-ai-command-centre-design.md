@@ -615,8 +615,12 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 > recorded in the same transaction as the write it describes (`src/events/lifecycle.ts`).
 >
 > **Lifecycle:**
-> - `goal_created`
-> - `workflow_run_started/completed/failed`
+> - `goal_created`, and `goal_completed/failed/transitioned` when a Goal's derived
+>   status changes (added 2026-09-15, operator decision R-GOAL1): `active` while it
+>   has no Workflow Run or any is unfinished; once all have finished, `completed` if
+>   every one completed, otherwise `failed`
+> - `workflow_run_started/completed/failed`, and `workflow_run_paused/resumed` for
+>   the operator's pause and resume (added 2026-09-15, R-EV1)
 > - `task_instance_created/transitioned/completed/failed`
 > - `run_started/completed/failed`, plus `run_halted` for an emergency stop
 >
@@ -637,7 +641,7 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 >   DENY); no other part of the proposed action. Recorded for pre-effect refusals
 >   too: that check commits its evaluation before the Invocation is failed.
 > - `budget_denied`: one per reservation refusal, naming the refusing counter
->   (Run or day), whether it was missing, and its exact amounts.
+>   (Run, day or Task Instance), whether it was missing, and its exact amounts.
 > - `definition_version_created` (additive, 2026-09-14): a Registry write created a
 >   Capability, Tool Binding, or Agent/Task/Workflow Definition version. Payload
 >   `definitionType`, `id`, `name`, `version`; never a binding's config.
@@ -658,18 +662,20 @@ referenced`); Memory (`memory_written`, `memory_superseded`,
 > events about a step share that Run's sequence.
 >
 > **Status changes with no event of their own:**
-> - Workflow Run pause and resume: recorded only in `workflow_runs.status`; this
->   section defines no event for them.
 > - A Run entering `awaiting_approval`: recorded by `approval_required`, in the
 >   same transaction.
 >
 > `tests/execution/structuralInvariants.test.ts` checks that every function
-> updating a Run, Task Instance or Workflow Run status also writes an event,
-> with pause and resume as its only named exceptions.
+> updating a Run, Task Instance, Workflow Run or Goal status also writes an event.
+> Workflow Run pause and resume were its named exceptions until 2026-09-15 (R-EV1).
+>
+> **Retired (2026-09-15, R-ART1):** `artifact_updated`. Artifacts are immutable,
+> refused UPDATE, DELETE and TRUNCATE by the database (migration 0019); a new version
+> is a new row with its own `artifact_created`.
 >
 > **Not yet emitted:**
 > - `tool_called`, `tool_result_received` (covered by the invocation events)
-> - `artifact_updated/referenced`
+> - `artifact_referenced`
 > - the Memory events
 > - `agent_paused/resumed`
 

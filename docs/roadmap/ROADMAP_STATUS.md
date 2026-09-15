@@ -1,6 +1,6 @@
 # Roadmap status
 
-**Authoritative current status.** `NEXT_PHASE_PLAN.md` stays the advisory plan; this page says where the implementation actually is. Updated 2026-09-14.
+**Authoritative current status.** `NEXT_PHASE_PLAN.md` stays the advisory plan; this page says where the implementation actually is. Updated 2026-09-15.
 
 ## 1. What the phase labels mean
 
@@ -43,6 +43,7 @@ From here on, work is named by roadmap stage and a descriptive milestone name. E
 | Routing record and cache hits | V1 conformance (§10.7, §5.11) | **Closed.** Capping output at the reserved estimate was built, reviewed as a product change, and withdrawn to a decision (§6). | `development/ROUTING_RECORD_CLOSURE.md` |
 | Event log immutability | V1 conformance (§3e, §8.7) | **Closed.** Migration 0016: the database refuses UPDATE, DELETE and TRUNCATE on `events`. | `development/ROUTING_RECORD_CLOSURE.md` §6 |
 | Seed through the Registry | V1 conformance (§8.2, §9.4) | **Closed.** Seeded Definitions and Grants are validated and logged like an operator's writes. | `development/ROUTING_RECORD_CLOSURE.md` §9 |
+| Budget containment and lifecycle decisions | V1 conformance (§3e, §8.2, §9.5); V2 cost governance (§8.5) | **Closed 2026-09-15.** D3 local-day and D20 Task Instance ceilings active; pause/resume and Goal status events; immutable Artifacts (migration 0019); D34 and R-P9 confirmed. | `development/BUDGET_CONTAINMENT_CLOSURE.md` |
 
 ## 4. Why the Context Compiler phase is closed with §5.16 open
 
@@ -74,9 +75,10 @@ Goal: an operator extends and edits the system through the API, not SQL (spec §
 ## 6. Decisions required (governance, not engineering)
 
 Carried from earlier records, still open:
-- ~~Retry policy~~ **decided 2026-09-15 (D1, option c): 2 retries, 3 Runs per Task Instance; retry on an LLM provider failure of unknown consumption, escalate one tier on an output-validation failure** (`src/governance/retryPolicy.ts`; `docs/development/RETRY_POLICY_CLOSURE.md`). Built. Two fail-closed guards from its review: a Run that already completed a non-READ tool effect or involved an Approval is not retried, and a retry never routes to a `usd` candidate. What follows from it and stays open is listed there: a validation failure at STRONG fails the Task (the spec's other option, REQUIRE_APPROVAL, has no LLM approval path); only the Claude CLI reports validation failures (API adapters do not validate, D18); three Runs × the Run ceiling with no Task counter (D20) or day ceiling (D3); escalation meeting a tier that cannot be authorized (D6); DURABLE_EXECUTION §7 #14 is a different counter and stays open.
-- DAY budget ceiling values and timezone.
-- Whether stops permanently fail parked Runs.
+- ~~Retry policy~~ **decided 2026-09-15 (D1, option c): 2 retries, 3 Runs per Task Instance; retry on an LLM provider failure of unknown consumption, escalate one tier on an output-validation failure** (`src/governance/retryPolicy.ts`; `docs/development/RETRY_POLICY_CLOSURE.md`). Built. Two fail-closed guards from its review: a Run that already completed a non-READ tool effect or involved an Approval is not retried, and a retry never routes to a `usd` candidate. What follows from it and stays open is listed there: a validation failure at STRONG fails the Task (the spec's other option, REQUIRE_APPROVAL, has no LLM approval path); only the Claude CLI reports validation failures (API adapters do not validate, D18); ~~three Runs × the Run ceiling with no Task counter (D20) or day ceiling (D3)~~ (decided and built 2026-09-15: a shared Task Instance counter and a local-day ceiling); escalation meeting a tier that cannot be authorized (D6); DURABLE_EXECUTION §7 #14 is a different counter and stays open.
+- ~~DAY budget ceiling values and timezone.~~ **Decided and built 2026-09-15 (D3):** `usd` 5.00, `subscription_tokens` 200,000 per local calendar day (`BUDGET_CONTAINMENT_CLOSURE.md`).
+- ~~Whether stops permanently fail parked Runs.~~ **Decided 2026-09-15 (D34):** a stopped parked Run is permanently terminated (already the behaviour).
+- ~~Confirm or reverse the seven decisions made without a human after Phase 9.~~ **Confirmed 2026-09-15 (R-P9):** all seven, as implemented (`POST_PHASE9_CLOSURE.md`).
 - Artifact filesystem storage threshold.
 - Live check of a separate system channel on the Claude CLI.
 - DURABLE_EXECUTION §7 #13, #14, #16, #19.
@@ -95,11 +97,11 @@ Surfaced by the agent performance projection:
 
 Surfaced by the 2026-09-14 spec-to-code audits (none blocks other work):
 - **Retrying a failed recording transaction** (DURABLE_EXECUTION §7 #5): a successful call's result is discarded if its recording transaction is a deadlock victim. The fix is a bounded retry of the recording only, never the dispatch. Not covered by the 2026-09-15 retry policy, which retries failed Runs; still a decision (D4).
-- **Workflow Run pause/resume events**: §8.2's note defines none; §3e says every meaningful transition emits one. Add `workflow_run_paused/resumed`, or keep status-only.
+- ~~**Workflow Run pause/resume events**~~ **Decided and built 2026-09-15 (R-EV1):** `workflow_run_paused` / `workflow_run_resumed`, same transaction as the status write.
 - **Agent pause/resume** (§15.1 screen 2, `agent_paused/resumed`): no per-agent pause exists; only stops. Define it, or retire the event names.
-- **Goal status lifecycle**: `goals.status` is always `active`; nothing defines when a Goal completes or fails (derive from its Workflow Runs, store transitions with events, or drop the field).
+- ~~**Goal status lifecycle**~~ **Decided and built 2026-09-15 (R-GOAL1):** derived from the Goal's Workflow Runs (`active` while any is unfinished or none exists; then `completed` if every one completed, else `failed`), recorded as `goal_completed` / `goal_failed` / `goal_transitioned`.
 - **`POST /goals` idempotency key**: a client retry creates a second Goal; no idempotency contract is specified for API commands.
-- **Artifact versioning** (`artifacts.version`, `artifact_updated`): immutable-only (enforce with a trigger, retire the event) or new rows with `supersedes_id`. In-place updates are ruled out by the §9.5 hash pin.
+- ~~**Artifact versioning**~~ **Decided and built 2026-09-15 (R-ART1):** immutable, enforced by the database (migration 0019); a new version is a new row; `artifact_updated` retired.
 - **Step output → input binding** (§3d variables, §18.2 "by reference"): storage is specified, binding syntax is not; also gated on a real workflow needing it (V3).
 - **Citation convention for §5.16 usage measurement**: the deterministic reference match is built and recorded on `invocation_completed`, but models are never asked to cite artifact ids, so it records mostly zero until the prompt asks them to.
 - **What counts as "referenced"** for `artifact_referenced` and XP: inclusion in a compiled context only, or also a hash-pinned tool snapshot.
@@ -127,7 +129,7 @@ Surfaced by a second independent review (Fable: event catalogue, column write co
 - **Who writes `artifacts.summary`** (§5.5 reference mode is "ID + one-line summary + schema"). Always null, so reference mode falls back to inline content. A summary needs a model call or a truncation rule; neither is specified.
 - **`task_definitions.input_schema` / `output_schema`**: stored by the Registry, never validated; the spec names no validation point.
 - **Screen 1 "progress"** (§15.1): no metric is defined for an agent card.
-- **A Task Instance budget counter** (§18.1 "reserve/reconcile per Run/Task"): only `run` and `day` counters exist. It equals the Run counter while each Task has one Run (no retries), and its limit is a governance value.
+- ~~**A Task Instance budget counter**~~ **Decided and built 2026-09-15 (D20):** every attempt of a Task Instance shares one counter, `usd` 1.00 and `subscription_tokens` 50,000 (`BUDGET_CONTAINMENT_CLOSURE.md`).
 - Catalogue notes, no code: `task_instance_skipped` (§8.2, §3d) is not emitted and waits for branching (V3); `quota_guardrail_state_changed` is emitted but documented only in `SUBSCRIPTION_PROVIDER_DESIGN.md`. Fixed in this round: a standalone Task Instance now records `task_instance_created`; Active Agents entries carry the Task Definition name and Goal title.
 
 ## 7. Handoffs and operator actions
@@ -143,5 +145,6 @@ UI workstream (APIs built, no UI):
 - Artifact view against `GET /artifacts/:id`: Agent Detail `outputs` ids and the Workflow Run detail's per-Invocation `artifactIds` (typed in `web/lib/api.ts`) link straight to it.
 
 Operator:
+- Apply migration 0019 (`artifacts` immutable: triggers only, no row changed) with `npm run db:migrate` before restarting the API on code from 2026-09-15 on. The D3 day and D20 Task Instance ceilings need no migration; they take effect when the API restarts. As always, check for unfinished Workflow Runs first, since startup re-drives them.
 - Apply migrations 0014 (unique Definition versions and Capability names; fails if duplicates were hand-inserted), 0015 (`agent_performance`) and 0016 (events immutable) with `npm run db:migrate`. **All three applied to the local database 2026-09-14.** Apply 0017 (`runs.minimum_model_tier`) and 0018 (`runs.attempt`, and a CHECK on the tier floor) the same way before restarting the API on current code: the API on port 3000 still runs a 12 Sept build, and on startup it recovers interrupted work and re-drives unfinished Workflow Runs, which can make real model calls.
 - Back up and prove the restore (spec Phase 20 #5: only a restored backup is a mitigation). The Postgres client tools are in `C:\Program Files\PostgreSQL\18\bin` (not on `PATH`). Dump: `pg_dump --dbname="<DATABASE_URL>" -Fc -f acc-YYYYMMDD.dump`, kept off this disk. Restore check: `psql "<server>/postgres" -c "create database ai_command_centre_restore_check"`, `pg_restore --no-owner --dbname="<server>/ai_command_centre_restore_check" acc-YYYYMMDD.dump`, compare `select count(*) from events` with the live database, then drop the scratch database. Run end to end against the local database 2026-09-14 (4 events restored, both immutability triggers present). How often, and where dumps are kept, is the operator's choice.

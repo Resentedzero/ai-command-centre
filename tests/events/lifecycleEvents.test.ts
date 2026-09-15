@@ -13,6 +13,16 @@ import { resetTestSchema, closeTestDb, withRollback } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
 
+// The reconstruction tests reserve against bare Run counters; the day ceiling is
+// injected where a test holds one, and the Task Instance ceiling is off.
+vi.mock("../../src/governance/dailyBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/dailyBudgetPolicy.js")>()),
+  DAILY_BUDGET_CEILINGS: Object.freeze({}),
+}));
+vi.mock("../../src/governance/runBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/runBudgetPolicy.js")>()),
+  TASK_INSTANCE_BUDGET_CEILINGS: Object.freeze({}),
+}));
 vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: vi.fn() }));
 vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
 vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeSubscriptionModel: vi.fn() }));
@@ -75,6 +85,7 @@ describe("a Workflow Run's life is in the event log", () => {
         "run_completed",
         "task_instance_completed",
         "workflow_run_completed",
+        "goal_completed",
       ]);
       // Every one is correlated all the way up to the Goal.
       expect(events.every((e) => e.goalId === goalId && e.workflowRunId === workflowRunId)).toBe(true);
@@ -111,6 +122,7 @@ describe("a Workflow Run's life is in the event log", () => {
         "run_failed",
         "task_instance_failed",
         "workflow_run_failed",
+        "goal_failed",
       ]);
     });
   });

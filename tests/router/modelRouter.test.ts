@@ -23,6 +23,18 @@ import { callEvaluatePolicyForTest } from "./policyCallHelper.js";
 // asserting on which one was invoked also proves the provider-dispatch
 // (not just modelId) is config-driven.
 // ---------------------------------------------------------------------------
+// Router mechanics against a Run counter, with fixtures (a 100,000-token context budget)
+// sized before the day (D3) and Task Instance (D20) ceilings existed. Those ceilings are
+// proven in dailyBudget.test.ts, taskInstanceBudget.test.ts and the integration tests, so
+// they are off here.
+vi.mock("../../src/governance/dailyBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/dailyBudgetPolicy.js")>()),
+  DAILY_BUDGET_CEILINGS: Object.freeze({}),
+}));
+vi.mock("../../src/governance/runBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/runBudgetPolicy.js")>()),
+  TASK_INSTANCE_BUDGET_CEILINGS: Object.freeze({}),
+}));
 vi.mock("../../src/router/providers/anthropic.js", () => ({
   callAnthropicModel: vi.fn(),
 }));

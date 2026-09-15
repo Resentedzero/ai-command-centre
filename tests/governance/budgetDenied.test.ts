@@ -2,8 +2,19 @@
  * `budget_denied` (spec §8.2): every reservation refusal is recorded, naming the
  * counter that refused and what it held; an authorized reservation records none.
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
+
+// Run-counter refusals against bare counter rows; day and Task Instance ceilings are
+// injected per test where a test is about them.
+vi.mock("../../src/governance/dailyBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/dailyBudgetPolicy.js")>()),
+  DAILY_BUDGET_CEILINGS: Object.freeze({}),
+}));
+vi.mock("../../src/governance/runBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/runBudgetPolicy.js")>()),
+  TASK_INSTANCE_BUDGET_CEILINGS: Object.freeze({}),
+}));
 import { and, eq } from "drizzle-orm";
 import { closeTestDb, resetTestSchema, withRollback } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";

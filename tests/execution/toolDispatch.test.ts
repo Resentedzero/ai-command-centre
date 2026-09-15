@@ -16,6 +16,17 @@ import { closeTestDb, resetTestSchema, testDb, testPool, withRollback } from "..
 import * as schema from "../../src/db/schema.js";
 import type { DrizzleTransaction } from "../../src/events/emit.js";
 
+// Dispatch mechanics against a Run counter, with a $3 estimate sized before the day (D3)
+// and Task Instance (D20) ceilings existed. Those ceilings are proven in their own test
+// files and the integration tests, so they are off here.
+vi.mock("../../src/governance/dailyBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/dailyBudgetPolicy.js")>()),
+  DAILY_BUDGET_CEILINGS: Object.freeze({}),
+}));
+vi.mock("../../src/governance/runBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/runBudgetPolicy.js")>()),
+  TASK_INSTANCE_BUDGET_CEILINGS: Object.freeze({}),
+}));
 vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: vi.fn() }));
 vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
 vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeSubscriptionModel: vi.fn() }));

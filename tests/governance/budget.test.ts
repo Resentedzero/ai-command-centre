@@ -1,5 +1,17 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { randomUUID } from "node:crypto";
+
+// These tests pin the Run counter's own semantics against bare counter rows. The day
+// (D3) and Task Instance (D20) holds are proven in dailyBudget.test.ts and
+// taskInstanceBudget.test.ts, so their shipped ceilings are switched off here.
+vi.mock("../../src/governance/dailyBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/dailyBudgetPolicy.js")>()),
+  DAILY_BUDGET_CEILINGS: Object.freeze({}),
+}));
+vi.mock("../../src/governance/runBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/runBudgetPolicy.js")>()),
+  TASK_INSTANCE_BUDGET_CEILINGS: Object.freeze({}),
+}));
 import { eq, sql } from "drizzle-orm";
 import { resetTestSchema, closeTestDb, withRollback, testDb } from "../testDb.js";
 import { budgetCounters } from "../../src/db/schema.js";

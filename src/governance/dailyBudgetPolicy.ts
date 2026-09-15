@@ -10,22 +10,18 @@
  * autonomous Runs cannot exceed the daily allowance however many are created.
  * It never replaces or weakens the per-run ceiling; both must have room.
  *
- * SHIPPED INERT — NO LIMIT IS INVENTED
- * ------------------------------------
- * `DAILY_BUDGET_CEILINGS` is EMPTY. With no ceiling configured for a unit, no
- * day counter is created and no day reservation is attempted, so runtime
- * behaviour is exactly what it was before this module existed. Activating the
- * day scope is a deliberate operator decision: choosing a number per unit. No
- * number here is derived from Claude Max entitlement, quota utilization, or USD
- * pricing, because none of those is a sound basis for one.
+ * ACTIVE SINCE 2026-09-15 — THE OPERATOR'S VALUES (DECISION D3)
+ * -------------------------------------------------------------
+ * `usd` 5.00 and `subscription_tokens` 200,000 per local calendar day. These
+ * were chosen by the operator, not derived here. The 200,000 figure is an
+ * application governance ceiling; it is not a claim about Claude Max entitlement
+ * or any provider's quota. A unit absent from the object has no day scope (no
+ * day counter is created and no day reservation is attempted for it).
  *
- * DECISIONS REQUIRED BEFORE ACTIVATION
- * ------------------------------------
- *   1. A daily ceiling per resource unit (`usd`, `subscription_tokens`).
- *   2. The day boundary. Days are keyed as the UTC calendar date. That is a
- *      mechanical default so the mechanism is well-defined and testable; it has
- *      no effect while no ceiling is configured, and should be confirmed (or
- *      changed to a local timezone) when ceilings are set.
+ * DECISIONS AND HOW THEY WERE SETTLED
+ * -----------------------------------
+ *   1. A daily ceiling per resource unit: D3, above. Units stay separate.
+ *   2. The day boundary: the local calendar day (D3), see `dayScopeRef`.
  *   3. (RESOLVED by Phase 9.) A day counter is ONE ROW SHARED BY EVERY RUN,
  *      and reservation holds `SELECT … FOR UPDATE` on it until the reserving
  *      transaction commits. Before Phase 9 that transaction spanned
@@ -46,9 +42,18 @@ import type { ResourceUnit } from "./resourceUnit.js";
  * Per-day ceilings, one per resource unit. Units are separate counters and are
  * never summed or converted. EMPTY = the day scope is inactive for every unit.
  */
-export const DAILY_BUDGET_CEILINGS: Readonly<Partial<Record<ResourceUnit, string>>> = Object.freeze({});
+export const DAILY_BUDGET_CEILINGS: Readonly<Partial<Record<ResourceUnit, string>>> = Object.freeze({
+  usd: "5.00",
+  subscription_tokens: "200000",
+});
 
-/** `scope_ref_id` for a day counter: the UTC calendar date, `YYYY-MM-DD`. */
+/**
+ * `scope_ref_id` for a day counter: the LOCAL calendar date, `YYYY-MM-DD`
+ * (operator decision D3). "Local" is the API process's time zone — the `TZ`
+ * environment variable when set, otherwise the operating system's zone — so a
+ * day runs from local midnight to local midnight, daylight-saving days included.
+ */
 export function dayScopeRef(now: Date): string {
-  return now.toISOString().slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }

@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { closeTestDb, resetTestSchema, testDb } from "../testDb.js";
+import { closeTestDb, resetTestSchema, rewriteArtifactForTest, testDb } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
 import { seedPublishWorkflow, type SeedPublishWorkflowResult } from "../../src/definitions/seed.js";
 
@@ -101,18 +101,18 @@ describe("GET /artifacts/:id", () => {
 
   it("reports content that no longer matches its hash", async () => {
     const original = await testDb.query.artifacts.findFirst({ where: eq(schema.artifacts.id, researchRun.reportArtifactId) });
-    await testDb.update(schema.artifacts).set({ inlineContent: "tampered" }).where(eq(schema.artifacts.id, researchRun.reportArtifactId));
+    await rewriteArtifactForTest(researchRun.reportArtifactId, "tampered");
     try {
       expect((await get(researchRun.reportArtifactId)).body.artifact.contentHashMatches).toBe(false);
     } finally {
-      await testDb.update(schema.artifacts).set({ inlineContent: original!.inlineContent }).where(eq(schema.artifacts.id, researchRun.reportArtifactId));
+      await rewriteArtifactForTest(researchRun.reportArtifactId, original!.inlineContent);
     }
   });
 
   it("returns the whole content only when asked (?full=1), beyond the preview bound, so an approver can read all of it", async () => {
     const original = await testDb.query.artifacts.findFirst({ where: eq(schema.artifacts.id, researchRun.reportArtifactId) });
     const long = "y".repeat(5_000) + "HIDDEN-TAIL";
-    await testDb.update(schema.artifacts).set({ inlineContent: long }).where(eq(schema.artifacts.id, researchRun.reportArtifactId));
+    await rewriteArtifactForTest(researchRun.reportArtifactId, long);
     try {
       const preview = (await app.inject({ method: "GET", url: `/artifacts/${researchRun.reportArtifactId}` })).json();
       expect(preview.artifact.truncated).toBe(true);
@@ -122,7 +122,7 @@ describe("GET /artifacts/:id", () => {
       const full = (await app.inject({ method: "GET", url: `/artifacts/${researchRun.reportArtifactId}?full=1` })).json();
       expect(full.artifact.content).toBe(long);
     } finally {
-      await testDb.update(schema.artifacts).set({ inlineContent: original!.inlineContent }).where(eq(schema.artifacts.id, researchRun.reportArtifactId));
+      await rewriteArtifactForTest(researchRun.reportArtifactId, original!.inlineContent);
     }
   });
 

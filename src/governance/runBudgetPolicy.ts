@@ -53,6 +53,22 @@ export const RUN_BUDGET_CEILINGS: Readonly<Partial<Record<ResourceUnit, string>>
 });
 
 /**
+ * Per-Task-Instance ceilings (operator decision D20, 2026-09-15), one per
+ * resource unit, never summed or converted. Every Run of a Task Instance — the
+ * first attempt and each retry the retry policy (D1) starts — reserves against
+ * the SAME task_instance counter as well as its own Run counter, so a Task's
+ * total spend is bounded however many attempts it takes.
+ *
+ * Not provisioned here: `reserveBudget` creates the counter on first use at
+ * exactly this limit (as it does the day counter), so no capability builder or
+ * caller can supply a different one.
+ */
+export const TASK_INSTANCE_BUDGET_CEILINGS: Readonly<Partial<Record<ResourceUnit, string>>> = Object.freeze({
+  usd: "1.00",
+  subscription_tokens: "50000",
+});
+
+/**
  * Creates one counter if it does not already exist.
  *
  * PRIVATE on purpose: this is the only code path that accepts an arbitrary

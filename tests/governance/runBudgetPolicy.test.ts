@@ -65,8 +65,11 @@ describe("governance owns the ceilings", () => {
   });
 
   it("exposes no function that accepts an arbitrary limit", () => {
-    // The only exports: the frozen ceilings and a provisioner taking (tx, runId).
-    expect(Object.keys(runBudgetPolicy).sort()).toEqual(["RUN_BUDGET_CEILINGS", "provisionRunBudgets"]);
+    // The only exports: the frozen Run and Task Instance (D20) ceilings and a provisioner
+    // taking (tx, runId). Task Instance counters are created by `reserveBudget` at the
+    // frozen ceiling; no function here takes a limit.
+    expect(Object.keys(runBudgetPolicy).sort()).toEqual(["RUN_BUDGET_CEILINGS", "TASK_INSTANCE_BUDGET_CEILINGS", "provisionRunBudgets"]);
+    expect(Object.isFrozen(runBudgetPolicy.TASK_INSTANCE_BUDGET_CEILINGS)).toBe(true);
     expect(provisionRunBudgets.length).toBe(2);
   });
 

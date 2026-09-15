@@ -284,18 +284,17 @@ describe("single chokepoint", () => {
 });
 
 describe("status changes are recorded as events", () => {
-  const STATUS_TABLES = new Set(["runs", "taskInstances", "workflowRuns"]);
-  const EVENT_WRITERS = new Set(["emitEvent", "emitLifecycleEvent", "recordTaskInstanceTransition"]);
+  // Goals joined 2026-09-15 (R-GOAL1): a Goal's derived status is recorded as events too.
+  const STATUS_TABLES = new Set(["runs", "taskInstances", "workflowRuns", "goals"]);
+  const EVENT_WRITERS = new Set(["emitEvent", "emitLifecycleEvent", "recordTaskInstanceTransition", "recordPauseTransition"]);
 
   /**
    * Transitions that deliberately write no event of their own. Keyed
    * `file#function`; each entry is a known, documented gap, not an oversight.
+   * Operator pause/resume left this list 2026-09-15 (R-EV1): they now record
+   * `workflow_run_paused` / `workflow_run_resumed`.
    */
   const NO_EVENT_ALLOWLIST: Record<string, string> = {
-    // Operator pause/resume: spec §8.2 lists no event for them; recorded only in
-    // workflow_runs.status. Adding events is a spec decision.
-    "workflow/interpreter.ts#pauseWorkflowRun": "no spec'd event",
-    "workflow/interpreter.ts#resumeWorkflowRun": "no spec'd event",
     // A Run returning to `active` from `awaiting_approval` when its approved tool
     // is claimed: recorded by `approval_granted` and the Invocation's own events.
     "execution/executor.ts#yieldToolDispatch": "recorded by approval and invocation events",

@@ -8,8 +8,19 @@
  * back to a single counter — or silently defaulting a missing unit to `usd` —
  * fails it.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { randomUUID } from "node:crypto";
+
+// Unit isolation is pinned here on the Run counter alone; the day (D3) and Task
+// Instance (D20) holds keep units separate too, proven in their own test files.
+vi.mock("../../src/governance/dailyBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/dailyBudgetPolicy.js")>()),
+  DAILY_BUDGET_CEILINGS: Object.freeze({}),
+}));
+vi.mock("../../src/governance/runBudgetPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/governance/runBudgetPolicy.js")>()),
+  TASK_INSTANCE_BUDGET_CEILINGS: Object.freeze({}),
+}));
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";

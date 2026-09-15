@@ -33,6 +33,7 @@ import {
   startWorkflowRun,
   pauseWorkflowRun,
   resumeWorkflowRun,
+  deriveGoalStatus,
   type InvocationSpecBuilder,
 } from "../../src/workflow/interpreter.js";
 // Tool Invocations yield `dispatch_required` (DURABLE_EXECUTION §2.1); this drives
@@ -469,6 +470,105 @@ describe("pauseWorkflowRun / resumeWorkflowRun state validation", () => {
       const { goal, workflowDefinition } = await seedTwoStepWorkflowFixture(tx);
       const { workflowRunId } = await startWorkflowRun(tx, workflowDefinition.id, goal.id);
       await expect(resumeWorkflowRun(tx, workflowRunId)).rejects.toThrow(/is not "paused"/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6a. Pause and resume are recorded as events (operator decision R-EV1)
+// ---------------------------------------------------------------------------
+
+describe("workflow_run_paused / workflow_run_resumed", () => {
+  it("every pause and resume records its own event, correlated to the Workflow Run and Goal, by the operator", async () => {
+    await withRollback(async (tx) => {
+      const { goal, workflowDefinition } = await seedTwoStepWorkflowFixture(tx);
+      const { workflowRunId } = await startWorkflowRun(tx, workflowDefinition.id, goal.id);
+
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await pauseWorkflowRun(tx, workflowRunId);
+        await resumeWorkflowRun(tx, workflowRunId);
+      }
+      // A refused pause or resume records nothing.
+      await expect(resumeWorkflowRun(tx, workflowRunId)).rejects.toThrow(/is not "paused"/);
+
+      const recorded = await tx.query.events.findMany({
+        where: eq(schema.events.workflowRunId, workflowRunId),
+        orderBy: (e, { asc }) => asc(e.globalSeq),
+      });
+      const pauses = recorded.filter((e) => e.eventType === "workflow_run_paused" || e.eventType === "workflow_run_resumed");
+      expect(pauses.map((e) => e.eventType)).toEqual(["workflow_run_paused", "workflow_run_resumed", "workflow_run_paused", "workflow_run_resumed"]);
+      for (const event of pauses) {
+        expect(event).toMatchObject({ goalId: goal.id, workflowRunId, runId: null, actor: "human:operator", producer: "workflow-interpreter" });
+      }
+      expect(pauses[0]!.payload).toEqual({ from: "in_progress", to: "paused" });
+      expect(pauses[1]!.payload).toEqual({ from: "paused", to: "in_progress" });
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b. A Goal's status is derived from its Workflow Runs (operator decision R-GOAL1)
+// ---------------------------------------------------------------------------
+
+describe("Goal status derived from its Workflow Runs", () => {
+  it("derives active, completed and failed from the Workflow Runs' statuses", () => {
+    expect(deriveGoalStatus([])).toBe("active");
+    expect(deriveGoalStatus(["in_progress"])).toBe("active");
+    expect(deriveGoalStatus(["paused"])).toBe("active");
+    expect(deriveGoalStatus(["completed", "in_progress"])).toBe("active");
+    expect(deriveGoalStatus(["completed"])).toBe("completed");
+    expect(deriveGoalStatus(["completed", "completed"])).toBe("completed");
+    expect(deriveGoalStatus(["failed"])).toBe("failed");
+    expect(deriveGoalStatus(["completed", "failed"])).toBe("failed");
+  });
+
+  it("records goal_completed when its only Workflow Run completes, and stays active while paused", async () => {
+    await withRollback(async (tx) => {
+      const { goal, workflowDefinition } = await seedTwoStepWorkflowFixture(tx);
+      const builder = alwaysDeterministicBuilder();
+      const { workflowRunId } = await startWorkflowRun(tx, workflowDefinition.id, goal.id);
+
+      await advanceWorkflowRun(tx, workflowRunId, builder);
+      await pauseWorkflowRun(tx, workflowRunId);
+      expect((await tx.query.goals.findFirst({ where: eq(schema.goals.id, goal.id) }))!.status).toBe("active");
+      await resumeWorkflowRun(tx, workflowRunId);
+      expect(await advanceWorkflowRun(tx, workflowRunId, builder)).toEqual({ status: "completed" });
+
+      expect((await tx.query.goals.findFirst({ where: eq(schema.goals.id, goal.id) }))!.status).toBe("completed");
+      const goalEvents = await tx.query.events.findMany({ where: eq(schema.events.goalId, goal.id) });
+      const transitions = goalEvents.filter((e) => e.eventType.startsWith("goal_") && e.eventType !== "goal_created");
+      expect(transitions.map((e) => e.eventType)).toEqual(["goal_completed"]);
+      expect(transitions[0]!.payload).toEqual({ from: "active", to: "completed", workflowRunId });
+      expect(transitions[0]!.workflowRunId).toBe(workflowRunId);
+
+      // Re-advancing a finished Workflow Run records no further Goal event.
+      await advanceWorkflowRun(tx, workflowRunId, builder);
+      expect((await tx.query.events.findMany({ where: eq(schema.events.goalId, goal.id) })).length).toBe(goalEvents.length);
+    });
+  });
+
+  it("records goal_failed, returns to active when a new Workflow Run starts, and fails again unless every run completed", async () => {
+    await withRollback(async (tx) => {
+      const { goal, workflowDefinition } = await seedTwoStepWorkflowFixture(tx);
+      const first = await startWorkflowRun(tx, workflowDefinition.id, goal.id);
+      expect(await advanceWorkflowRun(tx, first.workflowRunId, failingDeterministicBuilder())).toEqual({ status: "failed" });
+      expect((await tx.query.goals.findFirst({ where: eq(schema.goals.id, goal.id) }))!.status).toBe("failed");
+
+      const second = await startWorkflowRun(tx, workflowDefinition.id, goal.id);
+      expect((await tx.query.goals.findFirst({ where: eq(schema.goals.id, goal.id) }))!.status).toBe("active");
+      expect(await advanceWorkflowRun(tx, second.workflowRunId, alwaysDeterministicBuilder())).toEqual({ status: "in_progress" });
+      expect(await advanceWorkflowRun(tx, second.workflowRunId, alwaysDeterministicBuilder())).toEqual({ status: "completed" });
+
+      // One completed and one failed Workflow Run: the Goal is failed.
+      expect((await tx.query.goals.findFirst({ where: eq(schema.goals.id, goal.id) }))!.status).toBe("failed");
+      const transitions = (await tx.query.events.findMany({ where: eq(schema.events.goalId, goal.id), orderBy: (e, { asc }) => asc(e.globalSeq) }))
+        .filter((e) => ["goal_completed", "goal_failed", "goal_transitioned"].includes(e.eventType))
+        .map((e) => [e.eventType, (e.payload as { to: string }).to]);
+      expect(transitions).toEqual([
+        ["goal_failed", "failed"],
+        ["goal_transitioned", "active"],
+        ["goal_failed", "failed"],
+      ]);
     });
   });
 });

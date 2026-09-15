@@ -516,6 +516,8 @@ export const approvals = pgTable(
 // Knowledge
 // ---------------------------------------------------------------------------
 
+// Immutable (migration 0019, operator decision R-ART1): the database refuses UPDATE,
+// DELETE and TRUNCATE. A new version of an Artifact is a new row, never an edit.
 export const artifacts = pgTable("artifacts", {
   id: uuid("id").primaryKey().$defaultFn(genId),
   type: text("type").notNull(),
