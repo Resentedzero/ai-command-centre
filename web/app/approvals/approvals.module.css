@@ -1,0 +1,158 @@
+.screen {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  height: 100%;
+}
+
+/* Laptop: the queue narrows; the reading area stacks and scrolls; Approve and Reject stay pinned. */
+@media (max-width: 1440px) {
+  .screen {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+}
+
+.queue {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.queue > span:first-child {
+  align-self: flex-start;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.entry {
+  flex-wrap: wrap;
+  gap: 2px var(--space-sm);
+}
+
+.title {
+  flex: 1 1 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  flex-basis: 100%;
+  font: 12px/16px var(--font-mono), monospace;
+}
+
+.reading {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: 4px;
+}
+.scroll p {
+  margin: 0;
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  align-items: flex-start;
+}
+
+.vignette {
+  position: relative;
+  flex: none;
+  width: 484px;
+  height: 260px;
+  overflow: hidden;
+  background: var(--void);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+}
+
+.request {
+  flex: 1 1 320px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.block > span:first-child {
+  align-self: flex-start;
+}
+
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--space-lg);
+}
+
+.hash {
+  font: 13px/20px var(--font-mono), monospace;
+}
+
+.pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.untrusted {
+  border-color: var(--state-fail);
+}
+
+.error {
+  font: 14px/20px var(--font-mono), monospace;
+  color: var(--state-fail);
+}
+
+.notice {
+  font: 14px/20px var(--font-mono), monospace;
+}
+
+.inkLink {
+  color: var(--pixel-ink);
+}
+
+.link {
+  color: var(--pixel-label);
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.actionText {
+  flex: 1;
+  font: 14px/20px var(--font-mono), monospace;
+  color: var(--pixel-label-dim);
+}

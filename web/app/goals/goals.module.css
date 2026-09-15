@@ -1,0 +1,143 @@
+.screen {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  height: 100%;
+}
+
+/* Laptop: 320 px start-goal form; war room, summary and projects wrap and scroll. */
+@media (max-width: 1440px) {
+  .screen {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+}
+
+.form {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-md);
+}
+.form > span:first-child,
+.form > button {
+  align-self: flex-start;
+}
+.form p {
+  margin: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: 2px;
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+/* The warning is label ink, not amber: amber means waiting. */
+.warning {
+  font: 14px/20px var(--font-mono), monospace;
+  color: var(--pixel-label);
+}
+
+.note {
+  font: 14px/20px var(--font-mono), monospace;
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding-left: var(--space-sm);
+  border-left: 2px solid var(--state-fail);
+}
+.errorMessage {
+  font: 16px/20px var(--font-pixel), monospace;
+  color: var(--state-fail);
+}
+
+.link {
+  color: var(--pixel-label);
+}
+
+.room {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: 2px;
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  align-items: stretch;
+}
+
+.vignette {
+  position: relative;
+  flex: none;
+  width: 356px;
+  height: 260px;
+  overflow: hidden;
+  background: var(--void);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+}
+
+.summary {
+  flex: 1 1 280px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--space-md);
+}
+
+.wing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.banners {
+  list-style: none;
+  margin: 0;
+  padding: 2px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-md);
+}
+
+.banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 6px solid var(--pixel-wood-edge);
+}
+
+.corridor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 2px 2px;
+}
+
+.runChip {
+  width: auto;
+}
