@@ -259,6 +259,37 @@ CLI1 worked through this review. Verified in the committed tree:
 | 32 empty vault still says "Choose an output" | **Open.** |
 | 33 route language in the Artifacts detail line | **Open.** |
 | 34 "replay from the last cursor" | **Open.** |
-| 9, 10, 17 (Workflows) | **To confirm in the capture of this commit.** |
+| 10 "n/a goals" | **Resolved, seen in capture** (1920): the Goals and Workflows plaques read "n/a". |
+| 1, 20 | **Seen in capture:** plain tabs with one bevelled active tab (1920, 1280); the notice strip pins a single whole note, not a sliced one (1280). |
+| 17 on Agents | **Seen in capture:** "No agent is open: the roster couldn't be read.", with one Retry. |
+| 8, 18 | **Not confirmable yet:** they need a loaded registry and a running agent, which the stale API can't provide. Check on the real-data recapture. |
+| 9, 17 (Workflows), 24, 30 | **To confirm** in the rest of this commit's capture. |
+
+## Round 10 (2026-09-15): whole-app critic, reconciled against commit `022557a`
+
+**Method:** an independent critic reviewed all nine screens at 1920, 1440 and 1280. Its captures came from the commit before CLI1's fix pass (`774d41e`), so each claim was re-checked against captures of `022557a` (headless Edge, exact viewports, stale API).
+
+**Critic verdict at `774d41e`: "drifting".** The chrome, typography, colour discipline and room variety all held, and the rooms read as distinct places (library, council hall, war room, vault, forge, runtime core). But when a read fails, several screens lose their world entirely.
+
+**Claims already resolved in `022557a`** (seen in captures): #10 "n/a goals", #17 on Agents and Workflows, #20 the sliced note, #21 double Retry, #28 and #30 Goals summary, #29 empty Approvals state.
+
+**Fixed by design (assets):**
+- **Vault chests.** The critic's "3 chests while the roster failed" is baked art: the `room-v5-vault-2x.png` in `web/public/world/` was cropped before the chests were removed from the keep, and the compositor also placed a small banded box in the vault that reads as a chest. Both are fixed: the box is gone from `compose-keep-v4.ps1`, and the keep plus all seven `room-v5-*` crops were regenerated from the current composite (which also carries the slate pit and workshop floors). **CLI1:** run `npm run world-art`; no code change needed.
+
+**Accepted from the critic** (still true at `022557a`):
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 35 | Medium | Agents, Workflows, Registry: failed-read states | When the main read fails, the world disappears entirely: no workshop, no corridor, no armory, just a large empty wood pane with one line. The design rule is **unloaded means unlit, not absent** (the Overview load-failed state frame keeps the keep, unlit). Losing the room on failure is what makes these screens read as a SaaS console. | Keep the room on screen, unlit and without actors or keys, beside the error notice. **Agents/Registry:** `WorkshopCloseup` with `state="unknown"` using the first workshop close-up. **Workflows:** an unlit corridor of one engine room with no plaque. Keep the notice and its single Retry. |
+| 36 | Low | `app/events/page.tsx` log | The summary repeats the event type in snake_case ("invocation_failed (reason=…)"), next to a type column that already says it. The cursor column is empty (the feed items have no `eventCursor`). | Strip a leading `${eventType} ` from `summary` for display, keeping the `title` attribute unchanged. Hide the cursor column when no row has a cursor. |
+| 37 | Low | `app/page.tsx` Recent events | At 1440 and 1280 the event type truncates ("invocation complet…") while the full timestamp stays. | Show only `HH:MM:SS` for today's events, and ellipsize the time before the type. |
+| 38 | Low | `app/artifacts/ArtifactsScreen.tsx` | With the roster failed, three "choose" prompts stack up ("Choose an agent to browse its outputs", "Choose an output to read it…") with nothing to choose. At 1280 and 1440 the roster card also clips "Couldn't read active stops, so a…" mid-line (its max height is 240 px). | With a failed roster, show only its notice plus Retry. The outputs and meta cards show a dim line ("The roster couldn't be read.") instead of instructions. Let the roster card grow to fit its notices, or drop the stops line while the roster itself has failed. |
+| 39 | Low | `components/pixel/Pixel.tsx` `StateNotice` detail, and `lib/api.ts` error text | Every detail line ends with "404 Not Found: Not Found" (the status text repeated as the body). | In the displayed detail, collapse a body that equals the status text: "GET /registry → 404 Not Found". |
+| 40 | Low | Goals and Approvals notice cards | The error and empty cards span the whole column (about 1490 px) for 2–3 lines, leaving the war room and council hall as small thumbnails beside large wood. | `max-width: 640px` on these notice cards. The world vignette keeps its size. |
+| 41 | Low | Agents roster, stops warning | With the roster read failed, "Couldn't read active stops, so a stop may not show." adds a second warning under a roster that doesn't exist. | Show the stops warning only when the roster itself loaded. |
+
+**Still open from round 8:** #31 (cyan "started" and amber "approval required" on history rows, still in the capture), #32–#34.
+
+**Rejected:** none new. The critic's laptop panning note was already an accepted decision.
 
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.

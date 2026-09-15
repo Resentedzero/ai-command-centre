@@ -95,7 +95,8 @@ Put furniture 83 432 58 32 230 432; Put furniture 83 432 58 32 352 432
 Put dungeon 80 96 32 32 240 360; Put dungeon 80 96 32 32 368 360; Put dungeon 64 112 16 48 304 408; Put dungeon 64 112 16 48 328 408
 # Vault (Artifacts)
 Room 2 2 room 64 208 48 16 $dim
-Put int16 114 772 27 39 470 396 $dim; Put int16 114 820 27 39 500 396 $dim; Put int16 114 772 27 39 530 396 $dim; Put int16 114 820 27 39 560 396 $dim; Put furniture 736 165 32 27 600 404
+Put int16 114 772 27 39 470 396 $dim; Put int16 114 820 27 39 500 396 $dim; Put int16 114 772 27 39 530 396 $dim; Put int16 114 820 27 39 560 396 $dim
+# (The small banded box from Furniture.png is not placed here: in the vault it reads as a chest, i.e. an artifact that doesn't exist.)
 # No chests are baked into the vault: on the Artifacts screen each chest is ONE real artifact (a live layer).
 # Baked chests would read as artifacts that don't exist.
 # hall candles
