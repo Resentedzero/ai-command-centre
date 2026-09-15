@@ -779,7 +779,8 @@ describe("authorizeRoute invocation_started event", () => {
         effectiveMaxInputTokens: req.contextBudget.maxInputTokens,
         contextBudget: req.contextBudget,
         defaultTier: "STRONG",
-        historicalPerformance: { consulted: false, reason: "no_criterion" },
+        // N is configured; this fixture's Run is bound to no Agent, so nothing is read.
+        historicalPerformance: { consulted: false, reason: "unbound_run" },
         budgetAuthorization: {
           authorized: true,
           provider: route.provider,

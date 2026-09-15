@@ -50,8 +50,7 @@ version. See `docs/architecture/CAPABILITY_PLATFORM.md`.
 Asynchronous projections (`src/projections/`) are rebuilt from Events by an
 in-process loop, never on the execution path. `agent_performance` reaches a
 decision only through its minimum sample criterion
-(`src/governance/performanceEligibility.ts`; N is unset, so nothing is
-eligible) and only in the Model Router's tier preference. Policy must not read
+(`src/governance/performanceEligibility.ts`; N = 10, set by the operator) and only in the Model Router's tier preference. Policy must not read
 it. See `docs/architecture/AGENT_PERFORMANCE.md`.
 
 ## Per-module CLAUDE.md files

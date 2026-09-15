@@ -11,6 +11,7 @@
 - **"Completed Runs" is read as `sample_count`:** finished Runs attributable to the agent, as the projector already defines samples (successes and agent failures; operator stops and governance, budget, Approval-expiry and crash outcomes excluded). Counting successes only would make a poorly performing version look less measured, the wrong direction for governance.
 - **N is `MIN_PERFORMANCE_SAMPLES` in `src/governance/performanceEligibility.ts`, shipped `null`**, the same inert-config pattern as `DAILY_BUDGET_CEILINGS`. Only tests pass a value, through an explicit option. A zero, negative, fractional or non-finite N throws.
 - Display is unchanged: `GET /agents/:id` and `GET /costs` still show every row.
+- **Update 2026-09-15:** the operator set N = 10 and confirmed the `sample_count` reading, so tier preference is now live (`MIN_PERFORMANCE_SAMPLES = 10`).
 
 ## Reconciling the brief with the spec
 

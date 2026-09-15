@@ -7,7 +7,7 @@
 A read-side aggregate over Events, per **Agent Definition version × Task Definition × model tier**: sample count, success rate, average retries and average cost per resource unit. It is governance-facing data, displayed whatever the sample count, and it reaches a decision only through the **minimum sample criterion** (Phase 19 V2/V4, Phase 20 Risk #10), decided 2026-09-14:
 
 - A group is eligible only when its `sample_count` is at least N. The count is samples as defined in §2 (finished Runs attributable to the agent), not successes only.
-- N is a governance value and is **unset** (`MIN_PERFORMANCE_SAMPLES = null` in `src/governance/performanceEligibility.ts`, the `dailyBudgetPolicy.ts` pattern). Unset means nothing is eligible. A zero, negative or fractional N fails closed.
+- N is a governance value, **set to 10 by the operator on 2026-09-15** (`MIN_PERFORMANCE_SAMPLES = 10` in `src/governance/performanceEligibility.ts`, the `dailyBudgetPolicy.ts` pattern). The operator also confirmed that the §2 sample definition is what counts toward N. Null would mean no criterion, so nothing eligible. A zero, negative or fractional N fails closed.
 - The one consumer is the Model Router's tier preference (§5). Policy's `CONDITIONAL` rule (spec §9.4) needs thresholds that are not decided, so Policy reads no performance (`ROADMAP_STATUS.md` §6).
 
 It is not XP. `agent_xp_projection` (§16) is not built, and only this projection may ever feed Policy or the Router (§16.2).

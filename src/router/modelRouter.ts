@@ -378,7 +378,7 @@ export type RouteRefusal = { authorized: false; reason: AuthorizationFailure; de
 export type AuthorizeRouteOptions = {
   /**
    * The minimum sample criterion's N. Omitted: the configured value
-   * (`MIN_PERFORMANCE_SAMPLES`, unset by default, so performance moves nothing).
+   * (`MIN_PERFORMANCE_SAMPLES`, the operator's N = 10).
    * Production never passes it.
    */
   minPerformanceSamples?: number | null;

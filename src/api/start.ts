@@ -29,7 +29,7 @@ import { refreshAgentPerformance } from "../projections/agentPerformance.js";
 const APPROVAL_SWEEP_INTERVAL_MS = 60_000;
 /**
  * How often async projections are rebuilt. Routing reads agent_performance through
- * its sample criterion (inert until N is set) and accepts this lag (spec §8.3).
+ * its sample criterion (N = 10) and accepts this lag (spec §8.3).
  */
 const PROJECTION_REFRESH_INTERVAL_MS = 60_000;
 

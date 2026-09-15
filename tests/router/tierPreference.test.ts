@@ -42,9 +42,11 @@ afterAll(async () => {
 });
 
 describe("the minimum sample criterion", () => {
-  it("ships with no N, so nothing is eligible", () => {
-    expect(MIN_PERFORMANCE_SAMPLES).toBeNull();
-    expect(performanceEligibility(1_000_000)).toEqual({ eligible: false, reason: "no_criterion" });
+  it("ships with the operator's N = 10; an unset N would make nothing eligible", () => {
+    expect(MIN_PERFORMANCE_SAMPLES).toBe(10);
+    expect(performanceEligibility(9)).toEqual({ eligible: false, reason: "insufficient_samples" });
+    expect(performanceEligibility(10)).toEqual({ eligible: true });
+    expect(performanceEligibility(1_000_000, null)).toEqual({ eligible: false, reason: "no_criterion" });
   });
 
   it("below N is ineligible; exactly N and above are eligible", () => {
@@ -197,11 +199,20 @@ async function routedTier(tx: DrizzleTransaction, request: RouteRequest, minPerf
 }
 
 describe("authorizeRoute with measured tier preference", () => {
+  it("with the configured N (10), eligible measured performance moves the Run", async () => {
+    await withRollback(async (tx) => {
+      const { group, request } = await seedBoundRun(tx);
+      await midIsBetter(tx, group);
+      expect(await routedTier(tx, request)).toBe("MID");
+      expect(await started(tx, request.invocationId)).toMatchObject({ historicalPerformance: { consulted: true, minSamples: 10 } });
+    });
+  });
+
   it("with N unconfigured, performance is not consulted and the default tier stands", async () => {
     await withRollback(async (tx) => {
       const { group, request } = await seedBoundRun(tx);
       await midIsBetter(tx, group, 1_000);
-      expect(await routedTier(tx, request)).toBe("CHEAP");
+      expect(await routedTier(tx, request, null)).toBe("CHEAP");
       expect(await started(tx, request.invocationId)).toMatchObject({
         defaultTier: "CHEAP",
         historicalPerformance: { consulted: false, reason: "no_criterion" },

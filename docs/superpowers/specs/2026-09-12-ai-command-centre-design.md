@@ -979,7 +979,7 @@ Phase 8.8's projection is per (task type, model tier): success rate, retry rate,
 cheaper tier's retry rate makes its total cost per successful outcome higher than a
 stronger tier's.
 
-> **Implementation note (2026-09-14): tier preference built, inert until N is set.**
+> **Implementation note (2026-09-14): tier preference built; live since the operator set N = 10 on 2026-09-15.**
 > After the difficulty/risk default (§10.2), `preferTier` moves an LLM Invocation to a
 > stronger tier only when that tier and the default each have an eligible sample for
 > the Run's own Agent Definition version and Task Definition, and the stronger one
@@ -1213,9 +1213,9 @@ Grouped by role.
 >
 > **Minimum sample criterion (decided 2026-09-14, Phase 19 V2/V4).** A group (Agent
 > Definition version, Task Definition, model tier) is eligible to influence a decision
-> only when its `sample_count` is at least N. N is a governance value, deliberately
-> unset (`MIN_PERFORMANCE_SAMPLES`, `src/governance/performanceEligibility.ts`), so
-> nothing is eligible until an operator sets it. Rows stay displayable whatever the
+> only when its `sample_count` is at least N. N is a governance value, set to 10 by the
+> operator on 2026-09-15 (`MIN_PERFORMANCE_SAMPLES`, `src/governance/performanceEligibility.ts`),
+> who also confirmed that samples as defined above are what count. Rows stay displayable whatever the
 > count. Decisions read the projection only through that gate, and only the Model
 > Router's tier preference (§10.5 note) does; a structural test keeps Policy off it.
 > `docs/architecture/AGENT_PERFORMANCE.md`.
