@@ -214,7 +214,19 @@ export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps):
         ? await deps.db.query.taskInstances.findFirst({ where: eq(taskInstances.id, taskInstanceId) })
         : undefined;
       const runId = runSlots[index];
+      // Every Run of the step in start order: a retried step has earlier, failed attempts
+      // (spec §3d). `run` stays the current one.
+      const attemptRows = taskInstance
+        ? await deps.db.query.runs.findMany({
+            where: eq(runs.taskInstanceId, taskInstance.id),
+            orderBy: (r, { asc }) => [asc(r.startedAt), asc(r.id)],
+          })
+        : [];
       steps.push({
+        attempts: attemptRows.map((r) => {
+          const reason = (r.outcome as Record<string, unknown> | null)?.reason;
+          return { id: r.id, status: r.status, outcomeReason: typeof reason === "string" ? reason : null, startedAt: r.startedAt, completedAt: r.completedAt };
+        }),
         index,
         taskDefinition: taskDefinition
           ? { id: taskDefinition.id, name: taskDefinition.name, version: taskDefinition.version }

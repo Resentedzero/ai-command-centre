@@ -221,6 +221,10 @@ export const runs = pgTable("runs", {
   status: text("status").notNull(),
   budgetEnvelope: jsonb("budget_envelope").$type<Record<string, unknown>>(),
   outcome: jsonb("outcome").$type<Record<string, unknown>>(),
+  // The lowest model tier this Run's LLM Invocations may route to: set on a retry
+  // after an output-validation failure (spec §10.4, `governance/retryPolicy.ts`).
+  // Null for a first attempt. Read by the Model Router; never lowers a tier.
+  minimumModelTier: text("minimum_model_tier"),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });

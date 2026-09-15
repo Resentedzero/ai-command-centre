@@ -268,8 +268,9 @@ export async function selectCandidates(
  *     `taskDifficulty` — the brief's explicit quality-floor rule.
  *   - Otherwise the three difficulty levels map 1:1 onto the three tiers:
  *     "simple" -> CHEAP, "standard" -> MID, "complex" -> STRONG. A simple,
- *     deterministic difficulty->tier mapping. Measured performance may then move
- *     it up (`preferTier`); confidence-based escalation (§10.4) is not built.
+ *     deterministic difficulty->tier mapping. A retried Run's escalation floor
+ *     (§10.4, `governance/retryPolicy.ts`) may raise it, and measured performance
+ *     may then move it up (`preferTier`).
  *
  * PHASE 7H: "standard" previously mapped to CHEAP, because MID did not exist
  * and the ladder had nowhere else to put it. It now maps to MID, which is the
@@ -390,13 +391,21 @@ export async function authorizeRoute(
   options: AuthorizeRouteOptions = {}
 ): Promise<RouteResult | RouteRefusal> {
   const defaultTier = selectTier(req);
+  // §10.4 escalation: a Run retried after an output-validation failure carries a tier
+  // floor (`governance/retryPolicy.ts`). It only ever raises the tier; preference then
+  // compares upward from the higher of the two.
+  const run = await tx.query.runs.findFirst({ where: (r, { eq }) => eq(r.id, req.runId) });
+  const escalationFloor = (MODEL_TIERS as readonly string[]).includes(run?.minimumModelTier ?? "") ? (run!.minimumModelTier as ModelTier) : null;
+  const baseTier =
+    escalationFloor !== null && MODEL_TIERS.indexOf(escalationFloor) > MODEL_TIERS.indexOf(defaultTier) ? escalationFloor : defaultTier;
   const historicalPerformance = await readTierPerformance(tx, req.runId, options.minPerformanceSamples);
-  const tier = preferTier(defaultTier, historicalPerformance);
+  const tier = preferTier(baseTier, historicalPerformance);
   const inputs = {
     taskDifficulty: req.taskDifficulty,
     riskTier: req.riskTier,
     contextBudget: req.contextBudget,
     defaultTier,
+    escalationFloor,
     historicalPerformance,
   };
 

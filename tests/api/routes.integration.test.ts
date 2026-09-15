@@ -687,7 +687,8 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
   });
 
   it("redacts a provider error's host path end to end: neither the failure event nor the detail view carries it", async () => {
-    vi.mocked(callClaudeSubscriptionModel).mockRejectedValueOnce(new Error("ENOENT: no such file, open '/Users/alice/secret/.env'"));
+    // A bare Error is a failure of unknown consumption, so every retry attempt meets it too.
+    vi.mocked(callClaudeSubscriptionModel).mockRejectedValue(new Error("ENOENT: no such file, open '/Users/alice/secret/.env'"));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     let created: CreatedGoal;
     try {
@@ -702,10 +703,13 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
     const failedEvents = (
       await testDb.query.events.findMany({ where: eq(schema.events.eventType, "invocation_failed") })
     ).filter((e) => e.workflowRunId === created.workflowRunId);
-    expect(failedEvents).toHaveLength(1);
-    const payloadText = JSON.stringify(failedEvents[0]!.payload);
-    expect(payloadText).toContain("<path>");
-    expect(payloadText).not.toMatch(/alice|secret/);
+    // One per Run: the first attempt and its two retries (retry policy, 2026-09-15).
+    expect(failedEvents).toHaveLength(3);
+    for (const event of failedEvents) {
+      const payloadText = JSON.stringify(event.payload);
+      expect(payloadText).toContain("<path>");
+      expect(payloadText).not.toMatch(/alice|secret/);
+    }
 
     const detail = await app.inject({ method: "GET", url: `/workflow-runs/${created.workflowRunId}` });
     expect(detail.statusCode).toBe(200);

@@ -103,10 +103,14 @@ async function findResearchReportArtifact(
   }
   const taskAInstance = taskAInstances[0]!;
 
-  const taskARuns = await tx.query.runs.findMany({ where: eq(runs.taskInstanceId, taskAInstance.id) });
+  // The COMPLETED Run: a retried Task A also has failed attempts (spec §3d), whose
+  // partial outputs must never be published.
+  const taskARuns = await tx.query.runs.findMany({
+    where: and(eq(runs.taskInstanceId, taskAInstance.id), eq(runs.status, "completed")),
+  });
   if (taskARuns.length !== 1) {
     throw new Error(
-      `buildPublishReportInvocationSpecs: expected exactly one runs row for Task A's task_instance "${taskAInstance.id}", ` +
+      `buildPublishReportInvocationSpecs: expected exactly one completed runs row for Task A's task_instance "${taskAInstance.id}", ` +
         `found ${taskARuns.length} (fail closed).`
     );
   }

@@ -33,10 +33,12 @@
  * ---------------------------------------------------------------------------
  * Bound and termination
  * ---------------------------------------------------------------------------
- * A step contributes at most ONE counted `advanceWorkflowRun` call: the one in
- * which its Run stops yielding (completes, fails, or halts for approval), or a
- * cheap no-op re-check of a step still waiting. So `steps.length` counted calls
- * always suffice, and a terminal status returns immediately.
+ * Each Run of a step contributes at most ONE counted `advanceWorkflowRun` call:
+ * the one in which it stops yielding (completes, fails and is retried or not, or
+ * halts for approval), or a cheap no-op re-check of a step still waiting. A step
+ * has at most `MAX_RUN_ATTEMPTS` Runs (`../governance/retryPolicy.ts`), so
+ * `steps.length × MAX_RUN_ATTEMPTS` counted calls always suffice, and a terminal
+ * status returns immediately.
  *
  * A `dispatch_required` yield is NOT counted: it is bounded separately, because
  * each one settles an `executing` Invocation that can never yield again, and a
@@ -60,6 +62,7 @@ import {
 } from "../execution/executor.js";
 import type { PendingDispatch, PendingToolDispatch, ToolDispatchOutcome } from "../execution/types.js";
 import { dispatchModelCall } from "../router/modelRouter.js";
+import { MAX_RUN_ATTEMPTS } from "../governance/retryPolicy.js";
 import { advanceWorkflowRun, type InvocationSpecBuilder } from "./interpreter.js";
 import { isLinearGraphDefinition } from "./graphTypes.js";
 
@@ -163,7 +166,8 @@ export async function advanceWorkflowRunUntilBlocked(
   workflowRunId: string,
   makeBuilder: InvocationSpecBuilderFactory
 ): Promise<DriverResult> {
-  const maxCountedCalls = await runInTx((tx) => getWorkflowRunStepCount(tx, workflowRunId));
+  // Each Run of a step, first attempt or retry, contributes at most one counted call.
+  const maxCountedCalls = (await runInTx((tx) => getWorkflowRunStepCount(tx, workflowRunId))) * MAX_RUN_ATTEMPTS;
 
   let result: DriverResult = { status: "in_progress" };
   let countedCalls = 0;

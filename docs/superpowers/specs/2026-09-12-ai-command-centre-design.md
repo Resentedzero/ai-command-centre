@@ -165,6 +165,13 @@ Goal
 - **Failed Task Instance** (retries exhausted): Workflow Run routes to a defined
   failure edge, marks dependents `blocked`, or halts — a property of the Workflow
   Definition.
+
+  > **Implementation note (2026-09-15): the retry limit.** The operator set it at 2
+  > retries (3 Runs per Task Instance), for LLM provider failures of unknown
+  > consumption and output-validation failures only (§10.4 note). The retry Run is
+  > created by the Workflow Interpreter against the same Task Instance, which stays
+  > unfinished; each Run is provisioned its own Run budget and needs its own Approvals.
+  > Graphs are linear, so an exhausted Task Instance halts its Workflow Run.
 - **Skipped Task Instance**: an explicit graph outcome, distinguishable from `failed`.
 - **Human approval mid-workflow**: a Task Instance in state `awaiting_approval`,
   derived from an unresolved Approval on one of its Runs' Invocations (see Phase 9).
@@ -987,8 +994,17 @@ stronger tier's.
 > resource unit and no more in any. Units are never combined. Upward only: moving below
 > the default is a decision (`ROADMAP_STATUS.md` §6). The preferred tier is then
 > reserved and candidate-checked like any other, with no fallback to the default, and
-> the snapshot consulted is recorded on `invocation_started` (§10.7). Confidence-based
-> escalation (§10.4) is not built.
+> the snapshot consulted is recorded on `invocation_started` (§10.7).
+>
+> **Implementation note (2026-09-15): retries and escalation built (§3d, §10.4).** The
+> operator decided the retry policy: at most 2 retries (3 Runs per Task Instance). A Run
+> whose LLM Invocation failed with unknown provider consumption is retried at the same
+> tier floor; one whose output failed the provider's structured-output validation is
+> retried one tier up, recorded as `runs.minimum_model_tier` and as `escalationFloor` on
+> `invocation_started`. A validation failure at STRONG surfaces as task failure (no
+> Approval path exists for an LLM Invocation). Every other failure fails the Task
+> Instance as before. Model self-reported confidence is not read. `src/governance/retryPolicy.ts`;
+> `docs/development/RETRY_POLICY_CLOSURE.md`.
 
 ### 10.6 Development-time vs. runtime (AMENDED 2026-09-13)
 
@@ -1535,8 +1551,9 @@ provenance chains visible (Phase 5.13/7).
 >     unfinished (polling, not SSE), and stops once the run completes or fails. It
 >     says so when steps cannot be shown (a missing definition or a non-linear
 >     graph), rather than rendering an empty run.
->   - **One Run per step:** each step shows its single Run, the only Run the
->     interpreter creates today. Retries would need attempts listed.
+>   - **Runs per step:** each step shows its current Run. Since retries (2026-09-15)
+>     the API also lists every attempt (`attempts`, in start order); the UI does not
+>     show them yet.
 >   - **List cap:** `GET /workflow-runs` returns the 100 most recent runs, with no
 >     paging yet.
 > - **Screen 5 (Goals & Projects), built.**

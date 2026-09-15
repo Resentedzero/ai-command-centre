@@ -336,15 +336,36 @@ describe("interrupted Invocations", () => {
       expect(recovered).toEqual({ recovered: [dispatch.invocationId], failed: [] });
       await assertSettledAsInterrupted(tx, runId, dispatch.invocationId);
 
+      // An interrupted LLM Invocation is retryable (retry policy, 2026-09-15), so the step
+      // is left unfinished for the re-drive to start its retry.
       const taskInstance = await tx.query.taskInstances.findFirst({ where: eq(schema.taskInstances.id, taskInstanceId) });
-      expect(taskInstance!.status).toBe("failed");
+      expect(taskInstance!.status).toBe("pending");
       const workflowRun = await tx.query.workflowRuns.findFirst({ where: eq(schema.workflowRuns.id, workflowRunId) });
-      expect(workflowRun!.status).toBe("failed");
+      expect(workflowRun!.status).toBe("in_progress");
 
       // Idempotent: nothing left to recover, nothing charged twice.
       expect(await recoverInterruptedInvocations(transactionRunner(tx))).toEqual({ recovered: [], failed: [] });
       expect(await tokenCounter(tx, runId)).toEqual({ reserved: 0, consumed: ESTIMATE });
       expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
+    });
+  });
+
+  it("startup sweep: with the step's attempts exhausted, the interrupted Run fails its step and Workflow Run", async () => {
+    await withRollback(async (tx) => {
+      const { runId, taskInstanceId, workflowRunId } = await seedWorkflowRun(tx);
+      // Two earlier failed attempts: this Run is the third and last (2 retries).
+      await tx.insert(schema.runs).values([
+        { taskInstanceId, status: "failed" },
+        { taskInstanceId, status: "failed" },
+      ]);
+      const dispatch = expectDispatch(await executeRun(tx, runId, [llmSpec()]));
+      releaseDispatchSlot(dispatch.invocationId);
+
+      expect(await recoverInterruptedInvocations(transactionRunner(tx))).toEqual({ recovered: [dispatch.invocationId], failed: [] });
+      const taskInstance = await tx.query.taskInstances.findFirst({ where: eq(schema.taskInstances.id, taskInstanceId) });
+      expect(taskInstance!.status).toBe("failed");
+      const workflowRun = await tx.query.workflowRuns.findFirst({ where: eq(schema.workflowRuns.id, workflowRunId) });
+      expect(workflowRun!.status).toBe("failed");
     });
   });
 

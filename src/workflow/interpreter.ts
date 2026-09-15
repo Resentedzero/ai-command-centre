@@ -138,11 +138,11 @@
  *   `buildInvocationSpecs` closure itself, via whatever `tx`/context it
  *   closes over. This module's own tests exercise exactly that pattern to
  *   drive a step to `awaiting_approval`.
- * - `createAndRunStep` writes `workflow_runs.variables` exactly ONCE per
- *   `advanceWorkflowRun` call (immediately after creating the `runs` row,
- *   before calling `buildInvocationSpecs`/`executeRun`) — there is no path
- *   in this module that writes `variables` a second time within the same
- *   call.
+ * - `createAndRunStep` writes `workflow_runs.variables` once, immediately after
+ *   creating the `runs` row and before calling `buildInvocationSpecs`/`executeRun`.
+ *   The only other write is `startRetryRun` (retry policy, 2026-09-15), which
+ *   points the step's `stepRunIds` slot at the retry Run; it runs after the
+ *   failed attempt, possibly in the same call.
  */
 import { and, eq, sql } from "drizzle-orm";
 import { goals, runs, taskInstances, workflowDefinitions, workflowRuns } from "../db/schema.js";
@@ -157,6 +157,7 @@ import {
   type Correlation,
 } from "../events/lifecycle.js";
 import { isLinearGraphDefinition, type LinearGraphDefinition } from "./graphTypes.js";
+import { decideRetry, type RetryDecision } from "../governance/retryPolicy.js";
 
 /**
  * Ruling 3's required extension to the brief's frozen `advanceWorkflowRun`
@@ -402,12 +403,69 @@ async function finishWorkflowRun(tx: DrizzleTransaction, step: StepRef, status: 
   });
 }
 
+/**
+ * Retries the step (spec §3d): a NEW Run against the same Task Instance, which stays
+ * unfinished, so its history is not mutated. The retry policy decided it
+ * (`../governance/retryPolicy.ts`), including any tier floor for §10.4 escalation. The
+ * new Run is executed by the next advance, as a resumed step.
+ */
+async function startRetryRun(
+  tx: DrizzleTransaction,
+  step: StepRef,
+  retry: Extract<RetryDecision, { retry: true }>
+): Promise<AdvanceResult> {
+  const taskInstance = await tx.query.taskInstances.findFirst({ where: eq(taskInstances.id, step.taskInstanceId) });
+  if (taskInstance && taskInstance.status !== "active") {
+    await tx.update(taskInstances).set({ status: "active", updatedAt: new Date() }).where(eq(taskInstances.id, step.taskInstanceId));
+    await recordTaskInstanceTransition(tx, {
+      taskInstanceId: step.taskInstanceId,
+      from: taskInstance.status,
+      to: "active",
+      correlation: stepCorrelation(step),
+      producer: "workflow-interpreter",
+    });
+  }
+
+  const [runRow] = await tx
+    .insert(runs)
+    .values({ taskInstanceId: step.taskInstanceId, status: "active", minimumModelTier: retry.minimumModelTier })
+    .returning();
+  const retryStep: StepRef = { ...step, runId: runRow!.id };
+  await emitLifecycleEvent(tx, {
+    eventType: "run_started",
+    subjectId: retryStep.runId,
+    correlation: stepCorrelation(retryStep),
+    producer: "workflow-interpreter",
+    payload: { attempt: retry.attempt, retryOfRunId: step.runId, cause: retry.cause, minimumModelTier: retry.minimumModelTier },
+  });
+
+  // The step's current Run is now the retry (Ruling 1's stepRunIds extension).
+  const workflowRun = await tx.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, step.workflowRunId) });
+  const bookkeeping = readBookkeeping(workflowRun?.variables ?? null);
+  const stepIndex = bookkeeping.stepTaskInstanceIds.indexOf(step.taskInstanceId);
+  if (stepIndex === -1) {
+    throw new Error(`advanceWorkflowRun: task_instance "${step.taskInstanceId}" has no step slot in workflow_run "${step.workflowRunId}".`);
+  }
+  const stepRunIds = [...bookkeeping.stepRunIds];
+  stepRunIds[stepIndex] = retryStep.runId;
+  await tx
+    .update(workflowRuns)
+    .set({ variables: { ...(workflowRun!.variables ?? {}), stepRunIds } })
+    .where(eq(workflowRuns.id, step.workflowRunId));
+  return { status: "in_progress" };
+}
+
 async function resolveStepOutcome(
   tx: DrizzleTransaction,
   step: StepRef,
   isLastStep: boolean,
   outcome: RunOutcome
 ): Promise<AdvanceResult> {
+  if (outcome.status === "failed") {
+    const retry = await decideRetry(tx, step.taskInstanceId, step.runId);
+    if (retry.retry) return startRetryRun(tx, step, retry);
+  }
+
   const taskInstanceStatus = mapRunOutcomeToTaskInstanceStatus(outcome.status);
   const previous = await tx.query.taskInstances.findFirst({ where: eq(taskInstances.id, step.taskInstanceId) });
   await tx
@@ -468,6 +526,10 @@ export async function settleWorkflowStepForFailedRun(tx: DrizzleTransaction, run
     .where(eq(workflowRuns.id, taskInstance.workflowRunId))
     .for("update");
   if (!workflowRun) return;
+  // A retryable failure leaves the Task Instance and Workflow Run unfinished: the
+  // startup re-drive (or the operator's resume of a paused run) then starts the retry
+  // through the ordinary advance, where every check runs again.
+  if ((await decideRetry(tx, taskInstance.id, runId)).retry) return;
   const step: StepRef = {
     workflowRunId: workflowRun.id,
     goalId: workflowRun.goalId,
@@ -715,6 +777,19 @@ export async function advanceWorkflowRun(
       "failed"
     );
     return { status: "failed" };
+  }
+
+  // The step's current Run already failed (a dispatch recorded its failure, or the
+  // startup sweep settled it and left a retryable Task Instance unfinished): resolve
+  // the failure — retry or finish — without building a plan for a Run that is over.
+  const currentRun = await tx.query.runs.findFirst({ where: eq(runs.id, currentRunId) });
+  if (currentRun?.status === "failed") {
+    return resolveStepOutcome(
+      tx,
+      { workflowRunId, goalId: workflowRun.goalId, taskInstanceId: currentTaskInstanceId, runId: currentRunId },
+      lastFilledIndex === lastIndex,
+      { status: "failed", runId: currentRunId }
+    );
   }
 
   // Non-terminal (e.g. "awaiting_approval") — resume the existing step's Run,

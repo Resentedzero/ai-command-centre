@@ -24,7 +24,7 @@
  * that governed it. Builders now call `provisionRunBudgets(tx, runId)`, which
  * takes no limit at all.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, notInArray } from "drizzle-orm";
 import { runs } from "../../db/schema.js";
 import type { DrizzleTransaction } from "../../events/emit.js";
 
@@ -37,11 +37,19 @@ export async function bindRunAgent(
   await tx.update(runs).set({ agentDefinitionId, agentDefinitionVersion }).where(eq(runs.id, runId));
 }
 
-/** Looks up the `runs` row for a just-created (or resumed) Task Instance — see this module's header. */
+/**
+ * The Task Instance's current Run: its one unfinished `runs` row. A retried Task
+ * Instance also has earlier, finished Runs (spec §3d), so "the first row" would be an
+ * arbitrary pick; anything but exactly one unfinished Run fails closed.
+ */
 export async function findRunByTaskInstanceId(tx: DrizzleTransaction, taskInstanceId: string) {
-  const row = await tx.query.runs.findFirst({ where: eq(runs.taskInstanceId, taskInstanceId) });
-  if (!row) {
-    throw new Error(`findRunByTaskInstanceId: no runs row found for task_instance_id "${taskInstanceId}"`);
+  const rows = await tx.query.runs.findMany({
+    where: and(eq(runs.taskInstanceId, taskInstanceId), notInArray(runs.status, ["completed", "failed"])),
+  });
+  if (rows.length !== 1) {
+    throw new Error(
+      `findRunByTaskInstanceId: expected exactly one unfinished runs row for task_instance_id "${taskInstanceId}", found ${rows.length} (fail closed).`
+    );
   }
-  return row;
+  return rows[0]!;
 }
