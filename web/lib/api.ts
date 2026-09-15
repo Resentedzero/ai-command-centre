@@ -394,7 +394,7 @@ export type ProjectGoals = { id: string; name: string; description: string | nul
 // ---------------------------------------------------------------------------
 
 export type AgentDetail = {
-  agent: { id: string; name: string; version: number; role: string; objective: string; instructions?: string; executionProfile?: ExecutionProfile };
+  agent: { id: string; name: string; version: number; role: string; objective: string; executionProfile?: ExecutionProfile };
   activeStop: { id: string; scope: string; scopeRefId: string; reason: string | null; engagedAt: string } | null;
   grants: {
     id: string;
@@ -572,7 +572,7 @@ export type BuilderOptions = {
   autonomyStates: string[];
   tiers: string[];
   providers: { name: string; enabled: boolean; tiers: string[]; resourceUnits: string[] }[];
-  autonomyLimits: { maxIterations: number; maxActiveSeconds: number; minActiveSeconds: number; taskInstanceCeilings: Record<string, string> };
+  autonomyLimits: { maxIterations: number; maxActiveSeconds: number; minActiveSeconds: number; taskInstanceBudgetCeilings: Record<string, string> };
 };
 
 export type RegistryData = {
@@ -609,8 +609,35 @@ export type RegistryData = {
     revokedAt: string | null;
   }[];
   taskDefinitions: { id: string; name: string; kind: string; version: number; planRegistered: boolean }[];
-  workflowDefinitions: { id: string; name: string; version: number; createdAt: string }[];
+  workflowDefinitions: { id: string; name: string; version: number; createdAt: string; graphDefinition?: WorkflowGraph }[];
 };
+
+/** A Workflow Definition's graph as the Registry stores it (`src/workflow/graphTypes.ts`): linear steps, optional ids and labels. */
+export type WorkflowGraph = {
+  kind: "linear";
+  description?: string;
+  steps: {
+    stepId?: string;
+    label?: string;
+    taskDefinitionId: string;
+    taskDefinitionVersion: number;
+    agentDefinitionId?: string;
+    agentDefinitionVersion?: number;
+    parameters?: Record<string, unknown>;
+  }[];
+};
+
+export type WorkflowDefinitionInput = { name: string; graphDefinition: WorkflowGraph; previousVersion?: number };
+
+/** Saves a Workflow Definition version. The Registry validates every step (R3) and never updates an older version. */
+export async function createWorkflowDefinition(input: WorkflowDefinitionInput): Promise<{ id: string; name: string; version: number }> {
+  return apiFetch("/workflow-definitions", { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Runs every Registry check without writing anything (`?dryRun=1`). Resolves when valid; throws with the Registry's reason otherwise. */
+export async function validateWorkflowDefinition(input: WorkflowDefinitionInput): Promise<{ valid: true; name: string; version: number }> {
+  return apiFetch("/workflow-definitions?dryRun=1", { method: "POST", body: JSON.stringify(input) });
+}
 
 export async function getRegistry(): Promise<RegistryData> {
   return apiFetch<RegistryData>("/registry");
@@ -728,11 +755,18 @@ export async function listGoals(): Promise<ProjectGoals[]> {
  */
 export async function createGoal(
   title: string,
-  description?: string
+  description?: string,
+  options: { workflowDefinitionId?: string; async?: boolean } = {}
 ): Promise<{ goalId: string; workflowRunId: string; status: string }> {
   return apiFetch("/goals", {
     method: "POST",
-    body: JSON.stringify({ title, ...(description ? { description } : {}) }),
+    body: JSON.stringify({
+      title,
+      ...(description ? { description } : {}),
+      ...(options.workflowDefinitionId ? { workflowDefinitionId: options.workflowDefinitionId } : {}),
+      // V1.1 (R2): the API answers once the Goal is committed; the run continues and the UI follows its events.
+      ...(options.async ? { async: true } : {}),
+    }),
   });
 }
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { createGoal, listGoals, type ProjectGoals } from "../../lib/api";
+import { createGoal, getRegistry, listGoals, type ProjectGoals, type RegistryData } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
@@ -27,6 +27,19 @@ export default function GoalsPage() {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [started, setStarted] = useState<{ workflowRunId: string; status: string } | null>(null);
+  const [workflowDefinitionId, setWorkflowDefinitionId] = useState("");
+  const [workflows, setWorkflows] = useState<RegistryData["workflowDefinitions"]>([]);
+
+  // The workflow picker lists each workflow's latest version from the Registry; "" is the API's default workflow.
+  useEffect(() => {
+    getRegistry()
+      .then((r) => {
+        const latest = new Map<string, RegistryData["workflowDefinitions"][number]>();
+        for (const w of r.workflowDefinitions) if ((latest.get(w.name)?.version ?? 0) < w.version) latest.set(w.name, w);
+        setWorkflows([...latest.values()].sort((x, y) => x.name.localeCompare(y.name)));
+      })
+      .catch(() => setWorkflows([]));
+  }, []);
 
   const refetch = useCallback(async () => {
     try {
@@ -50,7 +63,10 @@ export default function GoalsPage() {
     setStartError(null);
     setStarted(null);
     try {
-      const result = await createGoal(trimmedTitle, description.trim() || undefined);
+      const result = await createGoal(trimmedTitle, description.trim() || undefined, {
+        ...(workflowDefinitionId ? { workflowDefinitionId } : {}),
+        async: true,
+      });
       setStarted({ workflowRunId: result.workflowRunId, status: result.status });
       setTitle("");
       setDescription("");
@@ -78,7 +94,21 @@ export default function GoalsPage() {
           <span className={px.label}>Description (optional)</span>
           <textarea className={cx(px.input, g.textarea)} value={description} onChange={(e) => setDescription(e.target.value)} disabled={starting} />
         </label>
-        <p className={g.warning}>Starting a goal runs its workflow now. It can take a few minutes and uses model quota.</p>
+        <label className={g.field}>
+          <span className={px.label}>Workflow</span>
+          <select className={px.input} value={workflowDefinitionId} onChange={(e) => setWorkflowDefinitionId(e.target.value)} disabled={starting}>
+            <option value="">the default workflow</option>
+            {workflows.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name} v{w.version}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Link href="/workflows/new" className={g.link}>
+          Build a workflow
+        </Link>
+        <p className={g.warning}>Starting a goal runs its workflow now, in the background. It can take a few minutes and uses model quota.</p>
         <PixelButton type="submit" disabled={starting || !title.trim()}>
           Start goal
         </PixelButton>

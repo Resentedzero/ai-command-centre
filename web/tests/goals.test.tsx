@@ -7,7 +7,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ProjectGoals } from "../lib/api";
 
-const api = vi.hoisted(() => ({ listGoals: vi.fn(), createGoal: vi.fn() }));
+const api = vi.hoisted(() => ({
+  listGoals: vi.fn(),
+  createGoal: vi.fn(),
+  getRegistry: vi.fn(async () => ({ agentDefinitions: [], capabilities: [], capabilityGrants: [], taskDefinitions: [], workflowDefinitions: [] })),
+}));
 vi.mock("../lib/api", () => api);
 
 import GoalsPage from "../app/goals/page";
@@ -78,7 +82,7 @@ describe("Goals page", () => {
     expect(button).not.toBeDisabled();
     fireEvent.click(button);
 
-    await waitFor(() => expect(api.createGoal).toHaveBeenCalledWith("New goal", undefined));
+    await waitFor(() => expect(api.createGoal).toHaveBeenCalledWith("New goal", undefined, { async: true }));
     expect(await screen.findByRole("link", { name: "View the workflow run" })).toHaveAttribute("href", "/workflows/wr-2");
     await waitFor(() => expect(api.listGoals).toHaveBeenCalledTimes(2));
   });

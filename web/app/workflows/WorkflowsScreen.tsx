@@ -108,6 +108,9 @@ export function WorkflowsScreen({ id: routeId }: { id?: string }) {
     <main className={w.screen}>
       <nav className={cx(px.board, w.runs)} aria-label="Workflow runs">
         <span className={px.tab}>Runs{runs ? ` · ${countLabel(runs.length, RUN_LIST_CAP)}` : ""}</span>
+        <Link href="/workflows/new" className={buttonClass()}>
+          Build a workflow
+        </Link>
         {!runs && runsError ? (
           <StateNotice role="alert" message="Couldn't load workflow runs." detail={runsError} action={<PixelButton onClick={() => void loadRuns()}>Retry</PixelButton>} />
         ) : !runs ? (
