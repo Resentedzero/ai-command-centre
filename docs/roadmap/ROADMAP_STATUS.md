@@ -114,10 +114,11 @@ Surfaced by the tier preference milestone:
 - ~~**Confidence-based escalation**~~ (§10.4, V4) **built 2026-09-15** with the retry policy: a validation failure retries one tier up, recorded as `escalationFloor` on the route. It also produces samples on a second tier for tier preference to compare.
 
 Surfaced by the V1 decision pack's readiness review (2026-09-15, `V1_DECISION_PACK_CLOSURE.md` §3):
-- **Whether a retry may re-incur tool `usd` spend.** The retry policy's "never spends money" guard covers model routing only; a retry Run re-runs its tool step and reserves its `usd` estimate again, inside the Task Instance ceiling. Options: allow (current), or refuse `usd` tool reservations on retry Runs (which would fail the seeded workflow's retries at its metered tool step).
-- **A plan shape that lets Conditional Autonomy decide.** Both shipped plans run their tool before any model call, so a CONDITIONAL Grant always requires approval there.
-- **A live check of the research step's `--json-schema`** (not a decision; an authorization for one live `claude -p` call).
-- **Standalone Research → Report (Workflow 1)** has no seeded Workflow Definition; and the UI has no advance, pause, resume or non-agent stop controls (UI workstream).
+- ~~**Whether a retry may re-incur tool `usd` spend.**~~ **Decided 2026-09-15 (final V1 decisions): allowed** (already the behaviour). Every attempt is governed independently by the Run, Task Instance and day ceilings in its resource unit, Grant/Policy and stops; no retry exemption, and the Task Instance and day counters accumulate across Runs.
+- ~~**A plan shape that lets Conditional Autonomy decide.**~~ **Decided 2026-09-15: not needed for V1.** The shipped plans resolve a CONDITIONAL Grant to `REQUIRE_APPROVAL` (no routed tier), which is truthful; the machinery stays available for a later Registry promotion.
+- ~~**A live check of the research step's `--json-schema`**~~ **Passed 2026-09-15** (one authorized subscription call, `V1_DECISION_PACK_CLOSURE.md` §4).
+- ~~**Standalone Research → Report (Workflow 1)**~~ **Seeded 2026-09-15** (`npm run seed`, Workflow Definition "Research-Report"; dogfooded end to end, §4). Still open: the UI has no workflow picker (Goals start the default Research-and-Publish; Workflow 1 starts through `POST /goals` with `workflowDefinitionId`) and no advance, pause, resume or non-agent stop controls (UI workstream).
+- **A provider timeout in Agent Performance** (not blocking V1). It still counts as the agent's failure: with no output or turn cap on the Claude CLI, "the model ran too long" and "the provider hung" share the `timeout` code, and excluding it would raise the success rate Conditional Autonomy decides on. Separating them needs an output cap (see `expected_output_tokens` below) or a provider-side signal; until then fail closed.
 
 Surfaced by the second round of spec-to-code audits (not decisions; recorded so they are not lost):
 - **Should `expected_output_tokens` cap provider output?** (decision). The reservation prices output at it (§10.7 Pass 1), but no adapter caps output there: Anthropic sends a fixed 4096, OpenAI and the Claude CLI send none. So one call can reconcile past its reservation and its Run's limit; every later reservation is refused (tested). Capping would make the ceiling hard but is a product change: seeded Tasks expect 500 output tokens, and nothing detects a truncated result, which would be stored as a completed Artifact. Deciding yes also needs truncation detection (`stop_reason`/`finish_reason`) and a verified CLI flag.
@@ -152,6 +153,11 @@ UI workstream (APIs built, no UI):
 - Cost dashboard against `GET /costs` (settle field names such as `agentVersion` when typing it).
 - Run trace view against `GET /runs/:id/trace` (events in sequence order, each Invocation's context lineage).
 - Artifact view against `GET /artifacts/:id`: Agent Detail `outputs` ids and the Workflow Run detail's per-Invocation `artifactIds` (typed in `web/lib/api.ts`) link straight to it.
+
+Spec workstream (the frozen spec carries that workstream's uncommitted changes, so it is not edited here):
+- §9.4 and §10.5 implementation notes still say `CONDITIONAL` requires approval; Conditional Autonomy is built (`V1_DECISION_PACK_CLOSURE.md` §1).
+- Phase 4's Budget Governor outcomes and §5.0's tightenable Context Budget: downgrade and degrade are built with decided values (§2 there).
+- §18.2 Workflow 1 is seeded as the Workflow Definition "Research-Report".
 
 Operator:
 - Migration 0019 (`artifacts` immutable: triggers only, no row changed) and the Goal status backfill: **both applied to the local database 2026-09-15.** Any other database: `npm run db:migrate`, then `npm run db:backfill-goal-status`, before restarting the API on code from 2026-09-15 on. The D3 day and D20 Task Instance ceilings need no migration; they take effect when the API restarts. As always, check for unfinished Workflow Runs first, since startup re-drives them.

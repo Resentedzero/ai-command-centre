@@ -7,4 +7,4 @@
 5. **States:** roster loading/failed/empty; agent loading, not found (404), load failed, refresh failed (last read kept); no runs, no grants, no consumption, no model calls, no outputs, no performance rows.
 
 **Registry is read-only** (Figma frame is "gated: read-only"). The create and revoke routes exist (ROADMAP §7) but have no design frame and change safety-critical authority (spec 9.4), so no controls are built.
-**Performance** shows every row as a measurement. Whether a row meets the minimum sample criterion is not in any read model, so it is not shown (see the report's API gaps).
+**Performance** shows every row as a measurement, with the runtime's eligibility gate (N = 10) as `GET /agents/:id` returns it per row (`eligible`, `eligibilityReason`; `eligibilityWord` in `lib/keep`). The screen never compares a sample count itself.
