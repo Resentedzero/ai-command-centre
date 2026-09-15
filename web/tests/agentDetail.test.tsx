@@ -61,7 +61,7 @@ const base: AgentDetail = {
     included: [{ id: "ti-0", tier: 1 }],
     excluded: [{ id: "art-9", reason: "stale" }],
   },
-  performance: null,
+  performance: [],
 };
 
 async function renderPage() {

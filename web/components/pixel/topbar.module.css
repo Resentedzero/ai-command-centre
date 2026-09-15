@@ -1,0 +1,79 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-sm);
+  background: var(--pixel-wood-dark);
+  border-bottom: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 2px 0 var(--pixel-outline);
+  position: relative;
+  z-index: 2;
+}
+
+.emblem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  text-decoration: none;
+}
+
+.title {
+  font: 24px/28px var(--font-pixel), monospace;
+  white-space: nowrap;
+}
+
+/* Laptop: at 1440 px wide or less the title hides and the crystal stays (screens.md). */
+@media (max-width: 1440px) {
+  .title {
+    display: none;
+  }
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.tab {
+  width: 120px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 16px/20px var(--font-pixel), monospace;
+  color: var(--pixel-label-dim);
+  background: var(--pixel-wood);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+  text-decoration: none;
+}
+.tab:hover {
+  filter: brightness(1.25);
+  color: var(--pixel-label);
+}
+.tabActive {
+  color: var(--pixel-label);
+  background: var(--pixel-wood-edge);
+  border-color: var(--pixel-label-dim);
+}
+
+.chips {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 var(--space-xs);
+  background: var(--pixel-wood);
+  border: 2px solid var(--pixel-wood-edge);
+  text-decoration: none;
+}
+
+.chipText {
+  font-size: 12px;
+  color: var(--pixel-label);
+}

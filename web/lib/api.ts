@@ -45,6 +45,10 @@ export type AgentCardData = {
   runId: string;
   taskInstanceId: string;
   taskStatus: string;
+  /** The current Task Instance's mission (spec §15.1 screen 1): its Task Definition name. */
+  taskDefinitionName: string | null;
+  /** Null for a standalone Task Instance (no Workflow Run to reach a Goal through). */
+  goalTitle: string | null;
   latestActivitySummary: string | null;
 };
 
@@ -228,7 +232,10 @@ export type WorkflowStepDetail = {
   index: number;
   taskDefinition: { id: string; name: string; version: number } | null;
   taskInstance: { id: string; status: string } | null;
+  /** The current Run. A Task Instance can have several Runs (retries); see `attempts`. */
   run: RunDetail | null;
+  /** Every Run of the step in start order (additive; absent from older API builds). */
+  attempts?: { id: string; status: string; outcomeReason: string | null; startedAt: string; completedAt: string | null }[];
 };
 
 export type WorkflowRunDetail = {
@@ -314,8 +321,23 @@ export type AgentDetail = {
     included: { id: string; tier: number }[];
     excluded: { id: string; reason: string }[];
   } | null;
-  /** Always null until the agent_performance projection exists (V2). */
-  performance: null;
+  /**
+   * This version's `agent_performance` rows, refreshed asynchronously (lags recent
+   * Runs). A measurement, shown whatever the sample count: no minimum sample
+   * criterion is set, so nothing may rank or recommend from it.
+   */
+  performance: AgentPerformanceRow[];
+};
+
+/** Exact decimal strings; `avgCost` is keyed by resource unit, never combined. */
+export type AgentPerformanceRow = {
+  taskDefinitionId: string;
+  modelTier: string;
+  sampleCount: number;
+  successRate: string;
+  avgRetries: string;
+  avgCost: Record<string, string>;
+  updatedAt: string;
 };
 
 export async function getAgentDetail(id: string): Promise<AgentDetail> {
@@ -344,6 +366,151 @@ export async function liftAgentStop(agentDefinitionId: string, stopId: string): 
     method: "POST",
     body: JSON.stringify({ scope: "agent_definition", scopeRefId: agentDefinitionId, stopId }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Execution stops (spec 9.7): active stops, all scopes, one read
+// ---------------------------------------------------------------------------
+
+export type ActiveStop = { id: string; scope: string; scopeRefId: string | null; reason: string | null };
+
+export async function listActiveStops(): Promise<ActiveStop[]> {
+  const data = await apiFetch<{ stops: ActiveStop[] }>("/execution-stops");
+  return data.stops;
+}
+
+// ---------------------------------------------------------------------------
+// Artifacts (spec 15.1 screen 8): one Artifact with provenance. No list route.
+// ---------------------------------------------------------------------------
+
+export type ArtifactDetail = {
+  artifact: {
+    id: string;
+    type: string;
+    version: number;
+    size: number;
+    hash: string;
+    summary: string | null;
+    createdAt: string;
+    storedInline: boolean;
+    /** Model or tool output: rendered as text, never HTML. */
+    preview: string | null;
+    truncated: boolean;
+    /** Present only when requested with `full`. */
+    content?: string | null;
+    /** Whether the stored content still hashes to the stored hash; null with no inline content. */
+    contentHashMatches: boolean | null;
+  };
+  producedBy: {
+    invocation: { id: string; kind: string; seqNo: number };
+    runId: string;
+    agent: { id: string; name: string | null; version: number | null } | null;
+    taskInstanceId: string;
+    taskDefinition: { id: string; name: string; version: number };
+    workflowRunId: string | null;
+    goal: { id: string; title: string | null } | null;
+  } | null;
+  referencedBy: {
+    invocationId: string | null;
+    runId: string | null;
+    occurredAt: string;
+    kind: unknown;
+    tier: unknown;
+    version: unknown;
+    hash: unknown;
+  }[];
+  referencedByTruncated: boolean;
+};
+
+export async function getArtifact(id: string, full = false): Promise<ArtifactDetail> {
+  return apiFetch<ArtifactDetail>(`/artifacts/${encodeURIComponent(id)}${full ? "?full=1" : ""}`);
+}
+
+// ---------------------------------------------------------------------------
+// Registry (spec 15.1 screen 6): every Definition, read-only
+// ---------------------------------------------------------------------------
+
+export type RegistryData = {
+  agentDefinitions: { id: string; name: string; version: number; role: string; objective: string; instructions: string; createdAt: string }[];
+  capabilities: {
+    id: string;
+    name: string;
+    description: string | null;
+    staticRiskTag: string;
+    costProfile: Record<string, unknown> | null;
+    toolBindings: { id: string; kind: string; version: number; trustLevel: number; internalFunction: string | null }[];
+  }[];
+  capabilityGrants: {
+    id: string;
+    agentDefinitionId: string;
+    agentDefinitionVersion: number;
+    capabilityId: string;
+    permissions: string[];
+    autonomyState: string;
+    maxTrustLevelRequired: number;
+    scope: Record<string, unknown> | null;
+    createdAt: string;
+    revokedAt: string | null;
+  }[];
+  taskDefinitions: { id: string; name: string; kind: string; version: number; planRegistered: boolean }[];
+  workflowDefinitions: { id: string; name: string; version: number; createdAt: string }[];
+};
+
+export async function getRegistry(): Promise<RegistryData> {
+  return apiFetch<RegistryData>("/registry");
+}
+
+// ---------------------------------------------------------------------------
+// Costs (spec 15.1 screen 7): budget counters, per-(scope, unit) totals, agent_performance
+// ---------------------------------------------------------------------------
+
+export const BUDGET_SCOPES = ["run", "task_instance", "agent_definition", "goal", "day"] as const;
+
+export type CostsData = {
+  counters: {
+    scope: string;
+    scopeRefId: string;
+    resourceUnit: string;
+    limitAmount: string;
+    reservedAmount: string;
+    consumedAmount: string;
+    updatedAt: string;
+    run: { agent: { name: string; version: number } | null; taskDefinitionName: string | null } | null;
+  }[];
+  countersTruncated: boolean;
+  /** Summed per (scope, unit) by the API. Never add across units or scopes. */
+  totals: { scope: string; resourceUnit: string; consumed: string; reserved: string; counters: number }[];
+  costVsSuccess: {
+    agentDefinitionId: string;
+    agentName: string;
+    agentVersion: number;
+    taskDefinitionId: string;
+    taskDefinitionName: string;
+    modelTier: string;
+    sampleCount: number;
+    successRate: string;
+    avgRetries: string;
+    avgCost: Record<string, string>;
+    updatedAt: string;
+  }[];
+};
+
+export async function getCosts(scope?: string): Promise<CostsData> {
+  return apiFetch<CostsData>(`/costs${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`);
+}
+
+// ---------------------------------------------------------------------------
+// Run trace (spec 8.4): a Run's events in sequence order
+// ---------------------------------------------------------------------------
+
+export type RunTrace = {
+  run: { id: string; status: string; startedAt: string; completedAt: string | null };
+  events: { eventId: string; eventType: string; occurredAt: string; sequenceNo: number; actor: string; payload: Record<string, unknown> }[];
+  invocations: { id: string; seqNo: number; kind: string; status: string; permission: string | null; contextLineage: unknown }[];
+};
+
+export async function getRunTrace(runId: string): Promise<RunTrace> {
+  return apiFetch<RunTrace>(`/runs/${encodeURIComponent(runId)}/trace`);
 }
 
 export async function listGoals(): Promise<ProjectGoals[]> {
@@ -447,7 +614,14 @@ function toEventDisplayItem(raw: RawEventEnvelope): EventDisplayItem {
 export const RECONNECT_BASE_MS = 500;
 export const RECONNECT_MAX_MS = 15_000;
 
-export function subscribeToActivity(sinceEventCursor: number | null, onEvent: (e: EventDisplayItem) => void): () => void {
+/** Client-only connection state of the event stream (never a health claim about the system). */
+export type StreamStatus = "connecting" | "live" | "reconnecting";
+
+export function subscribeToActivity(
+  sinceEventCursor: number | null,
+  onEvent: (e: EventDisplayItem) => void,
+  onStatus?: (status: StreamStatus) => void
+): () => void {
   let closed = false;
   let currentSource: EventSource | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -457,10 +631,15 @@ export function subscribeToActivity(sinceEventCursor: number | null, onEvent: (e
   function connect(since: number): void {
     if (closed) return;
 
+    onStatus?.("connecting");
     const source = new EventSource(`${API_BASE_URL}/events/stream?sinceEventCursor=${since}`);
     currentSource = source;
+    source.onopen = () => {
+      if (!closed) onStatus?.("live");
+    };
 
     source.onmessage = (message: MessageEvent<string>) => {
+      if (delayMs !== RECONNECT_BASE_MS) onStatus?.("live");
       delayMs = RECONNECT_BASE_MS; // healthy again
       const raw = JSON.parse(message.data) as RawEventEnvelope;
       // The HIGHEST cursor seen so far — never merely the most recent one.
@@ -471,6 +650,7 @@ export function subscribeToActivity(sinceEventCursor: number | null, onEvent: (e
     source.onerror = () => {
       source.close();
       if (closed) return;
+      onStatus?.("reconnecting");
       const wait = delayMs;
       delayMs = Math.min(delayMs * 2, RECONNECT_MAX_MS);
       reconnectTimer = setTimeout(() => {

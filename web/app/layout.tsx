@@ -1,24 +1,27 @@
+import { JetBrains_Mono, Pixelify_Sans } from "next/font/google";
+import type { ReactNode } from "react";
+import { LiveProvider } from "../components/live";
+import { NoticeStrip } from "../components/pixel/NoticeStrip";
+import { PixelTopBar } from "../components/pixel/PixelTopBar";
+import "./tokens.css";
+
+// D4 as amended by D19: Pixelify Sans for titles, labels and buttons; JetBrains Mono for values and long reading.
+const pixel = Pixelify_Sans({ subsets: ["latin"], variable: "--font-pixel" });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
+
 export const metadata = {
   title: "AI Command Centre",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body style={{ fontFamily: "system-ui, sans-serif", margin: 0, padding: 16 }}>
-        <nav style={{ marginBottom: 16 }}>
-          <a href="/" style={{ marginRight: 12 }}>
-            Overview
-          </a>
-          <a href="/goals" style={{ marginRight: 12 }}>
-            Goals
-          </a>
-          <a href="/workflows" style={{ marginRight: 12 }}>
-            Workflows
-          </a>
-          <a href="/approvals">Approvals</a>
-        </nav>
-        {children}
+    <html lang="en" className={`${pixel.variable} ${mono.variable}`}>
+      <body>
+        <LiveProvider>
+          <PixelTopBar />
+          {children}
+          <NoticeStrip />
+        </LiveProvider>
       </body>
     </html>
   );

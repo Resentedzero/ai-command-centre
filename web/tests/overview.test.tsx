@@ -1,141 +1,192 @@
 /**
- * Unit 11 (task-11-brief.md) "Tests required" bullets 1-3, covered here
- * because the Overview page (`web/app/page.tsx`) is what actually renders
- * both `AgentCard`s and the `ActivityFeed`:
- *   1. Overview renders Active Agents from `listActiveAgents()`; no revenue
- *      stat when no revenue projection exists.
- *   2. Activity Feed renders events from `subscribeToActivity(null, ...)` on
- *      initial mount, oldest-to-newest, no client-side re-ordering logic.
- *   3. Reconnect test: after receiving events up through cursor 7 and a
- *      simulated dropped connection, the NEXT `EventSource` opened uses
- *      `sinceEventCursor=7` -- not `null`/0, not some other value.
- *      (Renamed from `sinceSequenceNo` by the final review's Finding 3 --
- *      the resume cursor is the globally-monotonic `eventCursor`, never the
- *      per-run `sequenceNo`. See the two extra tests at the bottom.)
- *
- * Bullet 3's exact wording in the brief ("assert the component calls
- * subscribeToActivity(7, ...)") does not fit this codebase's actual,
- * intentional design: the `subscribeToActivity` interface is
- * `(sinceEventCursor, onEvent) => unsubscribe` with NO "connection dropped"
- * callback exposed to the caller, and Ruling 5 explicitly assigns
- * reconnect-on-error to `subscribeToActivity`'s OWN implementation (a raw
- * `EventSource` swap internally) -- so the calling component (`ActivityFeed`)
- * has no signal to react to and, correctly, never calls `subscribeToActivity`
- * a second time itself. The substantive property the brief's
- * Codex-reviewability note actually cares about -- "the last-seen position
- * is actually tracked and threaded through, not merely accepted as a
- * parameter nobody calls correctly" -- is what the third test below proves,
- * at the layer where that logic really lives: it exercises the REAL
- * `subscribeToActivity` (via `vi.importActual`, bypassing this file's
- * top-level `vi.mock` of `../lib/api` for that one test) against a fake
- * global `EventSource`, and asserts the second `EventSource` instance is
- * constructed with `sinceEventCursor=7`.
+ * Overview (spec 15.1 screen 1, Figma "Overview A5"): every value comes from a
+ * mocked `lib/api` read; states are honest (loading, empty, load failed, stop).
+ * The real `subscribeToActivity` reconnect contract is exercised at the bottom
+ * against a fake EventSource.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import OverviewPage from "../app/page";
-import type { EventDisplayItem } from "../lib/api";
+import { LiveProvider } from "../components/live";
+import { NoticeStrip } from "../components/pixel/NoticeStrip";
+import type { AgentCardData, EventDisplayItem, StreamStatus } from "../lib/api";
 
-const { listActiveAgents, subscribeToActivity } = vi.hoisted(() => ({
+const api = vi.hoisted(() => ({
   listActiveAgents: vi.fn(),
+  listPendingApprovals: vi.fn(),
+  listActiveStops: vi.fn(),
+  listGoals: vi.fn(),
+  listWorkflowRuns: vi.fn(),
+  engageAgentStop: vi.fn(),
+  liftAgentStop: vi.fn(),
   subscribeToActivity: vi.fn(),
 }));
 
-vi.mock("../lib/api", () => ({
-  listActiveAgents,
-  subscribeToActivity,
-}));
+vi.mock("../lib/api", () => api);
+
+const researcherActive: AgentCardData = {
+  agentDefinitionId: "agent-1",
+  agentName: "Researcher",
+  runId: "run-1",
+  taskInstanceId: "task-1",
+  taskStatus: "active",
+  taskDefinitionName: "Research-Report",
+  goalTitle: "Compare EV batteries",
+  latestActivitySummary: "invocation_started",
+};
+const publisherWaiting: AgentCardData = {
+  agentDefinitionId: "agent-2",
+  agentName: "Publisher",
+  runId: "run-2",
+  taskInstanceId: "task-2",
+  taskStatus: "awaiting_approval",
+  taskDefinitionName: "Review-and-Publish",
+  goalTitle: null,
+  latestActivitySummary: null,
+};
+
+beforeEach(() => {
+  for (const fn of Object.values(api)) fn.mockReset();
+  api.listPendingApprovals.mockResolvedValue([]);
+  api.listActiveStops.mockResolvedValue([]);
+  api.listGoals.mockResolvedValue([]);
+  api.listWorkflowRuns.mockResolvedValue([]);
+  api.subscribeToActivity.mockImplementation(() => () => {});
+});
 
 describe("Overview page", () => {
-  beforeEach(() => {
-    listActiveAgents.mockReset();
-    subscribeToActivity.mockReset();
-    subscribeToActivity.mockImplementation(() => () => {});
-  });
-
-  it("renders Active Agents from listActiveAgents(), with no revenue stat", async () => {
-    listActiveAgents.mockResolvedValue([
-      {
-        agentDefinitionId: "agent-1",
-        agentName: "Researcher",
-        runId: "run-1",
-        taskInstanceId: "task-1",
-        taskStatus: "awaiting_approval",
-        latestActivitySummary: "invocation.completed",
-      },
-      {
-        agentDefinitionId: "agent-2",
-        agentName: "Publisher",
-        runId: "run-2",
-        taskInstanceId: "task-2",
-        taskStatus: "active",
-        latestActivitySummary: null,
-      },
-    ]);
+  it("renders one entry per active Agent Definition with its mission, selecting the one that needs attention", async () => {
+    api.listActiveAgents.mockResolvedValue([researcherActive, { ...researcherActive, runId: "run-3", taskStatus: "pending" }, publisherWaiting]);
+    api.listPendingApprovals.mockResolvedValue([{ id: "a-1" }]);
 
     render(<OverviewPage />);
 
-    expect(await screen.findByText("Researcher")).toBeInTheDocument();
-    expect(screen.getByText("Publisher")).toBeInTheDocument();
-    expect(screen.getByText(/awaiting_approval/)).toBeInTheDocument();
-    // No revenue stat anywhere on the page (AgentCardData has no such field
-    // and AgentCard never renders one -- asserted here as a guard against
-    // regression, not because there was ever a live risk of one appearing).
+    // The waiting agent is selected first; Stop sits directly under its name.
+    expect(await screen.findByRole("heading", { name: "Publisher" })).toBeInTheDocument();
+    const roster = screen.getByRole("group", { name: "Active agents" });
+    expect(within(roster).getAllByRole("button")).toHaveLength(2);
+    const run = screen.getByTestId("agent-run");
+    expect(run).toHaveTextContent("Review-and-Publish");
+    expect(run).toHaveTextContent("Standalone task");
+    expect(run).toHaveTextContent("awaiting approval");
+    expect(screen.getByRole("button", { name: /Stop agent/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Approvals.*1 pending/ })).toHaveAttribute("href", "/approvals");
+
+    fireEvent.click(within(roster).getByRole("button", { name: /Researcher/ }));
+    expect(screen.getByRole("heading", { name: "Researcher" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("agent-run")).toHaveLength(2);
+    expect(screen.getAllByTestId("agent-run")[0]).toHaveTextContent("Compare EV batteries");
+    expect(screen.getAllByTestId("agent-run")[0]).toHaveTextContent("latest: invocation started");
+    expect(screen.getByRole("link", { name: "Open agent" })).toHaveAttribute("href", "/agents/agent-1");
     expect(screen.queryByText(/revenue/i)).not.toBeInTheDocument();
   });
 
-  it("shows a message instead of a card when no agents are active", async () => {
-    listActiveAgents.mockResolvedValue([]);
+  it("shows loading as dots, never sample data", () => {
+    api.listActiveAgents.mockReturnValue(new Promise(() => {}));
     render(<OverviewPage />);
-    expect(await screen.findByText("No agents are currently active.")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading the keep");
+    expect(screen.queryByTestId("agent-run")).not.toBeInTheDocument();
   });
 
-  it("Activity Feed subscribes via subscribeToActivity(null, ...) on mount and renders events oldest-to-newest with no client-side re-ordering", async () => {
-    listActiveAgents.mockResolvedValue([]);
-    let capturedOnEvent: ((e: EventDisplayItem) => void) | undefined;
-    subscribeToActivity.mockImplementation((since: number | null, onEvent: (e: EventDisplayItem) => void) => {
+  it("says nothing is running, with a way to start a goal, when no agents are active", async () => {
+    api.listActiveAgents.mockResolvedValue([]);
+    render(<OverviewPage />);
+    expect(await screen.findByText("Nothing is running. Start a goal to run a workflow.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Start a goal" })).toHaveAttribute("href", "/goals");
+  });
+
+  it("shows a load failure with the detail and a Retry that reads again", async () => {
+    api.listActiveAgents.mockRejectedValueOnce(new Error("API request failed: GET /agents/active -> 500 Internal Server Error")).mockResolvedValue([]);
+    render(<OverviewPage />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't load the keep.");
+    expect(alert).toHaveTextContent("500");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Nothing is running. Start a goal to run a workflow.")).toBeInTheDocument();
+    expect(api.listActiveAgents).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows an engaged stop as stopped and lifts the stop it showed", async () => {
+    api.listActiveAgents.mockResolvedValue([researcherActive]);
+    api.listActiveStops.mockResolvedValue([{ id: "s-1", scope: "agent_definition", scopeRefId: "agent-1", reason: "maintenance" }]);
+    api.liftAgentStop.mockResolvedValue(undefined);
+    render(<OverviewPage />);
+
+    expect(await screen.findByText("Reason: maintenance")).toBeInTheDocument();
+    expect(screen.getAllByText("stopped").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Lift stop" }));
+    await waitFor(() => expect(api.liftAgentStop).toHaveBeenCalledWith("agent-1", "s-1"));
+  });
+
+  it("Stop asks for confirmation, then engages the agent-scope stop", async () => {
+    api.listActiveAgents.mockResolvedValue([researcherActive]);
+    api.engageAgentStop.mockRejectedValueOnce(new Error("API request failed: POST /execution-stops -> 400 Bad Request"));
+    render(<OverviewPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Stop agent/ }));
+    expect(api.engageAgentStop).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Confirm stop/ }));
+    await waitFor(() => expect(api.engageAgentStop).toHaveBeenCalledWith("agent-1"));
+    expect(await screen.findByText(/400 Bad Request/)).toBeInTheDocument();
+  });
+
+  it("lists recent live events newest first, once each", async () => {
+    api.listActiveAgents.mockResolvedValue([]);
+    let onEvent: ((e: EventDisplayItem) => void) | undefined;
+    api.subscribeToActivity.mockImplementation((since: number | null, cb: (e: EventDisplayItem) => void) => {
       expect(since).toBeNull();
-      capturedOnEvent = onEvent;
+      onEvent = cb;
       return () => {};
     });
 
-    render(<OverviewPage />);
+    render(
+      <LiveProvider>
+        <OverviewPage />
+      </LiveProvider>
+    );
+    await waitFor(() => expect(onEvent).toBeDefined());
 
-    await waitFor(() => expect(capturedOnEvent).toBeDefined());
-
-    // Deliberately delivered out of numeric sequence order (5, 3, 9) --
-    // proves the feed appends in RECEIPT order only. If the component
-    // re-sorted by sequenceNo, the rendered order would be 3, 5, 9 instead.
-    capturedOnEvent!({ eventId: "e-5", eventType: "run.started", occurredAt: "t", sequenceNo: 5, eventCursor: 5, summary: "run.started" });
-    capturedOnEvent!({ eventId: "e-3", eventType: "invocation.proposed", occurredAt: "t", sequenceNo: 3, eventCursor: 3, summary: "invocation.proposed" });
-    capturedOnEvent!({ eventId: "e-9", eventType: "invocation.completed", occurredAt: "t", sequenceNo: 9, eventCursor: 9, summary: "invocation.completed" });
+    act(() => {
+      onEvent!({ eventId: "e-5", eventType: "run_started", occurredAt: "t", sequenceNo: 5, eventCursor: 5, summary: "" });
+      onEvent!({ eventId: "e-3", eventType: "invocation_proposed", occurredAt: "t", sequenceNo: 3, eventCursor: 3, summary: "" });
+      onEvent!({ eventId: "e-3", eventType: "invocation_proposed", occurredAt: "t", sequenceNo: 3, eventCursor: 3, summary: "" });
+    });
 
     const items = await screen.findAllByTestId("activity-item");
-    expect(items.map((el) => el.textContent)).toEqual([
-      expect.stringContaining("run.started"),
-      expect.stringContaining("invocation.proposed"),
-      expect.stringContaining("invocation.completed"),
-    ]);
+    expect(items.map((el) => el.textContent)).toEqual([expect.stringMatching(/invocation proposed\s*#3/), expect.stringMatching(/run started\s*#5/)]);
   });
+});
 
-  it("renders an event re-delivered after a reconnect once, numbered by its global cursor", async () => {
-    listActiveAgents.mockResolvedValueOnce([]);
-    let capturedOnEvent: ((e: EventDisplayItem) => void) | undefined;
-    subscribeToActivity.mockImplementation((_since: number | null, onEvent: (e: EventDisplayItem) => void) => {
-      capturedOnEvent = onEvent;
+describe("Notice strip", () => {
+  it("shows a dropped feed as reconnecting and Reconnect resumes from the highest cursor seen", async () => {
+    let onEvent: ((e: EventDisplayItem) => void) | undefined;
+    let onStatus: ((s: StreamStatus) => void) | undefined;
+    api.subscribeToActivity.mockImplementation((_since: number | null, e: typeof onEvent, s: typeof onStatus) => {
+      onEvent = e;
+      onStatus = s;
       return () => {};
     });
 
-    render(<OverviewPage />);
-    await waitFor(() => expect(capturedOnEvent).toBeDefined());
+    render(
+      <LiveProvider>
+        <NoticeStrip />
+      </LiveProvider>
+    );
+    await waitFor(() => expect(onStatus).toBeDefined());
+    expect(screen.getByRole("status")).toHaveTextContent("Connecting to the live feed");
 
-    const event = { eventId: "e-1", eventType: "run_started", occurredAt: "t", sequenceNo: 1, eventCursor: 41, summary: "run_started" };
-    capturedOnEvent!(event);
-    capturedOnEvent!({ ...event });
+    act(() => {
+      onStatus!("live");
+      onEvent!({ eventId: "e-9", eventType: "run_completed", occurredAt: "t", sequenceNo: 1, eventCursor: 9, summary: "" });
+      onEvent!({ eventId: "e-4", eventType: "run_started", occurredAt: "t", sequenceNo: 1, eventCursor: 4, summary: "" });
+    });
+    expect(screen.getByRole("link", { name: /run completed/ })).toHaveAttribute("href", "/events");
 
-    const items = await screen.findAllByTestId("activity-item");
-    expect(items).toHaveLength(1);
-    expect(items[0]).toHaveTextContent("[41] run_started");
+    act(() => onStatus!("reconnecting"));
+    expect(screen.getByRole("status")).toHaveTextContent("Reconnecting to the live feed");
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    await waitFor(() => expect(api.subscribeToActivity).toHaveBeenCalledTimes(2));
+    expect(api.subscribeToActivity.mock.calls[1]![0]).toBe(9);
   });
 });
 
@@ -143,6 +194,7 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
   type FakeEventSourceInstance = {
     url: string;
     closed: boolean;
+    onopen: (() => void) | null;
     onmessage: ((e: MessageEvent) => void) | null;
     onerror: (() => void) | null;
   };
@@ -151,8 +203,6 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
   let originalEventSource: typeof EventSource | undefined;
 
   beforeEach(() => {
-    // Reconnects are scheduled with backoff (see RECONNECT_BASE_MS in
-    // ../lib/api), so these tests drive the clock explicitly.
     vi.useFakeTimers();
     instances = [];
     originalEventSource = (globalThis as { EventSource?: typeof EventSource }).EventSource;
@@ -160,6 +210,7 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
     class FakeEventSource implements FakeEventSourceInstance {
       url: string;
       closed = false;
+      onopen: (() => void) | null = null;
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: (() => void) | null = null;
       constructor(url: string) {
@@ -179,26 +230,14 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
     vi.useRealTimers();
   });
 
-  /**
-   * `eventCursor` defaults to `sequenceNo` so the original test below reads
-   * exactly as it always did (a single run, where the two coincide). The
-   * two new Finding-3 tests pass them separately, which is the whole point:
-   * the resume cursor must follow `eventCursor`, never `sequenceNo`.
-   */
+  /** `eventCursor` defaults to `sequenceNo` (a single run, where the two coincide). */
   function emit(instance: FakeEventSourceInstance, sequenceNo: number, eventCursor: number = sequenceNo): void {
     instance.onmessage?.({
-      data: JSON.stringify({
-        eventId: `e-${eventCursor}`,
-        eventType: "test.event",
-        occurredAt: "t",
-        sequenceNo,
-        eventCursor,
-        payload: {},
-      }),
+      data: JSON.stringify({ eventId: `e-${eventCursor}`, eventType: "test.event", occurredAt: "t", sequenceNo, eventCursor, payload: {} }),
     } as MessageEvent);
   }
 
-  it("opens a NEW EventSource with sinceEventCursor=7 (the last cursor actually seen), not null/0 and not some other value, after the connection drops", async () => {
+  it("opens a NEW EventSource with sinceEventCursor=7 (the last cursor actually seen) after the connection drops", async () => {
     const real = await vi.importActual<typeof import("../lib/api")>("../lib/api");
 
     const received: EventDisplayItem[] = [];
@@ -206,54 +245,25 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
 
     expect(instances).toHaveLength(1);
     expect(instances[0]!.url).toContain("sinceEventCursor=0");
-
-    for (let seq = 1; seq <= 7; seq++) {
-      emit(instances[0]!, seq);
-    }
+    for (let seq = 1; seq <= 7; seq++) emit(instances[0]!, seq);
     expect(received).toHaveLength(7);
-    expect(received[received.length - 1]!.sequenceNo).toBe(7);
 
-    // Simulate a dropped connection.
     instances[0]!.onerror?.();
-
     expect(instances[0]!.closed).toBe(true);
-    // Not reconnected instantly: the reconnect waits out the backoff.
-    expect(instances).toHaveLength(1);
+    expect(instances).toHaveLength(1); // waits out the backoff
     vi.advanceTimersByTime(real.RECONNECT_BASE_MS);
     expect(instances).toHaveLength(2);
     expect(instances[1]!.url).toContain("sinceEventCursor=7");
-    expect(instances[1]!.url).not.toContain("sinceEventCursor=0");
-    expect(instances[1]!.url).not.toContain("sinceEventCursor=null");
 
     unsubscribe();
     expect(instances[1]!.closed).toBe(true);
   });
 
-  // -------------------------------------------------------------------------
-  // Final-review Finding 3: the client's cursor-tracking logic.
-  //
-  // A note on framing, since it differs from the brief's suggested scenario:
-  // the brief proposed constructing "two runs whose events both restart at
-  // sequenceNo 1" here. That scenario is no longer constructible AT THE
-  // CURSOR LEVEL, because `eventCursor` is globally monotonic by
-  // construction — a second run's cursors never restart. The two-run
-  // collision therefore belongs (and lives) in the SERVER-side replay test,
-  // `tests/api/sseReplay.test.ts`. What remains genuinely client-side, and is
-  // what these two tests pin, is the other half of the finding: which FIELD
-  // the client reads, and max-vs-last-received.
-  // -------------------------------------------------------------------------
-
   it("tracks the MAXIMUM cursor seen, not the last one received, when events arrive out of cursor order", async () => {
     const real = await vi.importActual<typeof import("../lib/api")>("../lib/api");
-
     const received: EventDisplayItem[] = [];
     const unsubscribe = real.subscribeToActivity(null, (e) => received.push(e));
 
-    // Cursors arrive 5, 9, 7 — the LAST received (7) is lower than the
-    // highest already rendered (9). A "last received" tracker would resume
-    // from 7 and re-deliver event 9, which this client has no de-duplication
-    // to absorb (and the server's per-connection de-dup set does not survive
-    // a reconnect).
     emit(instances[0]!, 1, 5);
     emit(instances[0]!, 2, 9);
     emit(instances[0]!, 3, 7);
@@ -261,35 +271,20 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
 
     instances[0]!.onerror?.();
     vi.advanceTimersByTime(real.RECONNECT_BASE_MS);
-
-    expect(instances).toHaveLength(2);
     expect(instances[1]!.url).toContain("sinceEventCursor=9");
-    expect(instances[1]!.url).not.toContain("sinceEventCursor=7");
-    expect(instances[1]!.url).not.toContain("sinceEventCursor=5");
-
     unsubscribe();
   });
 
   it("resumes from eventCursor, never from the per-run sequenceNo, when the two diverge", async () => {
     const real = await vi.importActual<typeof import("../lib/api")>("../lib/api");
-
     const unsubscribe = real.subscribeToActivity(null, () => {});
 
-    // The shape a real second Run produces: its per-run sequenceNo restarts
-    // at 1, 2, 3 while its global cursor continues 11, 12, 13. Resuming from
-    // the per-run value would rewind the stream to 3 and re-replay the whole
-    // first Run.
     emit(instances[0]!, 1, 11);
     emit(instances[0]!, 2, 12);
     emit(instances[0]!, 3, 13);
-
     instances[0]!.onerror?.();
     vi.advanceTimersByTime(real.RECONNECT_BASE_MS);
-
-    expect(instances).toHaveLength(2);
     expect(instances[1]!.url).toContain("sinceEventCursor=13");
-    expect(instances[1]!.url).not.toContain("sinceEventCursor=3");
-
     unsubscribe();
   });
 
@@ -297,34 +292,43 @@ describe("subscribeToActivity reconnect (Ruling 5) -- real implementation, mocke
     const real = await vi.importActual<typeof import("../lib/api")>("../lib/api");
     const unsubscribe = real.subscribeToActivity(null, () => {});
 
-    // Each consecutive failure waits twice as long before the next attempt.
     let expectedDelay = real.RECONNECT_BASE_MS;
     for (let attempt = 1; attempt <= 3; attempt++) {
       instances[instances.length - 1]!.onerror?.();
       vi.advanceTimersByTime(expectedDelay - 1);
-      expect(instances).toHaveLength(attempt); // not yet
+      expect(instances).toHaveLength(attempt);
       vi.advanceTimersByTime(1);
       expect(instances).toHaveLength(attempt + 1);
       expectedDelay *= 2;
     }
 
-    // A message proves the connection healthy: the next failure waits the base delay again.
     emit(instances[instances.length - 1]!, 1, 1);
     instances[instances.length - 1]!.onerror?.();
     vi.advanceTimersByTime(real.RECONNECT_BASE_MS);
     expect(instances).toHaveLength(5);
 
-    // The delay never exceeds the cap, however many failures in a row.
     for (let i = 0; i < 10; i++) {
       instances[instances.length - 1]!.onerror?.();
       vi.advanceTimersByTime(real.RECONNECT_MAX_MS);
     }
     expect(instances).toHaveLength(15);
 
-    // Unsubscribing while a reconnect is pending cancels it.
     instances[instances.length - 1]!.onerror?.();
     unsubscribe();
     vi.advanceTimersByTime(real.RECONNECT_MAX_MS * 2);
     expect(instances).toHaveLength(15);
+  });
+
+  it("reports connection status: connecting, live on open, reconnecting on a drop, live again on a message", async () => {
+    const real = await vi.importActual<typeof import("../lib/api")>("../lib/api");
+    const statuses: StreamStatus[] = [];
+    const unsubscribe = real.subscribeToActivity(null, () => {}, (s) => statuses.push(s));
+
+    instances[0]!.onopen?.();
+    instances[0]!.onerror?.();
+    vi.advanceTimersByTime(real.RECONNECT_BASE_MS);
+    emit(instances[1]!, 1, 1);
+    expect(statuses).toEqual(["connecting", "live", "reconnecting", "connecting", "live"]);
+    unsubscribe();
   });
 });

@@ -1,0 +1,37 @@
+.strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-lg);
+  background: var(--pixel-wood-dark);
+  border-top: 2px solid var(--pixel-wood-edge);
+  overflow: hidden;
+}
+
+.text {
+  font: 16px/20px var(--font-pixel), monospace;
+  white-space: nowrap;
+}
+
+.note {
+  background: var(--pixel-parchment);
+  color: var(--pixel-ink);
+  border: 2px solid var(--pixel-parchment-shade);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+  padding: 2px var(--space-sm);
+  font: 13px/18px var(--font-mono), monospace;
+  white-space: nowrap;
+  text-decoration: none;
+  animation: slide 150ms ease-out;
+}
+
+.time {
+  opacity: 0.85;
+}
+
+@keyframes slide {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+}

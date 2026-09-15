@@ -1,0 +1,174 @@
+/* World layer primitives (D19): the void only inside a bevel-framed world view. */
+
+.viewport {
+  position: relative;
+  overflow: auto;
+  background: var(--void);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+  cursor: grab;
+  scrollbar-color: var(--pixel-wood-edge) var(--pixel-wood-dark);
+}
+.viewport:active {
+  cursor: grabbing;
+}
+
+.map {
+  position: relative;
+  flex: none;
+}
+
+.base {
+  position: absolute;
+  inset: 0;
+  image-rendering: pixelated;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Night: state light is the only bright thing. */
+.night {
+  position: absolute;
+  inset: 0;
+  background: var(--void);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.floor {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.light {
+  position: absolute;
+  image-rendering: pixelated;
+  opacity: 0.85;
+}
+/* Stale while the live feed is down (tile-pack.md SSE offline). */
+.stale .light {
+  opacity: 0.45;
+}
+
+.sprite {
+  position: absolute;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  animation: play calc(var(--n) * var(--ms)) steps(var(--n)) infinite;
+}
+.once {
+  animation: last calc(var(--n1) * var(--ms)) steps(var(--n1)) 1 forwards;
+}
+.frozen {
+  animation: none;
+}
+@keyframes play {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: calc(var(--w) * var(--n) * -1px) 0;
+  }
+}
+@keyframes last {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: calc(var(--w) * var(--n1) * -1px) 0;
+  }
+}
+
+/* Needs attention: slow amber pulse, 1.6 s. */
+.seal {
+  position: absolute;
+  width: 112px;
+  height: 36px;
+  border: 2px dashed var(--state-wait);
+  border-radius: 50%;
+  animation: attention 1.6s steps(1) infinite;
+}
+@keyframes attention {
+  50% {
+    border-color: color-mix(in srgb, var(--state-wait) 45%, var(--void));
+  }
+}
+
+/* Runtime live: rune crosses one step brighter every 2 s. */
+.rune {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  opacity: 0.35;
+  animation: rune 2s steps(1) infinite;
+  background:
+    linear-gradient(var(--core-silver), var(--core-silver)) center / 2px 6px no-repeat,
+    linear-gradient(var(--core-silver), var(--core-silver)) center / 6px 2px no-repeat;
+}
+@keyframes rune {
+  50% {
+    opacity: 0.65;
+  }
+}
+
+/* Execution stop: a red barrier across the room's doorway line. */
+.barrier {
+  position: absolute;
+  height: 40px;
+  background: repeating-linear-gradient(90deg, var(--state-fail) 0 4px, transparent 4px 16px);
+  border-top: 4px solid var(--state-fail);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+}
+
+.plaque {
+  position: absolute;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  font: 14px/18px var(--font-pixel), monospace;
+  color: var(--pixel-label);
+  background: var(--pixel-wood);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+  text-decoration: none;
+  cursor: pointer;
+}
+.plaque:hover {
+  filter: brightness(1.25);
+}
+.plaqueSelected {
+  border-color: var(--pixel-label);
+}
+.dimmed {
+  opacity: 0.6;
+}
+
+/* Failure or stop: one sharp flash, then steady. Completion: one green flash. Remounted per state, so a stale class never replays. */
+.flashFail {
+  animation: flash-fail 160ms steps(1) 1;
+}
+@keyframes flash-fail {
+  0% {
+    border-color: var(--state-fail);
+    background: color-mix(in srgb, var(--state-fail) 30%, var(--pixel-wood-dark));
+  }
+}
+.flashDone {
+  animation: flash-done 300ms steps(1) 1;
+}
+@keyframes flash-done {
+  0% {
+    border-color: var(--state-done);
+  }
+}
+
+.shadow {
+  position: absolute;
+  height: 8px;
+  background: var(--pixel-outline);
+  opacity: 0.5;
+}

@@ -1,0 +1,4 @@
+# World art is derived from third-party packs (design-decisions D13-D18: never publish
+# pack files without re-checking). Recreate with `npm run world-art`.
+*
+!.gitignore

@@ -1,0 +1,99 @@
+.screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 480px;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  height: 100%;
+}
+
+/* Laptop: the board narrows to 400 px and the world pans (screens.md). */
+@media (max-width: 1440px) {
+  .screen {
+    grid-template-columns: minmax(0, 1fr) 400px;
+  }
+}
+
+.world {
+  min-height: 0;
+  height: 100%;
+}
+
+.board {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-md);
+}
+.board > a {
+  align-self: flex-start;
+}
+
+.roster {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 2px;
+}
+.stop p {
+  margin: 0;
+  flex-basis: 100%;
+}
+.confirm {
+  font: 14px/20px var(--font-mono), monospace;
+}
+
+.runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 2px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: center;
+}
+
+.inkLink {
+  color: var(--pixel-ink);
+  font: 14px/20px var(--font-pixel), monospace;
+}
+
+.events {
+  margin-top: auto;
+  padding: 2px;
+}
+.events ol {
+  list-style: none;
+  margin: 0;
+}
+.events li {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+  gap: var(--space-sm);
+  white-space: nowrap;
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

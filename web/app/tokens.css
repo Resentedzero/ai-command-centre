@@ -1,0 +1,104 @@
+/*
+ * Design tokens (Figma "Command Centre" and "Spacing" collections; skill
+ * visual-language.md). Same names as the Figma variables: pixel/wood ->
+ * --pixel-wood, state/active -> --state-active. Sci-fi-era tokens are not
+ * carried over (D19).
+ */
+:root {
+  --void: #01070e;
+  --state-active: #08b8f9;
+  --state-done: #0bc97f;
+  --state-wait: #f8a60f;
+  --state-fail: #fb5d42;
+  --state-idle: #3b83d2;
+  --core-silver: #dde8ff;
+
+  --pixel-wood-dark: #1c130d;
+  --pixel-wood: #2a1b12;
+  --pixel-wood-edge: #6b4a2b;
+  --pixel-outline: #0b0705;
+  --pixel-parchment: #d8c49c;
+  --pixel-parchment-shade: #b39e74;
+  --pixel-ink: #3b2a1a;
+  --pixel-label: #f3e3c3;
+  --pixel-label-dim: #a58b63;
+
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+  --space-3xl: 64px;
+
+  --bar-height: 56px;
+  --strip-height: 44px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--pixel-wood-dark);
+  color: var(--pixel-label);
+  font: 14px/20px var(--font-mono), ui-monospace, monospace;
+}
+
+body {
+  display: grid;
+  grid-template-rows: var(--bar-height) minmax(0, 1fr) var(--strip-height);
+  min-width: 1280px;
+  min-height: 800px;
+}
+
+main {
+  min-height: 0;
+  overflow: hidden;
+}
+
+img,
+.px {
+  image-rendering: pixelated;
+}
+
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-pixel), monospace;
+  font-weight: 400;
+  margin: 0;
+}
+
+/* Focus: a 2 px cream ring outside the 2 px outline, in a slot that never shifts layout. */
+:focus-visible {
+  outline: 2px solid var(--pixel-label);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Reduced motion: every animation stops; sprites hold their first frame. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
