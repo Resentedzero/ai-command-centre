@@ -345,6 +345,11 @@ CLI1 worked through this review. Verified in the committed tree:
 - **Costs:** 1 run-scope counter in usd.
 - **Currently:** no active agents, no stops, no pending approvals.
 
+**Newly reported concerns, judged against the rules:**
+- **Fail-light: not a defect.** No failed step or agent gets a red room light (Overview workshops, Workflows corridor and workshop close-up light only `active`). `visual-language.md` rules that green and red are for decisions, outcomes and controls, never world light. Failure is carried by one sharp flash, a steady red marker and word, and the death pose, and the real failed run shows exactly that (red plaque, unlit room). `light-fail-4x.png` is an unused leftover from the lighting exploration. Don't wire it in. A failed run is also history: the Agents workshop shows "no active run" once nothing is unfinished, which is honest.
+- **Trace refresh: a defect.** See #47.
+- **Artifact loading: faithful in code, confirmed in capture below.** The detail shows a skeleton heading plus "Loading the artifact · · ·". While outputs load, the vault draws no chests (the outputs layer is empty). Opening `/artifacts/:id` without `?agent` shows a skeleton in the outputs board until the producing agent is known.
+
 **Confirmed with real data:**
 - **#18:** with nothing running, the Overview board lists "Publisher v1" and "Researcher v1" with a neutral "no active run".
 - **#14:** `/agents` opens the first definition's 4× workshop (Publisher) instead of an empty pane.
@@ -361,9 +366,80 @@ CLI1 worked through this review. Verified in the committed tree:
 - **Goals:**
   - the summary hugs its content ("2 goals across 1 project with goals"), with zero counts neutral and "1 failed" red;
   - the project wing shows both goals as banners with a neutral goal status (not runtime state), and the failed run as a chip.
+- **Agents, Researcher v1 (1920, 1280):**
+  - lineage row "Unit 11 smoke test goal › Research-Report", red "failed", "latest #2 llm · failed";
+  - "Key 1 · research.retrieve", READ · AUTONOMOUS · trust ≥ 1, matching the tagged 4× key;
+  - usage in usd;
+  - the real output "invocation_result · 591 bytes" with a chest;
+  - the four real recent actions;
+  - the workshop unlit with an idle sprite and "no active run", which is honest, since the only run has finished;
+  - at 1280 the room is a centred crop and the board scrolls, with nothing act-now clipped.
+- **Artifacts, Researcher's real output (1920, 1280):**
+  - the vault draws exactly one chest, open and selected with a cream outline;
+  - "Outputs · 1";
+  - metadata: 591 bytes, created, stored inline, "summary none recorded", the full hash;
+  - a green "the content matches its hash";
+  - Produced by links to the goal and to "Researcher v1", with task "Research-Report v1" and invocation "tool #1";
+  - the preview as text;
+  - an honest "No compiled context has included this artifact.";
+  - at 1280 the panels wrap with nothing clipped.
+
+  This closes the artifact-loading concern: loading resolves into a correct populated state, and the world layer shows only the real output.
+- **Approvals (#29):** with 0 pending, "No approvals are pending" plus one plain line appears beside an unlit council hall.
+- **Events (#31):**
+  - real rows show outcome colours only: "invocation failed" red, "invocation completed" green, "invocation started" neutral;
+  - filter chips come from received types;
+  - cursors 1–4 now render, so the empty cursor column in #36 was a stale-API artefact.
+- **Registry:**
+  - capabilities with risk tag, description and tool binding (trust level, internal function), task definitions with plan status, and the workflow definition, all from `GET /registry`;
+  - the read-only line on parchment;
+  - no controls.
+- **Costs:**
+  - the real run counter ("Researcher v1 · Research-Report", 0.01 consumed · limit 1.00) with a cream gauge;
+  - an API total ("run · usd … across 1 counter");
+  - "No performance measured yet." (no rows).
+- **Artifacts:** an empty vault (0 outputs) draws no chests, and CLI1's floor patches hide the painted ones.
+
+- **Artifacts without `?agent` (artifact-direct):** the page resolves the producing agent (Researcher v1) and renders the same populated page as the version with the param.
+
+**Independent critic (all 45 real-data captures), verdict: on track.** Every checked value matched the live data. No cyan or amber is lit without current state, and red and green appear only on outcomes and controls. Each screen keeps its distinct room (keep, workshop, corridor, war room, council hall, vault, library, forge).
+- **Accepted as findings #52–#56.**
+- **New evidence for #43:** a chest pair beside the vault cabinets shows in the empty Publisher vault and on the Overview. The regenerated vault crop already removes it, but CLI1's CSS patches don't.
+- **Asset follow-up (design side, logged, not done in this round):** the 4× researcher workshop close-up (`room-researcher-workshop-4x-slate.png`, derived from the older W2 keep at 768 × 640) also carries a decorative chest pair beside an agent with a real output. Since a chest means one artifact, it should be re-derived without chests at the same 768 × 640 size.
+- **Rejected as acceptable choices:**
+  - renaming the goal status "active": it's the API's goal status, and it already has a neutral marker;
+  - the empty band under the Events filter chips;
+  - the corridor hugging its two rooms at 1920;
+  - Recent actions truncating in a half-width card: already #37.
+
+**Still open, re-seen with real data:**
+- **#32:** "Choose an output to read it…" beside "Publisher v1's vault is empty.".
+- **#36 (summary half):** the summary still repeats `invocation_failed (…)`.
+- **#40:** the Approvals empty card spans about 1000 px.
+- **#44:** void bands appear on Registry as well as Agents.
+- **#45:** the 18-decimal reserved amount shows on Cost counters and totals too.
+
+**Round 13 status, at web commit `ea547f5` with the live API:**
+
+| Status | Findings |
+|---|---|
+| **Verified resolved with real data** | #13 (4× keys), #14 (`/agents` opens a workshop), #18 (board lists definitions when idle), #23 (distinct step rooms), #29 (empty Approvals state), #31 (neutral historical log rows), #33 (operator copy on Artifacts), #36 cursor half (cursors render; the empty column was a stale-API artefact) |
+| **Judged not a defect** | the missing fail-light (red and green are never world light; failure is a marker, word, flash and pose) |
+| **Open, confirmed with real data** | #32, #34, #36 summary half, #37, #40, #43, #44, #45, #46, #48, #49, #50, #51, #52, #53, #54, #55, #56 |
+| **Open, from code (not reproducible with healthy reads)** | #35 rooms absent on failed reads, #38, #39, #41, #42 filters over a failed ledger, #47 run trace never refreshes |
 
 | # | Severity | Where | Finding | Fix |
 |---|---|---|---|---|
+| 52 | Medium | `app/registry/page.tsx` (real data, Researcher v1) | **Honesty:** the heading scopes the page to one agent ("Registry · Researcher v1"), but Capabilities, Task definitions and Workflow definitions are registry-wide. Under Researcher it lists `publish.report`, which Researcher isn't granted, and both agents show identical definition lists, so the page implies an agent scope the data doesn't have. | Split the board into **"Researcher v1"** (its keys, and the capabilities those keys grant) and **"Whole registry"** (all capabilities, task and workflow definitions) under its own tab. Or keep one list and mark ungranted capabilities with a neutral "not granted to this agent". |
+| 53 | Medium | `app/page.tsx` Overview board (real data) | With nothing running, the board says "Nothing is running. Start a goal…" and Workflows shows "0 in progress". That's true, but the only workflow run failed (a configuration error), and nothing on the Overview points at it except the notice strip. The Overview's question is "where must I act?", and a failed latest run is act-now. | When no Run is active and the newest workflow run is `failed`, add one board line under the empty notice: red marker plus "Latest run failed · <goal title>", linking to `/workflows/:id`. The data is the existing `GET /workflow-runs` read; no new route needed. |
+| 54 | Medium | `lib/keep.ts` `characterFor` (real data) | Publisher v1 and Researcher v1 both render as the same knight: the id hash maps both ids to `knight`. With two real agents, the one world cue for which agent this is gets lost. | Keep identity deterministic, but make it distinct across the definitions that exist. Assign characters in the stable order of Agent Definition ids from `GET /registry` (first id knight, second wizard, …, cycling), falling back to the hash only when the registry is unreadable. |
+| 55 | Medium | `app/events/page.tsx` log (real data, 1440 and 1280) | The failed row's summary is cut before the reason ends ("…is not set in this e…"), with no way to expand it. The failure reason is the most important fact on the row. This is separate from #36, which covers the repeated type. | Let rows with a `fail` marker wrap their summary (no `nowrap` or ellipsis on that cell), or expand on click or focus to the full text. The full summary also stays in `title`. |
+| 56 | Low | laptop layout, several screens (real data) | Workflows run list at 1440 breaks the timestamp mid-token ("2026-" / "09-12"). The Agents key card at 1280 wraps "trust ≥" and "1" onto separate lines. At 1280 the step detail card cuts off "Run trace" at its bottom edge with a stray border fragment and no scroll cue. At 1440 the Artifacts "Referenced by" panel wraps in about 310 px beside about 1100 px of free space. | `white-space: nowrap` on timestamps and on "trust ≥ n". Let the step detail grow or show a visible scroll edge. Let "Referenced by" span the free columns, like `.reading`. |
+| 51 | Low | `app/artifacts/ArtifactsScreen.tsx` preview (real data) | The real 591-byte `invocation_result` is JSON, shown as one unbroken blob that wraps mid-token, so the titles, snippets and source URLs inside it are hard to read. | When the preview parses as JSON, render `JSON.stringify(parsed, null, 2)`, still as text in the `pre`. Fall back to the raw string when it doesn't parse or is truncated. Never render it as HTML. |
+| 50 | Medium | `app/agents/AgentsScreen.tsx` "Latest context" (real data, Researcher v1) | When `contextLineage` is null, the board says **"No model calls yet."** Researcher v1 did make a model call: its run's latest invocation is "#2 llm · failed" (shown two cards above). It failed before a context was recorded. The copy turns a missing record into a claim about the runtime that the data contradicts (`runtime-truth.md`: an absence says what is absent, not a guess why). | "No compiled context recorded." Or, when some run's latest invocation is `llm`, "No context was recorded for its model calls.". Never "No model calls yet" unless no `llm` invocation exists. |
+| 48 | Low | `app/artifacts/ArtifactsScreen.tsx` default agent (real data) | With no `?agent`, the vault opens on the first roster entry (Publisher v1, 0 outputs), so the screen starts on "Publisher v1's vault is empty.". Researcher v1's real output stays one click away. On a screen whose question is "what did the agents produce?", the default hides the only artifact. | With no `?agent`, open the agent with the most recent output (compare `outputs[0].createdAt` from the agents' detail reads, or reuse the roster's active and attention order), falling back to the first entry only when none has outputs. |
+| 49 | Low | `app/registry/page.tsx` grant card (real data, Publisher) | A grant whose `scope` is an empty object renders an empty dark vellum bar inside the parchment card: a list with no rows. It reads as a broken field. | Render the scope list only when `Object.keys(g.scope).length > 0`. For an empty scope, show nothing, or a dim "no scope limits" line if the absence is meaningful. |
+| 47 | Medium | `app/workflows/WorkflowsScreen.tsx` `StepDetail` run trace | "Show the run trace" reads `GET /runs/:id/trace` once and never re-reads it. The run detail refreshes every 5 s while the run is unfinished, so on an `in_progress` run the trace goes stale beside a live step state, with no timestamp saying when it was read. The finished failed run in the live data isn't affected. | Keep the trace on demand (no automatic trace polling). Show "read at HH:MM:SS" beside it. Offer a neutral "Refresh the trace" button (a GET only). When the run's `status` or `invocations.length` changes after the trace was read, mark it "out of date" (dim) until refreshed. Never refresh it silently mid-read. |
 | 46 | Medium | `app/workflows/WorkflowsScreen.tsx` Invocations table (1920 and 1280, real failed run) | The invocations table sits in a narrow column (about 360 px at 1920), so its "failure" and "outputs" columns are pushed behind a horizontal scroll. For the real failed run, the failure reason ("ANTHROPIC_API_KEY is not set…") is invisible without scrolling, although it answers this screen's question "…and what failed?", and the step detail has hundreds of empty pixels beside it. At 1280 even the time column is clipped. | Show the failure reason where it can't be hidden: under a failed invocation row, as a full-width line (red marker plus the reason in label ink, error code dim). Give the Invocations column the row's full width (`grid-column: 1 / -1`), with Budget beside or below it. |
 | 45 | Low | `app/workflows/WorkflowsScreen.tsx` budget line (real data) | Reserved renders as "0.000000000000000000", the raw 18-decimal string. It's exact, but it can't be read at a glance. | Display the decimal with trailing zeros trimmed ("0"), which is numerically the same exact value. Keep the full string in a `title`. Apply the same formatting wherever `consumed`/`reserved`/`limit` amounts render (Agents usage, Cost counters and totals). |
 | 44 | Medium | `components/world/workshop.module.css` `.closeup` / `.room` (Agents, Registry at 1920) | The 768 × 640 room sits centred in a world column about 940 px tall, leaving about 200 px of solid void above it and 150 px below. The void reads as letterboxing, not as part of the keep, and makes the hero room look like a pasted thumbnail. | Size the column to the room: `align-self: start; height: 644px` (room plus bevel) on wide screens, and let the board use the full height. Or keep the height and continue the keep around the room: tile the stone-wall strip above and the hall floor below (from `keep-v4-2x.png`), dimmed by the night layer. Don't scale the room fractionally. |
