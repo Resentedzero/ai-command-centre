@@ -34,6 +34,7 @@ import {
   pauseWorkflowRun,
   resumeWorkflowRun,
   deriveGoalStatus,
+  backfillGoalStatuses,
   type InvocationSpecBuilder,
 } from "../../src/workflow/interpreter.js";
 // Tool Invocations yield `dispatch_required` (DURABLE_EXECUTION §2.1); this drives
@@ -569,6 +570,54 @@ describe("Goal status derived from its Workflow Runs", () => {
         ["goal_transitioned", "active"],
         ["goal_failed", "failed"],
       ]);
+    });
+  });
+
+  it("backfills stale Goal statuses once, from their Workflow Runs, without touching the runs (M1)", async () => {
+    await withRollback(async (tx) => {
+      const { workflowDefinition } = await seedTwoStepWorkflowFixture(tx);
+      // Rows as they stood before R-GOAL1: Workflow Runs finished, Goal still `active`.
+      const seedGoal = async (runStatuses: string[]) => {
+        const { goal } = await seedProjectAndGoal(tx);
+        for (const status of runStatuses) {
+          await tx.insert(schema.workflowRuns).values({
+            workflowDefinitionId: workflowDefinition.id,
+            workflowDefinitionVersion: workflowDefinition.version,
+            goalId: goal.id,
+            status,
+          });
+        }
+        return goal.id;
+      };
+      const failed = await seedGoal(["completed", "failed"]);
+      const completed = await seedGoal(["completed", "completed"]);
+      const running = await seedGoal(["completed", "in_progress"]);
+      const empty = await seedGoal([]);
+      const fixture = [failed, completed, running, empty];
+      const runsBefore = await tx.select().from(schema.workflowRuns).orderBy(schema.workflowRuns.id);
+
+      const changed = await backfillGoalStatuses(tx);
+      expect(changed.filter((id) => fixture.includes(id)).sort()).toEqual([failed, completed].sort());
+      const statusOf = async (id: string) => (await tx.query.goals.findFirst({ where: eq(schema.goals.id, id) }))!.status;
+      expect([await statusOf(failed), await statusOf(completed), await statusOf(running), await statusOf(empty)]).toEqual([
+        "failed",
+        "completed",
+        "active",
+        "active",
+      ]);
+      const backfillEvents = (await tx.query.events.findMany({ where: eq(schema.events.producer, "goal-status-backfill") })).filter((e) =>
+        fixture.includes(e.goalId!)
+      );
+      expect(Object.fromEntries(backfillEvents.map((e) => [e.goalId, [e.eventType, e.payload]]))).toEqual({
+        [failed]: ["goal_failed", { from: "active", to: "failed", workflowRunId: expect.any(String), backfill: true }],
+        [completed]: ["goal_completed", { from: "active", to: "completed", workflowRunId: expect.any(String), backfill: true }],
+      });
+      expect(await tx.select().from(schema.workflowRuns).orderBy(schema.workflowRuns.id)).toEqual(runsBefore);
+
+      // Idempotent: nothing is stale on a second pass, so nothing is written.
+      const eventCount = (await tx.query.events.findMany()).length;
+      expect(await backfillGoalStatuses(tx)).toEqual([]);
+      expect((await tx.query.events.findMany()).length).toBe(eventCount);
     });
   });
 });

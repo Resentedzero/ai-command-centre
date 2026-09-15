@@ -32,10 +32,11 @@
  * The reservationId therefore *is* that data: a `res_` prefix followed by the
  * base64url encoding of a JSON payload. Two shapes exist:
  *
- *   - SINGLE-COUNTER (the only shape while no daily ceiling is configured, and
- *     byte-for-byte what this module produced before Phase 8):
+ *   - SINGLE-COUNTER (when neither a daily nor a Task Instance ceiling applies,
+ *     and byte-for-byte what this module produced before Phase 8):
  *     `{ scope, scopeRefId, resourceUnit, estimatedAmount, nonce }`
- *   - MULTI-COUNTER (a run hold plus a day hold):
+ *   - MULTI-COUNTER (a run hold plus a day hold, a task_instance hold, or both,
+ *     so two or three holds):
  *     `{ holds: [{ scope, scopeRefId }, ...], resourceUnit, estimatedAmount, nonce }`
  *
  * Every hold in one reservation shares ONE resource unit and ONE estimated
@@ -308,9 +309,10 @@ async function deny(
 
 /**
  * Reserves `estimatedAmount` against the budget_counters row for
- * (scope, scopeRefId, resourceUnit), inside the caller's transaction — and,
- * when a daily ceiling is configured for that unit, against the same unit's
- * DAY counter as well.
+ * (scope, scopeRefId, resourceUnit), inside the caller's transaction. A `run`
+ * reservation also holds, in the same unit, the DAY counter when a daily
+ * ceiling is configured for that unit, and the Run's TASK_INSTANCE counter when
+ * a Task Instance ceiling is: up to three counters.
  *
  * Atomicity: takes `SELECT ... FOR UPDATE` row locks (in the fixed lock order)
  * before checking availability, so concurrent reservations against the same
@@ -318,8 +320,8 @@ async function deny(
  * commits or rolls back, then re-reads the row's up-to-date values (READ
  * COMMITTED's EvalPlanQual re-evaluation) before deciding.
  *
- * All-or-nothing: with a day hold, BOTH counters must have room. If either is
- * short, nothing is written to either and the result is `insufficient_budget`.
+ * All-or-nothing: EVERY held counter must have room. If any one is short,
+ * nothing is written to any of them and the result is `insufficient_budget`.
  *
  * Does NOT create a run row when none exists: that case is treated exactly like
  * a zero-limit budget.
@@ -412,7 +414,7 @@ export async function reserveBudget(
     rows.push(row);
   }
 
-  // Check EVERY counter before writing ANY — so a refusal leaves both untouched.
+  // Check EVERY counter before writing ANY — so a refusal leaves all of them untouched.
   for (const row of rows) {
     const available = Number(row.limitAmount) - Number(row.reservedAmount) - Number(row.consumedAmount);
     if (estimatedAmount > available) {

@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
+    "db:backfill-goal-status": "tsx src/db/backfillGoalStatus.ts",
     "seed": "tsx src/definitions/runSeed.ts",
     "dev:api": "tsx src/api/start.ts"
   },

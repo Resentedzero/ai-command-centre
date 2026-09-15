@@ -145,7 +145,7 @@
  *   failed attempt, possibly in the same call.
  */
 import { randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { goals, runs, taskInstances, workflowDefinitions, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { createWorkflowTaskInstance } from "../execution/taskInstance.js";
@@ -449,26 +449,59 @@ export function deriveGoalStatus(workflowRunStatuses: readonly string[]): GoalSt
 /**
  * Re-derives a Goal's status after one of its Workflow Runs started or finished, and
  * records a change as `goal_completed`, `goal_failed` or `goal_transitioned` in the same
- * transaction (§3e). A no-op when the derived status is unchanged. Keyed by the Workflow
- * Run that caused it, since a Goal can change status more than once.
+ * transaction (§3e). A no-op when the derived status is unchanged; returns whether it
+ * changed. Keyed by the Workflow Run that caused it, since a Goal can change status more
+ * than once. `backfill` marks the one-time repair in `backfillGoalStatuses`.
  */
-async function recordGoalStatus(tx: DrizzleTransaction, goalId: string, workflowRunId: string, correlation: Correlation): Promise<void> {
+async function recordGoalStatus(
+  tx: DrizzleTransaction,
+  goalId: string,
+  workflowRunId: string | null,
+  correlation: Correlation,
+  backfill = false
+): Promise<boolean> {
   const goal = await tx.query.goals.findFirst({ where: eq(goals.id, goalId) });
-  if (!goal) return;
+  if (!goal) return false;
   const statuses = await tx.select({ status: workflowRuns.status }).from(workflowRuns).where(eq(workflowRuns.goalId, goalId));
   const to = deriveGoalStatus(statuses.map((r) => r.status));
-  if (to === goal.status) return;
+  if (to === goal.status) return false;
 
   await tx.update(goals).set({ status: to }).where(eq(goals.id, goalId));
   const eventType = to === "completed" ? "goal_completed" : to === "failed" ? "goal_failed" : "goal_transitioned";
   await emitLifecycleEvent(tx, {
     eventType,
     subjectId: goalId,
-    idempotencyKey: `${eventType}:${goalId}:${workflowRunId}`,
+    idempotencyKey: backfill ? `${eventType}:${goalId}:backfill:${workflowRunId ?? "none"}` : `${eventType}:${goalId}:${workflowRunId}`,
     correlation,
-    producer: "workflow-interpreter",
-    payload: { from: goal.status, to, workflowRunId },
+    producer: backfill ? "goal-status-backfill" : "workflow-interpreter",
+    payload: { from: goal.status, to, workflowRunId, ...(backfill ? { backfill: true } : {}) },
   });
+  return true;
+}
+
+/**
+ * One-time repair (CLI2 QA finding M1): Goals whose Workflow Runs finished before R-GOAL1
+ * was built still read `active`. Re-derives every Goal with the same rule and records each
+ * stale one through `recordGoalStatus`, as a `goal-status-backfill` event dated now, so the
+ * status is repaired without back-dating history. Writes only stale `goals.status` values
+ * and their events, never a Workflow Run. Idempotent: a second pass finds nothing stale.
+ * Goal rows are locked first, so a concurrent Workflow Run finish waits for it (this takes
+ * no Workflow Run lock, so no cycle). Returns the ids of the Goals it changed.
+ */
+export async function backfillGoalStatuses(tx: DrizzleTransaction): Promise<string[]> {
+  const all = await tx.select({ id: goals.id }).from(goals).orderBy(goals.createdAt, goals.id).for("update");
+  const changed: string[] = [];
+  for (const { id } of all) {
+    const [latest] = await tx
+      .select({ id: workflowRuns.id })
+      .from(workflowRuns)
+      .where(eq(workflowRuns.goalId, id))
+      .orderBy(desc(workflowRuns.createdAt), desc(workflowRuns.id))
+      .limit(1);
+    const workflowRunId = latest?.id ?? null;
+    if (await recordGoalStatus(tx, id, workflowRunId, { ...NO_CORRELATION, goalId: id, workflowRunId }, true)) changed.push(id);
+  }
+  return changed;
 }
 
 /**
