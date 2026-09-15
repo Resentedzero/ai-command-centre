@@ -127,7 +127,8 @@
   margin: 0;
   padding: 2px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  /* Cards grow with the room, capped so parchment never glares across it (#58). */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 520px));
   gap: var(--space-md);
 }
 
@@ -145,6 +146,8 @@
   padding: 4px 2px 2px;
 }
 
+/* Label, timestamp and mark are unbreakable units that wrap between each other, never mid-token (#58). */
 .runChip {
   width: auto;
+  flex-wrap: wrap;
 }

@@ -171,7 +171,8 @@ export default function GoalsPage() {
                         <div className={g.corridor}>
                           {goal.workflowRuns.map((run) => (
                             <Link key={run.id} href={`/workflows/${run.id}`} className={cx(px.plaque, g.runChip)}>
-                              Workflow run <span className={px.dim}>{formatTime(run.createdAt)}</span>
+                              <span className={px.nowrap}>Workflow run</span>{" "}
+                              <span className={cx(px.dim, px.nowrap)}>{formatTime(run.createdAt)}</span>
                               <StatusMark state={run.status} />
                             </Link>
                           ))}

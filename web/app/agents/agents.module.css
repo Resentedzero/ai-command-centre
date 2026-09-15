@@ -88,14 +88,24 @@
   gap: 2px var(--space-md);
 }
 
+/* Same shared track as Overview's Recent events (#37, #57): the type keeps its width; the timestamp shrinks first. */
 .events {
   list-style: none;
   margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) max-content auto;
+  column-gap: var(--space-sm);
 }
 .events li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  white-space: nowrap;
+}
+
+.ellipsis {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .link {

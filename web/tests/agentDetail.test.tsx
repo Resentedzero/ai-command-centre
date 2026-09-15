@@ -119,6 +119,8 @@ describe("Agent Detail", () => {
     expect(screen.getByTestId("agent-context")).toHaveTextContent("excluded art-9: stale");
     expect(screen.getByRole("link", { name: /report · 42 bytes/ })).toHaveAttribute("href", "/artifacts/art-1");
     expect(screen.getByTestId("agent-events")).toHaveTextContent("approval required");
+    // Time, type and cursor are separate cells on the shared track, so only the time can ellipsize (#37).
+    expect(screen.getByTestId("agent-events").querySelector("li")?.children).toHaveLength(3);
 
     const performance = screen.getByTestId("agent-performance");
     expect(performance).toHaveTextContent("Review-and-Publish v1");

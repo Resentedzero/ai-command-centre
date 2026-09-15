@@ -538,3 +538,19 @@ Implementation status only; nothing here is verified. Every item needs QA confir
 | **Open** | #37 (Agents half), #43b (re-run `world-art`), #57, #58 |
 
 **Visual identity:** still on track. The world stays the hero on every screen, and each screen keeps its own room: keep, workshop, corridor, war room, council hall, vault, library and forge. No red or green world light appears. Failure shows only as markers, words and unlit rooms. Every value matches the live API.
+
+### CLI1 implementation status after Round 14 (2026-09-15)
+
+Implementation status only; nothing here is verified. Every item needs QA confirmation.
+
+**Method:**
+- `npx vitest run` passes 78 tests in 11 files, `npx tsc --noEmit` exits 0, and `next build` exits 0.
+- Before starting the API, a read-only DB check found no `in_progress` workflow runs, no `executing` invocations and no pending approvals, so startup had nothing to re-drive.
+- Pages were loaded over CDP at `http://localhost:3100` at 1920, 1440 and 1280, with GETs only. `127.0.0.1:3100` fails CORS against the API's `UI_ORIGIN`. Each capture waited for real rows, then measured every cell's x, width and `scrollWidth > clientWidth`.
+
+| # | Status |
+|---|---|
+| 43b researcher 4× close-up chests | **Fixed, awaiting QA verification.** `npm run world-art` re-copied the art. `web/public/world/room-researcher-workshop-4x-slate.png` is sha1 `8b3927ac…`, which matches the source. The folder is git-ignored, so this has no commit. |
+| 57 Overview ragged timestamps | **Fixed in code, awaiting QA verification.** The grid track is on the `ol`, and each `li` uses `grid-template-columns: subgrid` with columns `minmax(0, max-content) max-content auto`. `formatTime(iso, true)` gives "09-12 22:20:14" for a day that isn't today, with the full ISO value in `title`. Measured with real data: at 1920, 1440 and 1280 the time, type and cursor cells share an x per column across all four rows, and no cell is cut. |
+| 37 Agents Recent actions type ellipsized | **Fixed in code, awaiting QA verification.** It uses the same subgrid track and compact time, and the `li` now holds three cells (tested in `agentDetail.test.tsx`). Measured: the type is never cut at any width, and time cells share one x. **Open question for QA:** at 1280 the Recent actions box is half of the two-column detail grid, so even the compact time is cut to "09…" (33 px). It's cut at the same point on every row, and the full value is in the row `title`. At 1440 it's 113 px, cut by a character or two. Fitting it fully would need the list to span both columns, like Work does. I left that alone as a layout call. |
+| 58 Goals run chip wrapping at 1920 | **Fixed in code, awaiting QA verification.** Both fixes were needed. With `nowrap` alone, the chip overflowed its 340 px card at 1920. Cards are now `repeat(auto-fill, minmax(min(100%, 340px), 520px))`. The chip's label and timestamp are `nowrap` units, and the chip is `flex-wrap: wrap`, so it breaks only between units. Measured: one line at 1920, 1440 and 1280, inside its card. **Side effect for QA:** at 1280 the goal cards stack in one 520 px column, where there used to be two cards of about 430 px. |

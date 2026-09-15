@@ -432,7 +432,7 @@ function RecentEvents() {
             .map((e) => (
               <li key={e.eventId} data-testid="activity-item">
                 <span className={cx(px.dim, o.ellipsis)} title={e.occurredAt}>
-                  {formatTime(e.occurredAt)}
+                  {formatTime(e.occurredAt, true)}
                 </span>
                 <span>{stateWord(e.eventType)}</span>
                 <span className={px.dim}>{e.eventCursor === undefined ? "" : `#${e.eventCursor}`}</span>

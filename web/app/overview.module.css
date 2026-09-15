@@ -79,15 +79,18 @@
   margin-top: auto;
   padding: 2px;
 }
+/* One column track shared by every row (#57): the type wins the width; the timestamp shrinks first. */
 .events ol {
   list-style: none;
   margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) max-content auto;
+  column-gap: var(--space-sm);
 }
 .events li {
   display: grid;
-  /* The type wins the width; a long timestamp ellipsizes first. */
-  grid-template-columns: minmax(0, auto) max-content auto;
-  gap: var(--space-sm);
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   white-space: nowrap;
 }
 

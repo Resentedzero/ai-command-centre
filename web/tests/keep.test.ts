@@ -1,6 +1,15 @@
 /** Presentation mappings in lib/keep: character identity (#54) and amount display (#45). */
 import { describe, expect, it } from "vitest";
-import { characterFor, formatAmount, hashOf } from "../lib/keep";
+import { characterFor, formatAmount, formatTime, hashOf } from "../lib/keep";
+
+describe("formatTime", () => {
+  it("drops the year in compact form for a past day, and shows only the time today (#57)", () => {
+    const past = new Date(2026, 8, 12, 22, 20, 14).toISOString();
+    expect(formatTime(past)).toBe("2026-09-12 22:20:14");
+    expect(formatTime(past, true)).toBe("09-12 22:20:14");
+    expect(formatTime(new Date().toISOString(), true)).toMatch(/^\d\d:\d\d:\d\d$/);
+  });
+});
 
 describe("characterFor", () => {
   // The live Publisher and Researcher ids, which the id hash maps to the same knight.

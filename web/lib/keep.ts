@@ -126,14 +126,17 @@ export function countLabel(n: number, cap: number): string {
   return n >= cap ? `${cap}+` : String(n);
 }
 
-export function formatTime(iso: string | null | undefined): string {
+/** `compact` drops the year, for narrow event lists (#57); give the full value in `title`. */
+export function formatTime(iso: string | null | undefined, compact = false): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, "0");
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   // Local time; the date is shown unless it is today.
-  return d.toDateString() === new Date().toDateString() ? time : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
+  if (d.toDateString() === new Date().toDateString()) return time;
+  const day = `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return compact ? `${day} ${time}` : `${d.getFullYear()}-${day} ${time}`;
 }
 
 export function errorText(err: unknown): string {

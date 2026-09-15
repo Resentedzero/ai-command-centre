@@ -316,7 +316,8 @@ function AgentBoard({
             <ol className={cx(px.vellum, a.events)} data-testid="agent-events">
               {detail.recentEvents.map((e) => (
                 <li key={e.eventId} title={`${e.eventType} · ${e.occurredAt} · #${e.eventCursor}`}>
-                  <span className={px.dim}>{formatTime(e.occurredAt)}</span> {stateWord(e.eventType)}{" "}
+                  <span className={cx(px.dim, a.ellipsis)}>{formatTime(e.occurredAt, true)}</span>
+                  <span>{stateWord(e.eventType)}</span>
                   <span className={px.dim}>#{e.eventCursor}</span>
                 </li>
               ))}
