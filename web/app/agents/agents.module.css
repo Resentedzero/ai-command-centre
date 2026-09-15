@@ -136,3 +136,11 @@
   padding: 2px var(--space-md) 2px 0;
   white-space: nowrap;
 }
+
+.plainList {
+  list-style: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

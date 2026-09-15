@@ -1,31 +1,39 @@
 /**
- * Workflow/Task view (spec 15.1 screen 3): the list links to each run, and the
- * detail renders exactly what the API returns — steps in order, each Run's
- * Invocations with failure reasons, and budget counters per unit.
+ * Workflows (spec 15.1 screen 3): the runs board links each run; the detail
+ * renders exactly what the API returns — a corridor of steps in order, the
+ * step needing attention selected, its attempts, invocations with failure
+ * reasons, per-unit budget counters and, on demand, its trace.
  */
 import { Suspense } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { WorkflowRunDetail } from "../lib/api";
 
-const { listWorkflowRuns, getWorkflowRun } = vi.hoisted(() => ({
-  listWorkflowRuns: vi.fn(),
-  getWorkflowRun: vi.fn(),
-}));
-
-vi.mock("../lib/api", () => ({ listWorkflowRuns, getWorkflowRun }));
+const api = vi.hoisted(() => ({ listWorkflowRuns: vi.fn(), getWorkflowRun: vi.fn(), getRunTrace: vi.fn() }));
+vi.mock("../lib/api", () => api);
 
 import WorkflowsPage from "../app/workflows/page";
-import WorkflowRunPage, { WORKFLOW_REFRESH_MS } from "../app/workflows/[id]/page";
+import WorkflowRunPage from "../app/workflows/[id]/page";
+import { WORKFLOW_REFRESH_MS } from "../app/workflows/WorkflowsScreen";
 
 beforeEach(() => {
-  listWorkflowRuns.mockReset();
-  getWorkflowRun.mockReset();
+  for (const fn of Object.values(api)) fn.mockReset();
+  api.listWorkflowRuns.mockResolvedValue([]);
 });
 
-describe("Workflows list", () => {
-  it("renders each run with a link to its detail view", async () => {
-    listWorkflowRuns.mockResolvedValueOnce([
+async function renderRun(id = "wr-1") {
+  await act(async () => {
+    render(
+      <Suspense fallback={<p>suspended</p>}>
+        <WorkflowRunPage params={Promise.resolve({ id })} />
+      </Suspense>
+    );
+  });
+}
+
+describe("Workflows runs board", () => {
+  it("renders each run with its status, definition and a link to its detail view", async () => {
+    api.listWorkflowRuns.mockResolvedValueOnce([
       {
         id: "wr-1",
         status: "in_progress",
@@ -38,16 +46,25 @@ describe("Workflows list", () => {
 
     render(<WorkflowsPage />);
 
-    const link = await screen.findByRole("link", { name: "Compare EV batteries" });
-    expect(link).toHaveAttribute("href", "/workflows/wr-1");
-    expect(screen.getByTestId("workflow-run-row")).toHaveTextContent("in_progress");
-    expect(screen.getByTestId("workflow-run-row")).toHaveTextContent("Research-and-Publish v1");
+    const row = await screen.findByTestId("workflow-run-row");
+    expect(row).toHaveAttribute("href", "/workflows/wr-1");
+    expect(row).toHaveTextContent("Compare EV batteries");
+    expect(row).toHaveTextContent("in progress");
+    expect(row).toHaveTextContent("Research-and-Publish v1");
+    expect(screen.getByText("Choose a workflow run to see where it is in its sequence.")).toBeInTheDocument();
   });
 
-  it("says so when there are no runs", async () => {
-    listWorkflowRuns.mockResolvedValueOnce([]);
+  it("says so when there are no runs, with a way to start a goal", async () => {
     render(<WorkflowsPage />);
     expect(await screen.findByText("No workflow runs yet.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Start a goal" })).toHaveAttribute("href", "/goals");
+  });
+
+  it("shows a list failure with Retry", async () => {
+    api.listWorkflowRuns.mockRejectedValueOnce(new Error("API request failed: GET /workflow-runs -> 500 Internal Server Error"));
+    render(<WorkflowsPage />);
+    expect(await screen.findByText("Couldn't load workflow runs.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });
 
@@ -69,130 +86,115 @@ describe("Workflow run detail", () => {
           completedAt: "t",
           agent: { name: "Researcher", version: 1 },
           invocations: [
-            { id: "i-1", seqNo: 1, kind: "tool", status: "completed", startedAt: "t", completedAt: "t", failureReason: null, errorCode: null, artifactIds: [] },
-            {
-              id: "i-2",
-              seqNo: 2,
-              kind: "llm",
-              status: "failed",
-              startedAt: "t",
-              completedAt: "t",
-              failureReason: "interrupted_outcome_unknown",
-              errorCode: "timeout",
-              artifactIds: [],
-            },
+            { id: "i-1", seqNo: 1, kind: "tool", status: "completed", startedAt: "t", completedAt: "t", failureReason: null, errorCode: null, artifactIds: ["art-1"] },
+            { id: "i-2", seqNo: 2, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "interrupted_outcome_unknown", errorCode: "timeout", artifactIds: [] },
           ],
           budget: [
             { resourceUnit: "subscription_tokens", limitAmount: "200000", reservedAmount: "0", consumedAmount: "1050" },
             { resourceUnit: "usd", limitAmount: "1.00", reservedAmount: "0", consumedAmount: "0.01" },
           ],
         },
+        attempts: [
+          { id: "run-0", attempt: 1, status: "failed", outcomeReason: "provider_failure", failureReason: "timed out", errorCode: "timeout", startedAt: "t", completedAt: "t" },
+          { id: "run-1", attempt: 2, status: "failed", outcomeReason: "invocation_interrupted", failureReason: null, errorCode: null, startedAt: "t", completedAt: "t" },
+        ],
       },
       { index: 1, taskDefinition: { id: "td-2", name: "Review-and-Publish", version: 1 }, taskInstance: null, run: null },
     ],
     stepsUnavailableReason: null,
   };
 
-  it("renders steps in order with each Run's invocations, failure reasons and per-unit budget", async () => {
-    getWorkflowRun.mockResolvedValueOnce(detail);
-
-    // The page reads `params` with React's `use`, which suspends: the render must
-    // happen inside an AWAITED act so the suspension can settle.
-    await act(async () => {
-      render(
-        <Suspense fallback={<p>suspended</p>}>
-          <WorkflowRunPage params={Promise.resolve({ id: "wr-1" })} />
-        </Suspense>
-      );
-    });
+  it("renders the corridor in order and the failed step's attempts, invocations, failure reasons and per-unit budget", async () => {
+    api.getWorkflowRun.mockResolvedValueOnce(detail);
+    await renderRun();
 
     expect(await screen.findByRole("heading", { name: "Compare EV batteries" })).toBeInTheDocument();
-    expect(getWorkflowRun).toHaveBeenCalledWith("wr-1");
-    // A finished run is read exactly once: no polling, and no extra read when it is found to be finished.
-    expect(getWorkflowRun).toHaveBeenCalledTimes(1);
+    expect(api.getWorkflowRun).toHaveBeenCalledWith("wr-1");
+    // A finished run is read exactly once: no polling.
+    expect(api.getWorkflowRun).toHaveBeenCalledTimes(1);
 
     const steps = screen.getAllByTestId("workflow-step");
     expect(steps).toHaveLength(2);
-    expect(steps[0]).toHaveTextContent("Research-Report — failed");
-    expect(steps[0]).toHaveTextContent("Researcher v1");
-    expect(steps[0]).toHaveTextContent("invocation_interrupted");
-    expect(steps[1]).toHaveTextContent("Review-and-Publish — not started");
+    expect(steps[0]).toHaveTextContent("Step 1 · Research-Report");
+    expect(steps[0]).toHaveTextContent("failed");
+    expect(steps[0]).toHaveAttribute("aria-pressed", "true");
+    expect(steps[1]).toHaveTextContent("Step 2 · Review-and-Publish");
+    expect(steps[1]).toHaveTextContent("not started");
+
+    const step = screen.getByTestId("step-detail");
+    expect(step).toHaveTextContent("Researcher v1");
+    expect(step).toHaveTextContent("invocation_interrupted");
+    expect(within(screen.getByTestId("attempts")).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByTestId("attempts")).toHaveTextContent("timed out (timeout)");
 
     const rows = screen.getAllByTestId("invocation-row");
     expect(rows).toHaveLength(2);
     expect(rows[1]).toHaveTextContent("interrupted_outcome_unknown (timeout)");
+    expect(within(rows[0]!).getByRole("link", { name: "output 1" })).toHaveAttribute("href", "/artifacts/art-1");
 
-    // Separate counters per unit, never summed.
     const budget = screen.getByTestId("run-budget");
-    expect(budget).toHaveTextContent("subscription_tokens: 1050 consumed of 200000");
-    expect(budget).toHaveTextContent("usd: 0.01 consumed of 1.00");
+    expect(budget).toHaveTextContent("1050 consumed of 200000");
+    expect(budget).toHaveTextContent("0.01 consumed of 1.00");
+
+    fireEvent.click(steps[1]!);
+    expect(await screen.findByText("No run has started for this step.")).toBeInTheDocument();
+  });
+
+  it("loads a Run's trace on demand, in sequence order", async () => {
+    api.getWorkflowRun.mockResolvedValueOnce(detail);
+    api.getRunTrace.mockResolvedValueOnce({
+      run: { id: "run-1", status: "failed", startedAt: "t", completedAt: "t" },
+      events: [
+        { eventId: "e-1", eventType: "run_started", occurredAt: "t", sequenceNo: 1, actor: "system", payload: {} },
+        { eventId: "e-2", eventType: "invocation_failed", occurredAt: "t", sequenceNo: 2, actor: "system", payload: {} },
+      ],
+      invocations: [],
+    });
+    await renderRun();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show the run trace" }));
+    await waitFor(() => expect(api.getRunTrace).toHaveBeenCalledWith("run-1"));
+    const trace = await screen.findByTestId("run-trace");
+    expect(trace).toHaveTextContent(/1 run started.*2 invocation failed/);
   });
 
   it("re-reads an unfinished run periodically, and stops once it has finished", async () => {
     vi.useFakeTimers();
     try {
       const running = { ...detail, workflowRun: { ...detail.workflowRun, status: "in_progress" } };
-      getWorkflowRun.mockResolvedValueOnce(running).mockResolvedValueOnce(running).mockResolvedValue(detail);
-
-      await act(async () => {
-        render(
-          <Suspense fallback={<p>suspended</p>}>
-            <WorkflowRunPage params={Promise.resolve({ id: "wr-1" })} />
-          </Suspense>
-        );
-      });
-      expect(getWorkflowRun).toHaveBeenCalledTimes(1);
+      api.getWorkflowRun.mockResolvedValueOnce(running).mockResolvedValueOnce(running).mockResolvedValue(detail);
+      await renderRun();
+      expect(api.getWorkflowRun).toHaveBeenCalledTimes(1);
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(WORKFLOW_REFRESH_MS);
       });
-      expect(getWorkflowRun).toHaveBeenCalledTimes(2);
+      expect(api.getWorkflowRun).toHaveBeenCalledTimes(2);
 
-      // The third read reports it finished; polling then stops.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(WORKFLOW_REFRESH_MS);
       });
-      const callsWhenFinished = getWorkflowRun.mock.calls.length;
+      const callsWhenFinished = api.getWorkflowRun.mock.calls.length;
       await act(async () => {
         await vi.advanceTimersByTimeAsync(WORKFLOW_REFRESH_MS * 3);
       });
-      // Finishing stops the timer without any further read.
       expect(callsWhenFinished).toBe(3);
-      expect(getWorkflowRun.mock.calls.length).toBe(callsWhenFinished);
+      expect(api.getWorkflowRun.mock.calls.length).toBe(callsWhenFinished);
     } finally {
       vi.useRealTimers();
     }
   });
 
   it("says why steps cannot be shown instead of rendering an empty run", async () => {
-    getWorkflowRun.mockResolvedValueOnce({
-      ...detail,
-      steps: [],
-      stepsUnavailableReason: "the workflow definition's graph is not a valid linear graph",
-    });
-
-    await act(async () => {
-      render(
-        <Suspense fallback={<p>suspended</p>}>
-          <WorkflowRunPage params={Promise.resolve({ id: "wr-1" })} />
-        </Suspense>
-      );
-    });
-
+    api.getWorkflowRun.mockResolvedValueOnce({ ...detail, steps: [], stepsUnavailableReason: "the workflow definition's graph is not a valid linear graph" });
+    await renderRun();
     expect(await screen.findByRole("alert")).toHaveTextContent(/Steps cannot be shown: .*not a valid linear graph/);
   });
 
-  it("shows the error when the run cannot be loaded", async () => {
-    getWorkflowRun.mockRejectedValueOnce(new Error("API request failed: GET /workflow-runs/x -> 404 Not Found"));
-
-    await act(async () => {
-      render(
-        <Suspense fallback={<p>suspended</p>}>
-          <WorkflowRunPage params={Promise.resolve({ id: "x" })} />
-        </Suspense>
-      );
-    });
-
-    expect(await screen.findByText(/Failed to load workflow run: .*404/)).toBeInTheDocument();
+  it("says a missing run was not found, with Retry", async () => {
+    api.getWorkflowRun.mockRejectedValueOnce(new Error("API request failed: GET /workflow-runs/x -> 404 Not Found"));
+    await renderRun("x");
+    expect(await screen.findByText("This workflow run wasn't found.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });

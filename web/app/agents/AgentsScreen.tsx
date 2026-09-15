@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getAgentDetail, type AgentDetail } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
 import { AgentRoster, useAgentRoster } from "../../components/agents/roster";
@@ -210,16 +210,16 @@ function AgentBoard({
           {detail.budgetTotals.length === 0 ? (
             <p className={px.dim}>No consumption recorded.</p>
           ) : (
-            <dl className={cx(px.kv, px.vellum)} data-testid="agent-usage">
+            <ul className={cx(px.vellum, a.plainList)} data-testid="agent-usage">
               {detail.budgetTotals.map((t) => (
-                <Fragment key={t.resourceUnit}>
-                  <dt>{t.resourceUnit}</dt>
-                  <dd>
+                <li key={t.resourceUnit}>
+                  <div className={px.dim}>{t.resourceUnit}</div>
+                  <div>
                     {t.consumed} consumed · {t.reserved} reserved
-                  </dd>
-                </Fragment>
+                  </div>
+                </li>
               ))}
-            </dl>
+            </ul>
           )}
           <p className={px.detail}>Per unit, across the runs under Work. Units are never combined.</p>
           <Link href="/costs" className={a.link}>

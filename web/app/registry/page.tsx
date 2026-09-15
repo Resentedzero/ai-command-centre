@@ -123,7 +123,7 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
                 {reg.taskDefinitions.length === 0 ? (
                   <p className={px.dim}>No task definitions exist yet.</p>
                 ) : (
-                  <ul className={cx(px.vellum, a.events)}>
+                  <ul className={cx(px.vellum, a.plainList)}>
                     {reg.taskDefinitions.map((t) => (
                       <li key={t.id}>
                         {t.name} v{t.version} <span className={px.dim}>· {t.kind} · {t.planRegistered ? "plan registered" : "no plan registered"}</span>
@@ -138,7 +138,7 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
                 {reg.workflowDefinitions.length === 0 ? (
                   <p className={px.dim}>No workflow definitions exist yet.</p>
                 ) : (
-                  <ul className={cx(px.vellum, a.events)}>
+                  <ul className={cx(px.vellum, a.plainList)}>
                     {reg.workflowDefinitions.map((w) => (
                       <li key={w.id}>
                         {w.name} v{w.version}

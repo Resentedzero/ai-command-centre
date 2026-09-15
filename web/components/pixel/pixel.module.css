@@ -213,7 +213,8 @@
 .gaugeFill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--state-idle);
+  /* Consumption is a quantity, not a state: cream, never a state hue. */
+  background: var(--pixel-label);
 }
 .gaugeReserved {
   position: absolute;
