@@ -62,17 +62,16 @@ describe("Cost ledger", () => {
     expect(counters[0]).toHaveTextContent("Researcher v1 · Research-Report");
     expect(counters[0]).toHaveTextContent("18204 consumed · 0 reserved · limit 200000");
     expect(counters[1]).toHaveTextContent("2026-09-15");
-    expect(screen.getByText(/Showing the 500 most recently updated counters/)).toBeInTheDocument();
+    expect(screen.getByText(/Showing the 2 most recently updated counters/)).toBeInTheDocument();
     expect(screen.getByTestId("cost-vs-success")).toHaveTextContent("9100 subscription_tokens");
-    expect(screen.getByText(/ranks nothing and suggests no change/)).toBeInTheDocument();
+    expect(screen.getByText("A measurement, not a recommendation.")).toBeInTheDocument();
     expect(api.getCosts).toHaveBeenCalledWith(undefined);
   });
 
   it("filters by scope through the API", async () => {
     api.getCosts.mockResolvedValue({ ...data, counters: [], totals: [], costVsSuccess: [], countersTruncated: false });
     render(<CostsPage />);
-    await screen.findByText("No budget counters yet.");
-    fireEvent.click(screen.getByRole("button", { name: "day" }));
+    await screen.findByText("No budget counters yet.");    fireEvent.click(screen.getByRole("button", { name: "day" }));
     await waitFor(() => expect(api.getCosts).toHaveBeenCalledWith("day"));
     expect(screen.getByRole("button", { name: "day" })).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByText("No counters in this scope.")).toBeInTheDocument();

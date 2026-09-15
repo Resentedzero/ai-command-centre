@@ -5,14 +5,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getAgentDetail, getArtifact, type AgentDetail, type ArtifactDetail } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
 import { AgentRoster, useAgentRoster } from "../../components/agents/roster";
-import { PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
+import { PixelButton, RefreshNotice, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
-import { errorText, formatTime } from "../../lib/keep";
+import { countLabel, errorText, formatTime } from "../../lib/keep";
 import s from "./artifacts.module.css";
 
 type Output = AgentDetail["outputs"][number];
 
 const CHESTS_PER_ROW = 6;
+/** `GET /agents/:id` returns at most this many outputs, so a full list is shown as 10+. */
+const OUTPUTS_CAP = 10;
 
 /** A typed-unknown provenance field (from event payloads) shown as text, or an honest absence. */
 function shown(v: unknown): string {
@@ -36,15 +38,18 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
 
+  const artifactSeq = useRef(0);
   const loadArtifact = useCallback(async () => {
     if (!id) return;
+    const n = ++artifactSeq.current;
     try {
       const d = await getArtifact(id, full);
+      if (n !== artifactSeq.current) return;
       setArtifact(d);
       setArtifactError(null);
       if (full) setContent(d.artifact.content ?? null);
     } catch (err) {
-      setArtifactError(errorText(err));
+      if (n === artifactSeq.current) setArtifactError(errorText(err));
     }
   }, [id, full]);
 
@@ -105,7 +110,7 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
       <div className={s.left}>
         <AgentRoster roster={roster} selectedId={agentId} hrefFor={(x) => `/artifacts?agent=${x}`} />
         <nav className={cx(px.board, s.outputs)} aria-label="Outputs">
-          <span className={px.tab}>Outputs{outputs ? ` · ${outputs.length}` : ""}</span>
+          <span className={px.tab}>Outputs{outputs ? ` · ${countLabel(outputs.length, OUTPUTS_CAP)}` : ""}</span>
           {!agentId ? (
             <StateNotice message={id && !artifact && !artifactError ? <Skeleton /> : "Choose an agent to browse its outputs."} />
           ) : !outputs && outputsError ? (
@@ -129,13 +134,14 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
               ))}
             </ul>
           )}
-          {agentId && <p className={px.detail}>Recent outputs of this agent&apos;s recent runs (GET /agents/:id). No route lists every artifact.</p>}
+          {outputs && outputsError && <RefreshNotice error={outputsError} />}
+          {agentId && <p className={px.detail}>This agent&apos;s most recent outputs.</p>}
         </nav>
       </div>
 
       <section className={s.main} aria-label="Artifact">
         <div className={s.top}>
-          <div className={s.vault} role="img" aria-label={outputs ? `Vault: ${outputs.length} chests` : "Vault"}>
+          <div className={s.vault} role="img" aria-label={outputs ? `Vault: ${countLabel(outputs.length, OUTPUTS_CAP)} outputs` : "Vault"}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/world/room-v5-vault-2x.png" width={352} height={256} alt="" className={world.base} draggable={false} />
             <div className={world.night} />

@@ -123,7 +123,7 @@ export function WorkflowsScreen({ id: routeId }: { id?: string }) {
           </ul>
         )}
         {runs && runsError && (
-          <RefreshNotice error={runsError} message="Couldn't refreshthe list." />
+          <RefreshNotice error={runsError} message="Couldn't refresh the list." />
         )}
         <Link href="/costs" className={w.link}>
           Open the cost ledger
@@ -217,7 +217,7 @@ function RunView({ id }: { id: string }) {
         <StateNotice className={px.board} message="This workflow definition has no steps." />
       ) : (
         <>
-          <Corridor steps={steps} selected={current} attention={attention} onSelect={setSelected} />
+          <Corridor steps={steps} selected={current} attention={attention} onSelect={setSelected} stale={loadError !== null} />
           {step && <StepDetail key={`${step.index}-${step.run?.id ?? "none"}`} step={step} />}
         </>
       )}
@@ -230,7 +230,9 @@ function Corridor({
   selected,
   attention,
   onSelect,
+  stale,
 }: {
+  stale: boolean;
   steps: WorkflowStepDetail[];
   selected: number;
   attention: number;
@@ -239,7 +241,7 @@ function Corridor({
   const x = (i: number) => HALL_W + i * (ROOM_W + HALL_W);
   const width = x(steps.length);
   return (
-    <WorldViewport width={width} height={ROOM_H} focus={{ x: x(attention) + ROOM_W / 2, y: ROOM_H / 2 }} label="Workflow corridor" className={w.corridor}>
+    <WorldViewport width={width} height={ROOM_H} focus={{ x: x(attention) + ROOM_W / 2, y: ROOM_H / 2 }} label="Workflow corridor" className={cx(w.corridor, stale && world.stale)}>
       {Array.from({ length: steps.length + 1 }, (_, i) => (
         <div key={`hall-${i}`} className={w.hall} style={{ left: x(i) - HALL_W, width: HALL_W, height: ROOM_H }}>
           <div className={world.night} />
@@ -409,7 +411,7 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                   </div>
                 ))
               )}
-              <p className={px.detail}>One counter per unit, never combined. Hatched: reserved.</p>
+              <p className={px.detail}>Hatched: reserved.</p>
             </div>
 
             <div className={cx(w.col, w.wide)}>

@@ -7,12 +7,10 @@ import { world } from "../../components/world/World";
 import { formatTime, stateWord, type Tone } from "../../lib/keep";
 import s from "./events.module.css";
 
-/** A type marker per event name: presentation only, from the runtime's own words. Lifting a stop is recovery, so it stays neutral. */
+/** Outcome markers per event name (presentation only). A past event claims no current state, so started and waiting rows stay neutral. */
 const TYPE_TONES: [RegExp, Tone][] = [
   [/failed|halted|denied|rejected|expired|revoked|stop_engaged/, "fail"],
-  [/approval_required/, "wait"],
-  [/completed|approved/, "done"],
-  [/started/, "active"],
+    [/completed|approved/, "done"],
 ];
 
 function toneOfEvent(eventType: string): Tone {
@@ -31,12 +29,13 @@ export default function EventsPage() {
   const { status, events, reconnect } = useLive();
   const [filter, setFilter] = useState<string | null>(null);
   const types = useMemo(() => [...new Set(events.map((e) => e.eventType))].sort(), [events]);
-  const rows = useMemo(() => events.filter((e) => filter === null || e.eventType === filter).reverse(), [events, filter]);
+  const active = filter !== null && types.includes(filter) ? filter : null;
+  const rows = useMemo(() => events.filter((e) => active === null || e.eventType === active).reverse(), [events, active]);
 
   return (
     <main className={s.screen}>
       <header className={s.head}>
-        <div className={cx(s.strip, isStale(status) && world.stale)} role="img" aria-label="Library">
+        <div className={cx(s.strip, isStale(status) && world.stale)} aria-hidden>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/world/room-v5-library-2x.png" width={352} height={256} alt="" className={world.base} style={{ top: -72 }} draggable={false} />
           <div className={world.night} />
@@ -64,11 +63,11 @@ export default function EventsPage() {
           )}
           {types.length > 0 && (
             <div role="group" aria-label="Filter by type" className={s.chips}>
-              <button type="button" className={cx(px.plaque, s.chip, filter === null && px.selected)} aria-pressed={filter === null} onClick={() => setFilter(null)}>
+              <button type="button" className={cx(px.plaque, s.chip, active === null && px.selected)} aria-pressed={active === null} onClick={() => setFilter(null)}>
                 all types
               </button>
               {types.map((t) => (
-                <button key={t} type="button" className={cx(px.plaque, s.chip, filter === t && px.selected)} aria-pressed={filter === t} onClick={() => setFilter(t)}>
+                <button key={t} type="button" className={cx(px.plaque, s.chip, active === t && px.selected)} aria-pressed={active === t} onClick={() => setFilter(t)}>
                   {stateWord(t)}
                 </button>
               ))}
@@ -88,10 +87,10 @@ export default function EventsPage() {
           <table className={s.table}>
             <thead>
               <tr>
-                <th>time</th>
-                <th>type</th>
-                <th>summary</th>
-                <th>cursor</th>
+                <th scope="col">time</th>
+                <th scope="col">type</th>
+                <th scope="col">summary</th>
+                <th scope="col">cursor</th>
               </tr>
             </thead>
             <tbody>

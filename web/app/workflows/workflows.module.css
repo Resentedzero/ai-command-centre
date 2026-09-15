@@ -85,6 +85,7 @@
 .corridor {
   flex: none;
   height: 264px;
+  max-width: fit-content;
 }
 
 .room {

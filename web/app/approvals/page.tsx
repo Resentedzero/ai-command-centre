@@ -51,6 +51,8 @@ export default function ApprovalsPage() {
     setActionNotice(null);
     try {
       const result = await action(id);
+      setDecided(true);
+      setSelectedId(null);
       if (result?.advanceError) setActionNotice(result.advanceError);
     } catch (err) {
       setActionError(errorText(err));
@@ -60,7 +62,12 @@ export default function ApprovalsPage() {
     }
   }
 
-  const selected = approvals?.find((a) => a.id === selectedId) ?? approvals?.[0] ?? null;
+  // The first request is chosen once; after a decision nothing is auto-selected, so Approve never moves to an unread request.
+  const [decided, setDecided] = useState(false);
+  const selected = approvals?.find((a) => a.id === selectedId) ?? (decided ? null : (approvals?.[0] ?? null));
+  useEffect(() => {
+    if (selectedId === null && !decided && approvals && approvals[0]) setSelectedId(approvals[0].id);
+  }, [selectedId, decided, approvals]);
   // The API's own hash check: when the content changed, the decision point says so and Approve is not drawn as armed.
   const changed = selected?.context?.artifact?.hashMatchesSnapshot === false;
   const stale = isStale(status) || (approvals !== null && loadError !== null);
@@ -97,7 +104,7 @@ export default function ApprovalsPage() {
           </ul>
         )}
         {approvals && loadError && (
-          <RefreshNotice error={loadError} message="Couldn't refreshthe queue; it may be out of date." />
+          <RefreshNotice error={loadError} message="Couldn't refresh the queue; it may be out of date." />
         )}
       </nav>
 
@@ -109,9 +116,10 @@ export default function ApprovalsPage() {
             </p>
           )}
           {actionNotice && (
-            <p role="alert" className={cx(px.parchment, s.notice)}>
-              {actionNotice}
-            </p>
+            <div role="alert" className={cx(px.parchment, s.notice)}>
+              <p className={px.label}>The decision was recorded, but the workflow didn&apos;t continue.</p>
+              <p className={px.detail}>{actionNotice}</p>
+            </div>
           )}
 
           <div className={s.top}>
@@ -173,7 +181,7 @@ export default function ApprovalsPage() {
                   <p>A request appears here when an agent reaches an approval gate.</p>
                 </div>
               ) : (
-                <StateNotice className={px.board} message="Choose a request from the queue." />
+                <StateNotice className={px.board} message={decided ? "Decision recorded. Choose the next request from the queue." : "Choose a request from the queue."} />
               ))
             )}
           </div>
@@ -200,7 +208,7 @@ export default function ApprovalsPage() {
             <PixelButton
               kind={changed ? "neutral" : "approve"}
               onClick={() => void resolve(selected.id, approveApproval)}
-              disabled={pendingActionId === selected.id}
+              disabled={pendingActionId !== null}
               aria-label={`Approve ${selected.context?.capabilityName ?? "approval"} ${selected.id}`}
             >
               {!changed && <ButtonMark tone="done" />}
@@ -209,7 +217,7 @@ export default function ApprovalsPage() {
             <PixelButton
               kind="danger"
               onClick={() => void resolve(selected.id, rejectApproval)}
-              disabled={pendingActionId === selected.id}
+              disabled={pendingActionId !== null}
               aria-label={`Reject ${selected.context?.capabilityName ?? "approval"} ${selected.id}`}
             >
               <ButtonMark tone="fail" />

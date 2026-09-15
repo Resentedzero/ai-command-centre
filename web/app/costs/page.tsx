@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BUDGET_SCOPES, getCosts, type CostsData } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, PixelButton, Skeleton, StateNotice, UnitGauge, cx, px } from "../../components/pixel/Pixel";
@@ -32,12 +32,17 @@ export default function CostsPage() {
   const [data, setData] = useState<CostsData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Only the latest read may land, so a slow reply for another scope never shows under this one.
+  const seq = useRef(0);
   const load = useCallback(async () => {
+    const n = ++seq.current;
     try {
-      setData(await getCosts(scope));
+      const d = await getCosts(scope);
+      if (n !== seq.current) return;
+      setData(d);
       setError(null);
     } catch (err) {
-      setError(errorText(err));
+      if (n === seq.current) setError(errorText(err));
     }
   }, [scope]);
 
@@ -51,7 +56,7 @@ export default function CostsPage() {
   return (
     <main className={c.screen}>
       <aside className={cx(px.board, c.side)}>
-        <div className={c.engine} role="img" aria-label="Engine room">
+        <div className={c.engine} aria-hidden>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/world/room-v5-engine-2x.png" width={352} height={256} alt="" className={world.base} draggable={false} />
           <div className={world.night} />
@@ -95,8 +100,7 @@ export default function CostsPage() {
             </ul>
           )}
           <p className={px.detail}>
-            Summed by the API per scope and unit. Units are never combined, and scopes are never added together: the same spend can sit in a run
-            counter and a day counter.
+            Per scope and unit. The same spend can appear in a run and a day counter.
           </p>
         </section>
       </aside>
@@ -113,7 +117,7 @@ export default function CostsPage() {
             )}
             <span className={px.tab}>Counters</span>
             {data.counters.length === 0 ? (
-              <p className={px.dim}>No budget counters yet.</p>
+              <p className={px.dim}>{scope ? "No counters in this scope." : "No budget counters yet."}</p>
             ) : (
               <ul className={c.counters}>
                 {data.counters.map((ct) => (
@@ -134,7 +138,7 @@ export default function CostsPage() {
             )}
             <p className={px.detail}>
               Gauges are drawn for run counters, whose limit is enforced. Other limits are shown as stored when the counter was created.
-              {data.countersTruncated && " Showing the 500 most recently updated counters; the totals cover every counter."}
+              {data.countersTruncated && ` Showing the ${data.counters.length} most recently updated counters; the totals cover every counter.`}
             </p>
 
             <span className={px.tab}>Cost and success</span>
@@ -179,7 +183,7 @@ export default function CostsPage() {
                 </table>
               </div>
             )}
-            <p className={px.detail}>A measurement, not a recommendation: it ranks nothing and suggests no change.</p>
+            <p className={px.detail}>A measurement, not a recommendation.</p>
           </>
         )}
       </section>

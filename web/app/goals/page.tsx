@@ -104,7 +104,7 @@ export default function GoalsPage() {
 
       <section className={g.room} aria-label="Goals">
         <div className={g.top}>
-          <div className={g.vignette} role="img" aria-label="War room">
+          <div className={g.vignette} aria-hidden>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/world/room-v5-war-2x.png" width={352} height={256} alt="" className={world.base} draggable={false} />
             <div className={world.night} />
@@ -129,12 +129,13 @@ export default function GoalsPage() {
                     );
                   })}
                 </div>
-                <div className={px.detail}>Workflow runs of the goals listed{goalCount >= GOAL_LIST_CAP ? " (the newest 500 goals)" : ""}.</div>
+                <div className={px.detail}>Workflow runs of the goals listed.</div>
               </>
             )}
           </div>
         </div>
 
+        {projects && loadError && <RefreshNotice error={loadError} />}
         {!projects && loadError ? (
           <StateNotice
             role="alert"
@@ -149,9 +150,6 @@ export default function GoalsPage() {
           <StateNotice className={px.board} message="No goals yet. Start one with the form." />
         ) : (
           <>
-            {loadError && (
-              <RefreshNotice error={loadError} />
-            )}
             {withGoals.map((project) => (
               <section key={project.id} className={cx(px.board, g.wing)} data-testid="project" aria-label={project.name}>
                 <div className={g.row}>
@@ -173,7 +171,7 @@ export default function GoalsPage() {
                         <div className={g.corridor}>
                           {goal.workflowRuns.map((run) => (
                             <Link key={run.id} href={`/workflows/${run.id}`} className={cx(px.plaque, g.runChip)}>
-                              Workflow run
+                              Workflow run <span className={px.dim}>{formatTime(run.createdAt)}</span>
                               <StatusMark state={run.status} />
                             </Link>
                           ))}
