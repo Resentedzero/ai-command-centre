@@ -56,6 +56,7 @@ import { TIER_ORDER, type RiskTier } from "../governance/risk.js";
 import { adapterFor } from "../capabilities/toolAdapters.js";
 import { hasTaskPlan, requireContextBudget } from "../capabilities/taskPlans.js";
 import { isLinearGraphDefinition } from "../workflow/graphTypes.js";
+import { parseExecutionProfile } from "./executionProfile.js";
 
 /** A refused write. `status` is the HTTP status the route returns. */
 export class RegistryWriteError extends Error {
@@ -67,7 +68,14 @@ export class RegistryWriteError extends Error {
   }
 }
 
-export type Created = { id: string; name: string; version: number | null; eventIdempotencyKey: string };
+export type Created = {
+  id: string;
+  name: string;
+  version: number | null;
+  eventIdempotencyKey: string;
+  /** Further events the same write committed (an Agent version's Grants), in commit order. */
+  additionalEventIdempotencyKeys?: string[];
+};
 
 type Body = Record<string, unknown>;
 
@@ -76,6 +84,8 @@ type Body = Record<string, unknown>;
 const LOCK_CLASS_ID = 20260914;
 const PERMISSIONS: readonly CapabilityPermission[] = ["READ", "WRITE", "CREATE", "PUBLISH", "SPEND", "TRADE", "DELETE", "EXECUTE", "SEND"];
 const AUTONOMY_STATES: readonly CapabilityGrant["autonomyState"][] = ["ALWAYS_APPROVE", "CONDITIONAL", "AUTONOMOUS"];
+export const GRANT_PERMISSIONS = PERMISSIONS;
+export const GRANT_AUTONOMY_STATES = AUTONOMY_STATES;
 const INT4_MAX = 2_147_483_647;
 const MAX_GRAPH_STEPS = 100;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -246,8 +256,24 @@ export async function createToolBinding(tx: DrizzleTransaction, body: Body, acto
   });
 }
 
+/** The most Grants one Agent Definition write may create alongside the version. */
+export const MAX_GRANTS_PER_AGENT_WRITE = 50;
+
+/**
+ * Creates an Agent Definition version and, optionally, its Capability Grants in the
+ * same transaction (V1.1 Agent Builder), so an agent never exists half-granted. Each
+ * Grant goes through `createCapabilityGrant` unchanged (every check, its own
+ * `capability_granted` event); any refusal rolls back the version too. A new version
+ * inherits no Grants: the caller lists the ones it should have.
+ */
 export async function createAgentDefinition(tx: DrizzleTransaction, body: Body, actor: string): Promise<Created> {
   const name = requireText(body, "name");
+  const profile = parseExecutionProfile(body.executionProfile);
+  if (!profile.ok) refuse(profile.reason);
+  const grants = body.grants;
+  if (grants !== undefined && (!Array.isArray(grants) || grants.length > MAX_GRANTS_PER_AGENT_WRITE || !grants.every(isPlainObject))) {
+    refuse(`"grants" must be a list of at most ${MAX_GRANTS_PER_AGENT_WRITE} grant objects.`);
+  }
   const values = {
     name,
     role: requireText(body, "role"),
@@ -255,11 +281,27 @@ export async function createAgentDefinition(tx: DrizzleTransaction, body: Body, 
     instructions: requireText(body, "instructions"),
     memoryPolicy: optionalObject(body, "memoryPolicy"),
     escalationPolicy: optionalObject(body, "escalationPolicy"),
+    executionProfile: profile.profile as Record<string, unknown>,
   };
   await lock(tx, `agent_definitions:${name}`);
   const version = await nextVersion(tx, agentDefinitions, agentDefinitions.version, agentDefinitions.name, name, body, `Agent Definition "${name}"`);
   const [row] = await tx.insert(agentDefinitions).values({ ...values, version }).returning();
-  return definitionCreated(tx, actor, "agent_definition", { id: row!.id, name, version });
+  const created = await definitionCreated(tx, actor, "agent_definition", { id: row!.id, name, version });
+
+  const grantEventKeys: string[] = [];
+  for (const [index, grant] of ((grants as Body[] | undefined) ?? []).entries()) {
+    for (const pinned of ["agentDefinitionId", "agentDefinitionVersion"]) {
+      if (grant[pinned] !== undefined) refuse(`grants[${index}]: "${pinned}" is set by the new version and must be omitted.`);
+    }
+    try {
+      const g = await createCapabilityGrant(tx, { ...grant, agentDefinitionId: row!.id, agentDefinitionVersion: version }, actor);
+      grantEventKeys.push(g.eventIdempotencyKey);
+    } catch (error) {
+      if (error instanceof RegistryWriteError) throw new RegistryWriteError(error.status, `grants[${index}]: ${error.message}`);
+      throw error;
+    }
+  }
+  return { ...created, additionalEventIdempotencyKeys: grantEventKeys };
 }
 
 export async function createTaskDefinition(tx: DrizzleTransaction, body: Body, actor: string): Promise<Created> {

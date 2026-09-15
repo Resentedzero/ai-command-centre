@@ -122,7 +122,9 @@ describe("Agent Detail", () => {
     const grants = screen.getByTestId("agent-grants");
     expect(grants).toHaveTextContent("Key 1 · publish.report");
     expect(grants).toHaveTextContent("PUBLISH · ALWAYS_APPROVE · trust ≥ 1");
-    expect(screen.queryByRole("button", { name: /grant|revoke/i })).not.toBeInTheDocument();
+    // V1.1: a key can be revoked (a confirmed Registry act); keys are never granted from this board.
+    expect(within(grants).getByRole("button", { name: "Revoke" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /grant/i })).not.toBeInTheDocument();
 
     const usage = screen.getByTestId("agent-usage");
     expect(usage).toHaveTextContent("subscription_tokens1050 consumed · 0 reserved");

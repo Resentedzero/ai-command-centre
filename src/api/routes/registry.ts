@@ -52,7 +52,14 @@ import { createWorkflowRelay, relayCommittedEvent } from "../liveEventRelay.js";
 import { V1_RESOLUTION_ACTOR } from "./approvals.js";
 import { sqlStateOf } from "../../db/databaseErrors.js";
 import type { DrizzleTransaction } from "../../events/emit.js";
+import { MODEL_TIERS } from "../../router/types.js";
+import { providerCandidates } from "../../router/tierConfig.js";
+import { MAX_ACTIVE_SECONDS, MAX_LOOP_ITERATIONS } from "../../governance/autonomyLimits.js";
+import { TASK_INSTANCE_BUDGET_CEILINGS } from "../../governance/runBudgetPolicy.js";
+import { MIN_ACTIVE_SECONDS, configuredProviders } from "../../definitions/executionProfile.js";
 import {
+  GRANT_AUTONOMY_STATES,
+  GRANT_PERMISSIONS,
   RegistryWriteError,
   createAgentDefinition,
   createCapability,
@@ -93,8 +100,30 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
         instructions: a.instructions,
         memoryPolicy: a.memoryPolicy,
         escalationPolicy: a.escalationPolicy,
+        executionProfile: a.executionProfile,
         createdAt: a.createdAt,
       })),
+      // What an Agent Builder may offer, from the runtime's own configuration: never hard-coded in the UI.
+      builder: {
+        permissions: GRANT_PERMISSIONS,
+        autonomyStates: GRANT_AUTONOMY_STATES,
+        tiers: MODEL_TIERS,
+        providers: configuredProviders().map((provider) => {
+          const own = providerCandidates.filter((c) => c.provider === provider && c.enabled);
+          return {
+            name: provider,
+            enabled: own.length > 0,
+            tiers: MODEL_TIERS.filter((t) => own.some((c) => c.tiers.includes(t))),
+            resourceUnits: [...new Set(own.map((c) => c.accounting.unit))],
+          };
+        }),
+        autonomyLimits: {
+          maxIterations: MAX_LOOP_ITERATIONS,
+          maxActiveSeconds: MAX_ACTIVE_SECONDS,
+          minActiveSeconds: MIN_ACTIVE_SECONDS,
+          taskInstanceCeilings: TASK_INSTANCE_BUDGET_CEILINGS,
+        },
+      },
       capabilities: capabilityRows.map((c) => ({
         id: c.id,
         name: c.name,
@@ -162,6 +191,7 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
         throw error;
       }
       await relayCommittedEvent(deps.db, created.eventIdempotencyKey);
+      for (const key of created.additionalEventIdempotencyKeys ?? []) await relayCommittedEvent(deps.db, key);
       return reply.status(201).send({ id: created.id, name: created.name, version: created.version });
     });
   }

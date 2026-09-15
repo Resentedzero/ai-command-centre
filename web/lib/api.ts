@@ -394,7 +394,7 @@ export type ProjectGoals = { id: string; name: string; description: string | nul
 // ---------------------------------------------------------------------------
 
 export type AgentDetail = {
-  agent: { id: string; name: string; version: number; role: string; objective: string };
+  agent: { id: string; name: string; version: number; role: string; objective: string; instructions?: string; executionProfile?: ExecutionProfile };
   activeStop: { id: string; scope: string; scopeRefId: string; reason: string | null; engagedAt: string } | null;
   grants: {
     id: string;
@@ -559,8 +559,35 @@ export async function getArtifact(id: string, full = false): Promise<ArtifactDet
 // Registry (spec 15.1 screen 6): every Definition, read-only
 // ---------------------------------------------------------------------------
 
+/** An Agent Definition's execution profile, as the Registry stored it (`src/definitions/executionProfile.ts`). */
+export type ExecutionProfile = {
+  preferredTier?: string;
+  provider?: string;
+  loop?: { maxIterations?: number; maxActiveSeconds?: number };
+};
+
+/** What an Agent Builder may offer, read from the runtime's configuration (`GET /registry` `builder`). */
+export type BuilderOptions = {
+  permissions: string[];
+  autonomyStates: string[];
+  tiers: string[];
+  providers: { name: string; enabled: boolean; tiers: string[]; resourceUnits: string[] }[];
+  autonomyLimits: { maxIterations: number; maxActiveSeconds: number; minActiveSeconds: number; taskInstanceCeilings: Record<string, string> };
+};
+
 export type RegistryData = {
-  agentDefinitions: { id: string; name: string; version: number; role: string; objective: string; instructions: string; createdAt: string }[];
+  agentDefinitions: {
+    id: string;
+    name: string;
+    version: number;
+    role: string;
+    objective: string;
+    instructions: string;
+    createdAt: string;
+    executionProfile?: ExecutionProfile;
+  }[];
+  /** Absent from older API builds. */
+  builder?: BuilderOptions;
   capabilities: {
     id: string;
     name: string;
@@ -587,6 +614,29 @@ export type RegistryData = {
 
 export async function getRegistry(): Promise<RegistryData> {
   return apiFetch<RegistryData>("/registry");
+}
+
+export type GrantInput = { capabilityId: string; permissions: string[]; autonomyState: string; maxTrustLevelRequired: number };
+
+export type AgentDefinitionInput = {
+  name: string;
+  role: string;
+  objective: string;
+  instructions: string;
+  executionProfile: ExecutionProfile;
+  grants: GrantInput[];
+  /** The version this write supersedes; omitted for a new agent. */
+  previousVersion?: number;
+};
+
+/** A Registry write: a new Agent Definition version and its Grants, validated and versioned by the API. Nothing is updated. */
+export async function createAgentDefinition(input: AgentDefinitionInput): Promise<{ id: string; name: string; version: number }> {
+  return apiFetch("/agent-definitions", { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Revokes one Grant (spec §9.7); the API closes its pending Approvals. */
+export async function revokeCapabilityGrant(grantId: string): Promise<{ grantId: string; revoked: boolean; cancelledApprovalIds: string[] }> {
+  return apiFetch(`/capability-grants/${encodeURIComponent(grantId)}/revoke`, { method: "POST" });
 }
 
 // ---------------------------------------------------------------------------

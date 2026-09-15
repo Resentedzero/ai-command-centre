@@ -125,6 +125,8 @@ export const agentDefinitions = pgTable("agent_definitions", {
   instructions: text("instructions").notNull(),
   memoryPolicy: jsonb("memory_policy").$type<Record<string, unknown>>(),
   escalationPolicy: jsonb("escalation_policy").$type<Record<string, unknown>>(),
+  /** V1.1 (migration 0020): preferred tier, provider restriction, loop defaults. `../definitions/executionProfile.ts`. */
+  executionProfile: jsonb("execution_profile").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

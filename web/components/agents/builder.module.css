@@ -1,0 +1,174 @@
+/* Builders (Agent, Workflow): a work table of wood boards; inputs on parchment; long help on wood. */
+
+.screen {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-lg);
+  display: flex;
+  justify-content: center;
+}
+
+.form {
+  width: 100%;
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+.form p {
+  margin: 0;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.group {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+}
+.group > legend {
+  float: left;
+  margin-bottom: var(--space-sm);
+}
+.group > legend + * {
+  clear: both;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+.textareaTall {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.grants {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.grant {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.grantControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.perms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  white-space: nowrap;
+}
+.inline select {
+  width: auto;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding-left: var(--space-sm);
+  border-left: 2px solid var(--state-fail);
+}
+.errorMessage {
+  font: 16px/20px var(--font-pixel), monospace;
+  color: var(--state-fail);
+}
+
+.done {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-self: flex-start;
+}
+.done p,
+.done h1 {
+  margin: 0;
+}
+
+.inkLink {
+  color: var(--pixel-ink);
+  font: 16px/20px var(--font-pixel), monospace;
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.stepHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+}
+.stepHead > :first-child {
+  flex: 1 1 auto;
+}
+
+.issues {
+  margin: 0;
+  padding-left: var(--space-xl);
+  color: var(--state-fail);
+  font: 14px/20px var(--font-mono), monospace;
+}

@@ -141,6 +141,13 @@
       "when": 1789552800000,
       "tag": "0019_artifacts_immutability",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789560000000,
+      "tag": "0020_agent_execution_profile",
+      "breakpoints": true
     }
   ]
 }

@@ -307,7 +307,15 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       .orderBy(agentPerformance.taskDefinitionId, agentPerformance.modelTier);
 
     return reply.send({
-      agent: { id: agent.id, name: agent.name, version: agent.version, role: agent.role, objective: agent.objective },
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        version: agent.version,
+        role: agent.role,
+        objective: agent.objective,
+        instructions: agent.instructions,
+        executionProfile: agent.executionProfile,
+      },
       activeStop: activeStop ?? null,
       grants: grantRows.map((g) => ({
         id: g.id,

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getAgentDetail, type AgentDetail } from "../../lib/api";
+import { getAgentDetail, revokeCapabilityGrant, type AgentDetail } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
 import { AgentRoster, useAgentRoster } from "../../components/agents/roster";
 import { StopControl, type ShownStop } from "../../components/StopControl";
@@ -82,9 +82,15 @@ export function AgentsScreen({ id: routeId }: { id?: string }) {
             <StateNotice
               message={roster.registry ? "No agent definitions exist yet." : "No agent is open: the roster couldn't be read."}
               action={
-                <Link href="/registry" className={a.link}>
-                  Open the Registry (read-only)
-                </Link>
+                roster.registry ? (
+                  <Link href="/agents/new" className={a.link}>
+                    Recruit an agent
+                  </Link>
+                ) : (
+                  <Link href="/registry" className={a.link}>
+                    Open the Registry (read-only)
+                  </Link>
+                )
               }
             />
           )}
@@ -129,10 +135,64 @@ export function AgentsScreen({ id: routeId }: { id?: string }) {
         ) : !detail ? (
           <StateNotice role="status" message={<>Loading this agent <Skeleton /></>} />
         ) : (
-          <AgentBoard detail={detail} grants={grants} shownStop={shownStop} taskName={taskName} refreshError={loadError} onChanged={reloadAll} />
+          <AgentBoard
+            detail={detail}
+            grants={grants}
+            shownStop={shownStop}
+            taskName={taskName}
+            refreshError={loadError}
+            onChanged={reloadAll}
+            versions={(registry?.agentDefinitions ?? []).filter((d) => d.name === detail.agent.name).map((d) => ({ id: d.id, version: d.version }))}
+          />
         )}
       </section>
     </main>
+  );
+}
+
+/** Revocation (spec §9.7) is one confirmed act per key; the API closes the key's pending approvals. */
+function RevokeKey({ grantId, label, onChanged }: { grantId: string; label: string; onChanged: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function revoke() {
+    setBusy(true);
+    setError(null);
+    try {
+      await revokeCapabilityGrant(grantId);
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <div className={a.revoke}>
+      {!confirming ? (
+        <PixelButton onClick={() => setConfirming(true)} disabled={busy}>
+          Revoke
+        </PixelButton>
+      ) : (
+        <>
+          <span>Revoke {label}? Its pending approvals close.</span>
+          <PixelButton kind="danger" onClick={() => void revoke()} disabled={busy}>
+            Confirm revoke
+          </PixelButton>
+          <PixelButton onClick={() => setConfirming(false)} disabled={busy}>
+            Keep
+          </PixelButton>
+        </>
+      )}
+      {error && (
+        <p role="alert" className={px.detail}>
+          Couldn&apos;t revoke. {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -143,6 +203,7 @@ function AgentBoard({
   taskName,
   refreshError,
   onChanged,
+  versions,
 }: {
   detail: AgentDetail;
   grants: AgentDetail["grants"];
@@ -150,9 +211,11 @@ function AgentBoard({
   taskName: (id: string) => string;
   refreshError: string | null;
   onChanged: () => Promise<void>;
+  versions: { id: string; version: number }[];
 }) {
   const { agent, contextLineage: ctx } = detail;
   const tiers = ctx ? [...new Set(ctx.included.map((i) => i.tier))].sort((x, y) => x - y) : [];
+  const profile = agent.executionProfile ?? {};
 
   return (
     <>
@@ -161,6 +224,32 @@ function AgentBoard({
           {agent.name} v{agent.version}
         </h1>
         <StopControl agentId={agent.id} name={agent.name} version={agent.version} stop={shownStop} onChanged={onChanged} />
+        <nav className={a.builderLinks} aria-label="Agent builder">
+          <Link href={`/agents/new?from=${agent.id}`} className={a.link}>
+            New version
+          </Link>
+          <Link href="/agents/new" className={a.link}>
+            Recruit an agent
+          </Link>
+          {versions.length > 1 && (
+            <span className={a.versions} data-testid="agent-versions">
+              versions:{" "}
+              {[...versions]
+                .sort((x, y) => x.version - y.version)
+                .map((v) =>
+                  v.id === agent.id ? (
+                    <span key={v.id} aria-current="page">
+                      v{v.version}
+                    </span>
+                  ) : (
+                    <Link key={v.id} href={`/agents/${v.id}`} className={a.link}>
+                      v{v.version}
+                    </Link>
+                  )
+                )}
+            </span>
+          )}
+        </nav>
         {!shownStop && detail.runs.some((r) => r.status === "awaiting_approval") && (
           <Link href="/approvals" className={a.link}>
             Waiting at the council hall: review the approval
@@ -173,6 +262,18 @@ function AgentBoard({
       <div className={px.parchment}>
         <div className={px.label}>{agent.role}</div>
         <div>{agent.objective}</div>
+        <div data-testid="agent-profile">
+          {profile.preferredTier || profile.provider || profile.loop
+            ? [
+                profile.preferredTier && `tier ${profile.preferredTier}`,
+                profile.provider && `provider ${profile.provider} only`,
+                profile.loop?.maxIterations !== undefined && `≤ ${profile.loop.maxIterations} iterations`,
+                profile.loop?.maxActiveSeconds !== undefined && `≤ ${profile.loop.maxActiveSeconds / 60} active min`,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : "runtime defaults"}
+        </div>
       </div>
 
       <section className={a.section} aria-label="Work">
@@ -221,7 +322,11 @@ function AgentBoard({
                   <div>
                     {g.permissions.join(", ")} · {g.autonomyState} · <span className={px.nowrap}>trust ≥ {g.maxTrustLevelRequired}</span>
                   </div>
-                  {g.revoked && <StatusMark state="revoked" tone="neutral" surface="parchment" />}
+                  {g.revoked ? (
+                    <StatusMark state="revoked" tone="neutral" surface="parchment" />
+                  ) : (
+                    <RevokeKey grantId={g.id} label={`Key ${i + 1} · ${g.capabilityName}`} onChanged={onChanged} />
+                  )}
                 </div>
               ))}
             </div>
