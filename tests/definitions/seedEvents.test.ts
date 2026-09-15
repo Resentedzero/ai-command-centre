@@ -14,8 +14,8 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: 
 vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
 vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeSubscriptionModel: vi.fn() }));
 
-import { seedMissingWorkflows, seedPublishWorkflow } from "../../src/definitions/seed.js";
-import { createWorkflowDefinition } from "../../src/definitions/registryWrites.js";
+import { DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET, seedMissingWorkflows, seedPublishWorkflow } from "../../src/definitions/seed.js";
+import { createTaskDefinition, createWorkflowDefinition } from "../../src/definitions/registryWrites.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -110,6 +110,31 @@ describe("the seed logs what it creates", () => {
   it("seeds both workflows on an empty database", async () => {
     await withRollback(async (tx) => {
       expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: true, seededResearchReport: true });
+    });
+  });
+
+  it("still counts Workflow 1 as seeded after the Registry versions it over a new research Task Definition", async () => {
+    await withRollback(async (tx) => {
+      const seeded = await seedPublishWorkflow(tx);
+      await seedMissingWorkflows(tx);
+      const task2 = await createTaskDefinition(
+        tx,
+        { name: "Research-Report", kind: "research_report", defaultContextBudget: DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET, previousVersion: 1 },
+        "human:operator"
+      );
+      await createWorkflowDefinition(
+        tx,
+        {
+          name: "Research-Report",
+          previousVersion: 1,
+          graphDefinition: {
+            kind: "linear",
+            steps: [{ taskDefinitionId: task2.id, taskDefinitionVersion: task2.version!, agentDefinitionId: seeded.agentDefinitionId, agentDefinitionVersion: 1 }],
+          },
+        },
+        "human:operator"
+      );
+      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: false });
     });
   });
 

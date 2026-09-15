@@ -30,8 +30,8 @@
  * plan parameters (spec §18.3). Migration 0012 gives rows seeded before then the same
  * kinds and step bindings.
  */
-import { eq } from "drizzle-orm";
-import { goals, projects, workflowDefinitions } from "../db/schema.js";
+import { and, eq } from "drizzle-orm";
+import { goals, projects, taskDefinitions, workflowDefinitions } from "../db/schema.js";
 import { findSeededPublishWorkflow } from "./lookupSeed.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitLifecycleEvent, NO_CORRELATION } from "../events/lifecycle.js";
@@ -330,29 +330,29 @@ export async function seedResearchReportWorkflow(
 
 /**
  * `npm run seed`'s body: seeds each workflow that is missing, each by its own check.
- * Research-and-Publish is found by `findSeededPublishWorkflow`. Workflow 1 is found by
- * name and must be a one-step graph over the research step; any other Workflow
- * Definition under that name fails closed rather than counting as seeded.
+ * Research-and-Publish is found by `findSeededPublishWorkflow`. Workflow 1 counts as
+ * seeded when a Workflow Definition under its name is a one-step graph over a
+ * `research_report` Task Definition, whatever versions a Registry edit has since made;
+ * rows under that name with none of them fail closed rather than counting as seeded.
  */
 export async function seedMissingWorkflows(tx: DrizzleTransaction): Promise<{ seededPublish: boolean; seededResearchReport: boolean }> {
   const seededPublish = !(await findSeededPublishWorkflow(tx));
   if (seededPublish) await seedPublishWorkflow(tx);
 
-  const publishRows = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, "Research-and-Publish") });
-  const publish = publishRows.reduce((a, b) => (b.version > a.version ? b : a));
-  if (!isLinearGraphDefinition(publish.graphDefinition) || !publish.graphDefinition.steps[0]) {
-    throw new Error("seedMissingWorkflows: Research-and-Publish has no valid first step to build Workflow 1 from (fail closed).");
-  }
-  const researchStep = publish.graphDefinition.steps[0];
+  const isResearchStep = async (step: LinearGraphStep) =>
+    (
+      await tx.query.taskDefinitions.findFirst({
+        where: and(eq(taskDefinitions.id, step.taskDefinitionId), eq(taskDefinitions.version, step.taskDefinitionVersion)),
+      })
+    )?.kind === RESEARCH_REPORT_TASK_KIND;
 
   const existing = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, RESEARCH_REPORT_WORKFLOW_NAME) });
   if (existing.length > 0) {
-    const matches = existing.every(
-      (row) =>
-        isLinearGraphDefinition(row.graphDefinition) &&
-        row.graphDefinition.steps.length === 1 &&
-        row.graphDefinition.steps[0]!.taskDefinitionId === researchStep.taskDefinitionId
-    );
+    let matches = false;
+    for (const row of existing) {
+      const steps = isLinearGraphDefinition(row.graphDefinition) ? row.graphDefinition.steps : [];
+      if (steps.length === 1 && (await isResearchStep(steps[0]!))) matches = true;
+    }
     if (!matches) {
       throw new Error(
         `seedMissingWorkflows: a Workflow Definition named "${RESEARCH_REPORT_WORKFLOW_NAME}" exists but is not the one-step ` +
@@ -360,6 +360,16 @@ export async function seedMissingWorkflows(tx: DrizzleTransaction): Promise<{ se
       );
     }
     return { seededPublish, seededResearchReport: false };
+  }
+
+  const publishRows = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, "Research-and-Publish") });
+  const publish = publishRows.reduce((a, b) => (b.version > a.version ? b : a));
+  let researchStep: LinearGraphStep | undefined;
+  for (const step of isLinearGraphDefinition(publish.graphDefinition) ? publish.graphDefinition.steps : []) {
+    if (!researchStep && (await isResearchStep(step))) researchStep = step;
+  }
+  if (!researchStep) {
+    throw new Error("seedMissingWorkflows: Research-and-Publish has no research_report step to build Workflow 1 from (fail closed).");
   }
   await seedResearchReportWorkflow(tx, researchStep);
   return { seededPublish, seededResearchReport: true };
