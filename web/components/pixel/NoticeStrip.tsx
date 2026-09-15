@@ -6,9 +6,13 @@ import { isStale, useLive } from "../live";
 import { PixelButton, Skeleton } from "./Pixel";
 import s from "./strip.module.css";
 
-/** The global notice strip: the live feed's state, or the latest events as pinned notes. */
+/** Events worth pinning; the full recent list lives on the Overview board and the Events screen. */
+const NOTABLE = /approval_required|_failed|execution_stop_engaged|run_halted|artifact_created/;
+
+/** The global notice strip: the live feed's state, or the latest notable events as pinned notes. */
 export function NoticeStrip() {
   const { status, events, reconnect } = useLive();
+  const notable = events.filter((e) => NOTABLE.test(e.eventType));
 
   return (
     <footer className={s.strip} aria-label="Notices">
@@ -25,11 +29,11 @@ export function NoticeStrip() {
         <span className={s.text} role="status">
           Connecting to the live feed <Skeleton />
         </span>
-      ) : events.length === 0 ? (
-        <span className={s.text}>No events received yet.</span>
+      ) : notable.length === 0 ? (
+        <span className={s.text}>{events.length === 0 ? "Live feed connected. No events received yet." : "Live feed connected. Notable events are pinned here."}</span>
       ) : (
-        events
-          .slice(-4)
+        notable
+          .slice(-6)
           .reverse()
           .map((e) => (
             <Link key={e.eventId} href="/events" className={s.note}>

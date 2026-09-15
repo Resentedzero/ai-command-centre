@@ -24,13 +24,13 @@
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  width: 48px;
+  width: 64px;
 }
 
 .keyIcon {
-  width: 48px;
-  height: 48px;
-  background: url(/world/key_item_anim_strip_6.png) 0 0 / 288px 48px no-repeat;
+  width: 64px;
+  height: 64px;
+  background: url(/world/key_item_anim_strip_6.png) 0 0 / 384px 64px no-repeat;
   image-rendering: pixelated;
 }
 

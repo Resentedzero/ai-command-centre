@@ -14,7 +14,7 @@ import {
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
 import { WorldViewport, world } from "../../components/world/World";
-import { countLabel, errorText, formatTime, stateWord } from "../../lib/keep";
+import { countLabel, errorText, formatTime, hashOf, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
 
 /**
@@ -33,6 +33,16 @@ const ROOM_W = 352;
 const ROOM_H = 256;
 const HALL_W = 48;
 
+/** Step room art per Task Definition (presentation only): the same definition always gets the same room. */
+const STEP_ROOMS = [
+  { src: "/world/room-v5-engine-2x.png", h: 256 },
+  { src: "/world/room-v5-researcher-2x.png", h: 352 },
+  { src: "/world/room-v5-publisher-2x.png", h: 352 },
+];
+function roomFor(taskDefinitionId: string | undefined) {
+  return taskDefinitionId ? STEP_ROOMS[hashOf(taskDefinitionId) % STEP_ROOMS.length]! : STEP_ROOMS[0]!;
+}
+
 /** A step's runtime state, or null when no Task Instance exists yet (not started). */
 function stepState(step: WorkflowStepDetail): string | null {
   return step.taskInstance?.status ?? null;
@@ -48,7 +58,7 @@ function attentionIndex(steps: WorkflowStepDetail[]): number {
   return next >= 0 ? next : Math.max(steps.length - 1, 0);
 }
 
-export function WorkflowsScreen({ id }: { id?: string }) {
+export function WorkflowsScreen({ id: routeId }: { id?: string }) {
   const [runs, setRuns] = useState<WorkflowRunSummary[] | null>(null);
   const [runsError, setRunsError] = useState<string | null>(null);
 
@@ -65,6 +75,15 @@ export function WorkflowsScreen({ id }: { id?: string }) {
     void loadRuns();
   }, [loadRuns]);
   useRefetchOnEvents(loadRuns);
+
+  // With no run in the URL, open the one needing attention (failed, in progress, paused, else the newest), once.
+  const [autoId, setAutoId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (routeId || autoId || !runs || runs.length === 0) return;
+    const pick = ["failed", "in_progress", "paused"].map((st) => runs.find((r) => r.status === st)).find(Boolean) ?? runs[0]!;
+    setAutoId(pick.id);
+  }, [routeId, autoId, runs]);
+  const id = routeId ?? autoId;
 
   return (
     <main className={w.screen}>
@@ -115,7 +134,13 @@ export function WorkflowsScreen({ id }: { id?: string }) {
         <RunView key={id} id={id} />
       ) : (
         <section className={cx(px.board, w.detail)}>
-          <StateNotice message="Choose a workflow run to see where it is in its sequence." />
+          {!runs && runsError ? (
+            <StateNotice message="No run is open: the list couldn't be read." />
+          ) : !runs ? (
+            <StateNotice role="status" message={<>Loading workflow runs <Skeleton /></>} />
+          ) : (
+            <StateNotice message="Nothing to show until a goal starts a workflow." />
+          )}
         </section>
       )}
     </main>
@@ -222,11 +247,12 @@ function Corridor({
       ))}
       {steps.map((s, i) => {
         const state = stepState(s);
+        const art = roomFor(s.taskDefinition?.id);
         return (
           <div key={s.index}>
             <div className={cx(w.room, state === null && w.unstarted)} style={{ left: x(i), width: ROOM_W, height: ROOM_H }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/world/room-v5-engine-2x.png" width={ROOM_W} height={ROOM_H} alt="" className={world.base} draggable={false} />
+              <img src={art.src} width={ROOM_W} height={art.h} alt="" className={world.base} draggable={false} />
               <div className={world.night} />
               {state === "active" && <img className={world.light} src="/world/light-active-2x.png" style={{ left: 0, top: 0 }} alt="" />}
             </div>

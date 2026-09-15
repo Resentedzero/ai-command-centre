@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  getRegistry,
   listActiveAgents,
   listActiveStops,
   listGoals,
@@ -82,16 +83,19 @@ export default function OverviewPage() {
   const [goalCount, setGoalCount] = useState<Read<number>>(null);
   const [inProgress, setInProgress] = useState<Read<{ n: number; capped: boolean }>>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [definitions, setDefinitions] = useState<Read<{ id: string; name: string; version: number }[]>>(null);
 
   const load = useCallback(async () => {
     const settle = <T,>(p: Promise<T>) => p.then((v) => ({ ok: true as const, v }), (e: unknown) => ({ ok: false as const, e }));
-    const [a, ap, st, g, w] = await Promise.all([
+    const [a, ap, st, g, w, r] = await Promise.all([
       settle(listActiveAgents()),
       settle(listPendingApprovals()),
       settle(listActiveStops()),
       settle(listGoals()),
       settle(listWorkflowRuns()),
+      settle(getRegistry()),
     ]);
+    setDefinitions(r.ok ? r.v.agentDefinitions : "error");
     if (a.ok) {
       setAgents(a.v);
       setLoadError(null);
@@ -212,7 +216,7 @@ export default function OverviewPage() {
           )}
         </SystemPlaque>
         <SystemPlaque rect={SYSTEM_ROOMS.goals} href="/goals" name="Goals">
-          <span className={px.dim}>{count(goalCount, GOAL_LIST_CAP)} goals</span>
+          <span className={px.dim}>{goalCount === null || goalCount === "error" ? count(goalCount) : `${countLabel(goalCount, GOAL_LIST_CAP)} goals`}</span>
         </SystemPlaque>
         <SystemPlaque rect={SYSTEM_ROOMS.workflows} href="/workflows" name="Workflows">
           {inProgress === null ? (
@@ -265,14 +269,32 @@ export default function OverviewPage() {
             <StateNotice role="status" message={<>Loading the keep <Skeleton /></>} />
           </>
         ) : groups.length === 0 ? (
-          <StateNotice
-            message="Nothing is running. Start a goal to run a workflow."
-            action={
-              <Link href="/goals" className={buttonClass()}>
-                Start a goal
-              </Link>
-            }
-          />
+          <>
+            <StateNotice
+              message="Nothing is running. Start a goal to run a workflow."
+              action={
+                <Link href="/goals" className={buttonClass()}>
+                  Start a goal
+                </Link>
+              }
+            />
+            {Array.isArray(definitions) && definitions.length > 0 && (
+              <ul className={o.roster} aria-label="Agents">
+                {definitions.map((d) => (
+                  <li key={d.id}>
+                    <Link href={`/agents/${d.id}`} className={px.plaque}>
+                      <span className={o.grow}>
+                        {d.name} <span className={px.dim}>v{d.version}</span>
+                      </span>
+                      <StatusMark state="none" tone="neutral">
+                        no active run
+                      </StatusMark>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         ) : (
           selected && (
             <AgentBoard
@@ -335,7 +357,15 @@ function AgentBoard({
         ))}
       </div>
 
-      <h2 className={px.heading}>{selected.name}</h2>
+      <div className={o.nameRow}>
+        {selected.id && (
+          // The 4x portrait shows only on screens at least 1080 px tall (screens.md laptop rule).
+          <div className={o.portrait} aria-hidden>
+            <AgentSprite character={characterFor(selected.id)} pose="idle" footX={72} footY={140} scale={2} frozen={selected.stop !== null} />
+          </div>
+        )}
+        <h2 className={px.heading}>{selected.name}</h2>
+      </div>
       {selected.id && (
         <StopControl agentId={selected.id} name={selected.name} stop={selected.stop} stopsUnreadable={stopsUnreadable} onChanged={onChanged} />
       )}

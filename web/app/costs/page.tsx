@@ -155,7 +155,10 @@ export default function CostsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.costVsSuccess.map((p) => (
+                    {/* Stable order (agent, task, tier), never by success. */}
+                    {[...data.costVsSuccess]
+                      .sort((x, y) => x.agentName.localeCompare(y.agentName) || x.taskDefinitionName.localeCompare(y.taskDefinitionName) || x.modelTier.localeCompare(y.modelTier))
+                      .map((p) => (
                       <tr key={`${p.agentDefinitionId}-${p.taskDefinitionId}-${p.modelTier}`}>
                         <td>
                           {p.agentName} v{p.agentVersion}

@@ -50,12 +50,7 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
       )}
       <section className={cx(px.board, a.board)} aria-label="Registry">
         {!reg && roster.error ? (
-          <StateNotice
-            role="alert"
-            message="Couldn't load the Registry."
-            detail={roster.error}
-            action={<PixelButton onClick={() => void roster.reload()}>Retry</PixelButton>}
-          />
+          <StateNotice role="alert" message="Couldn't load the Registry." detail="Retry from the roster on the left." />
         ) : !reg ? (
           <StateNotice role="status" message={<>Loading the Registry <Skeleton /></>} />
         ) : (

@@ -1,8 +1,11 @@
+/* Wraps, so a note that doesn't fit whole drops out of view instead of being sliced. */
 .strip {
   display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
   align-items: center;
-  gap: var(--space-md);
-  padding: 0 var(--space-lg);
+  gap: 24px var(--space-md);
+  padding: 7px var(--space-lg) 0;
   background: var(--pixel-wood-dark);
   border-top: 2px solid var(--pixel-wood-edge);
   overflow: hidden;

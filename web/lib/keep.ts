@@ -33,7 +33,7 @@ export function floorOf(r: Rect): { left: number; top: number; width: number; he
   return { left: r.x, top: r.y + r.wall, width: r.w, height: r.h - r.wall };
 }
 
-function hashOf(id: string): number {
+export function hashOf(id: string): number {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
   return Math.abs(h);
@@ -138,8 +138,7 @@ export const STRIPS = {
   wizard: {
     idle: { src: "/world/strips/wizard-idle-strip-2x-outlined.png", w: 68, h: 68, n: 4, ms: 500, once: false },
     run: { src: "/world/strips/wizard-run-strip-2x-outlined.png", w: 132, h: 132, n: 6, ms: 100, once: false },
-    // No outlined wizard death strip exists: a failed wizard holds idle frame 1; state is carried by light, marker and word.
-    death: { src: "/world/strips/wizard-idle-strip-2x-outlined.png", w: 68, h: 68, n: 1, ms: 100, once: true },
+    death: { src: "/world/strips/wizard-death-strip-2x-outlined.png", w: 68, h: 68, n: 12, ms: 100, once: true },
   },
 } as const;
 

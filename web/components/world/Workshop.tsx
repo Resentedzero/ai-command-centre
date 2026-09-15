@@ -41,7 +41,7 @@ export function WorkshopCloseup({
         {sprite && <AgentSprite character={character} pose={sprite} footX={384} footY={540} scale={2} frozen={state === "stopped"} />}
         {state === "stopped" && <div className={world.barrier} style={{ left: 304, top: 600, width: 160 }} />}
         {keys.map((k, i) => (
-          <div key={k.n} className={cx(s.key, k.revoked && s.revoked)} style={{ left: 384 - ((keys.length - 1) * 72) / 2 + i * 72 - 24, top: 196 }}>
+          <div key={k.n} className={cx(s.key, k.revoked && s.revoked)} style={{ left: 384 - ((keys.length - 1) * 88) / 2 + i * 88 - 32, top: 188 }}>
             <span className={s.keyIcon} />
             <span className={s.keyTag}>{k.n}</span>
           </div>

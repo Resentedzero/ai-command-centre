@@ -112,7 +112,7 @@ export default function GoalsPage() {
           <div className={cx(px.parchment, g.summary)}>
             <h1 className={px.heading}>Goals</h1>
             {!projects ? (
-              <Skeleton />
+              loadError ? <span className={px.dim}>n/a</span> : <Skeleton />
             ) : (
               <>
                 <div>

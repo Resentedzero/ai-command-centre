@@ -61,6 +61,8 @@ export default function ApprovalsPage() {
   }
 
   const selected = approvals?.find((a) => a.id === selectedId) ?? approvals?.[0] ?? null;
+  // The API's own hash check: when the content changed, the decision point says so and Approve is not drawn as armed.
+  const changed = selected?.context?.artifact?.hashMatchesSnapshot === false;
   const stale = isStale(status) || (approvals !== null && loadError !== null);
 
   return (
@@ -164,7 +166,15 @@ export default function ApprovalsPage() {
                 </div>
               </div>
             ) : (
-              approvals !== null && <StateNotice className={px.board} message="Choose a request from the queue." />
+              approvals !== null &&
+              (approvals.length === 0 ? (
+                <div className={cx(px.board, s.empty)}>
+                  <h1 className={px.heading}>No approvals are pending</h1>
+                  <p>A request appears here when an agent reaches an approval gate.</p>
+                </div>
+              ) : (
+                <StateNotice className={px.board} message="Choose a request from the queue." />
+              ))
             )}
           </div>
 
@@ -180,14 +190,20 @@ export default function ApprovalsPage() {
 
         {selected && (
           <div className={cx(px.board, s.actions)}>
-            <span className={s.actionText}>Decide this request. The decision is recorded and the workflow continues from it.</span>
+            {changed ? (
+              <span className={s.actionWarn}>
+                <ButtonMark tone="fail" /> Content changed since it was proposed: approving will fail.
+              </span>
+            ) : (
+              <span className={s.actionText}>Your decision is recorded. Approving lets the workflow continue; rejecting stops this step.</span>
+            )}
             <PixelButton
-              kind="approve"
+              kind={changed ? "neutral" : "approve"}
               onClick={() => void resolve(selected.id, approveApproval)}
               disabled={pendingActionId === selected.id}
               aria-label={`Approve ${selected.context?.capabilityName ?? "approval"} ${selected.id}`}
             >
-              <ButtonMark tone="done" />
+              {!changed && <ButtonMark tone="done" />}
               Approve
             </PixelButton>
             <PixelButton

@@ -19,6 +19,7 @@ import { WORKFLOW_REFRESH_MS } from "../app/workflows/WorkflowsScreen";
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
   api.listWorkflowRuns.mockResolvedValue([]);
+  api.getWorkflowRun.mockReturnValue(new Promise(() => {}));
 });
 
 async function renderRun(id = "wr-1") {
@@ -51,7 +52,9 @@ describe("Workflows runs board", () => {
     expect(row).toHaveTextContent("Compare EV batteries");
     expect(row).toHaveTextContent("in progress");
     expect(row).toHaveTextContent("Research-and-Publish v1");
-    expect(screen.getByText("Choose a workflow run to see where it is in its sequence.")).toBeInTheDocument();
+    // With no run in the URL, the run needing attention opens.
+    await waitFor(() => expect(api.getWorkflowRun).toHaveBeenCalledWith("wr-1"));
+    expect(row).toHaveAttribute("aria-current", "page");
   });
 
   it("says so when there are no runs, with a way to start a goal", async () => {

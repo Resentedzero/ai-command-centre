@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
   listActiveStops: vi.fn(),
   listGoals: vi.fn(),
   listWorkflowRuns: vi.fn(),
+  getRegistry: vi.fn(),
   engageAgentStop: vi.fn(),
   liftAgentStop: vi.fn(),
   subscribeToActivity: vi.fn(),
@@ -51,6 +52,7 @@ beforeEach(() => {
   api.listActiveStops.mockResolvedValue([]);
   api.listGoals.mockResolvedValue([]);
   api.listWorkflowRuns.mockResolvedValue([]);
+  api.getRegistry.mockResolvedValue({ agentDefinitions: [], capabilities: [], capabilityGrants: [], taskDefinitions: [], workflowDefinitions: [] });
   api.subscribeToActivity.mockImplementation(() => () => {});
 });
 
@@ -90,9 +92,18 @@ describe("Overview page", () => {
 
   it("says nothing is running, with a way to start a goal, when no agents are active", async () => {
     api.listActiveAgents.mockResolvedValue([]);
+    api.getRegistry.mockResolvedValue({
+      agentDefinitions: [{ id: "a-1", name: "Researcher", version: 1, role: "r", objective: "o", instructions: "", createdAt: "t" }],
+      capabilities: [],
+      capabilityGrants: [],
+      taskDefinitions: [],
+      workflowDefinitions: [],
+    });
     render(<OverviewPage />);
     expect(await screen.findByText("Nothing is running. Start a goal to run a workflow.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Start a goal" })).toHaveAttribute("href", "/goals");
+    // The empty board still leads into the world: every Agent Definition, with no active run.
+    expect(await screen.findByRole("link", { name: /Researcher v1.*no active run/ })).toHaveAttribute("href", "/agents/a-1");
   });
 
   it("shows a load failure with the detail and a Retry that reads again", async () => {
@@ -177,10 +188,12 @@ describe("Notice strip", () => {
 
     act(() => {
       onStatus!("live");
-      onEvent!({ eventId: "e-9", eventType: "run_completed", occurredAt: "t", sequenceNo: 1, eventCursor: 9, summary: "" });
+      onEvent!({ eventId: "e-9", eventType: "invocation_failed", occurredAt: "t", sequenceNo: 1, eventCursor: 9, summary: "" });
       onEvent!({ eventId: "e-4", eventType: "run_started", occurredAt: "t", sequenceNo: 1, eventCursor: 4, summary: "" });
     });
-    expect(screen.getByRole("link", { name: /run completed/ })).toHaveAttribute("href", "/events");
+    // Only notable events are pinned.
+    expect(screen.getByRole("link", { name: /invocation failed/ })).toHaveAttribute("href", "/events");
+    expect(screen.queryByRole("link", { name: /run started/ })).not.toBeInTheDocument();
 
     act(() => onStatus!("reconnecting"));
     expect(screen.getByRole("status")).toHaveTextContent("Reconnecting to the live feed");

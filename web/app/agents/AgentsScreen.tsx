@@ -335,7 +335,10 @@ function AgentBoard({
                   </tr>
                 </thead>
                 <tbody>
-                  {detail.performance.map((p) => (
+                  {/* Stable order (task, then tier), never by success: a measurement, not a leaderboard. */}
+                  {[...detail.performance]
+                    .sort((x, y) => taskName(x.taskDefinitionId).localeCompare(taskName(y.taskDefinitionId)) || x.modelTier.localeCompare(y.modelTier))
+                    .map((p) => (
                     <tr key={`${p.taskDefinitionId}-${p.modelTier}`}>
                       <td>{taskName(p.taskDefinitionId)}</td>
                       <td>{p.modelTier}</td>

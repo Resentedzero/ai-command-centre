@@ -42,19 +42,19 @@
   justify-content: center;
   font: 16px/20px var(--font-pixel), monospace;
   color: var(--pixel-label-dim);
-  background: var(--pixel-wood);
-  border: 2px solid var(--pixel-wood-edge);
-  box-shadow: 0 0 0 2px var(--pixel-outline);
+  border: 2px solid transparent;
   text-decoration: none;
 }
 .tab:hover {
-  background: color-mix(in srgb, var(--pixel-wood) 85%, var(--pixel-label));
   color: var(--pixel-label);
+  background: linear-gradient(var(--pixel-wood-edge), var(--pixel-wood-edge)) center bottom 4px / 40px 2px no-repeat;
 }
-.tabActive {
+.tabActive,
+.tabActive:hover {
   color: var(--pixel-label);
-  background: var(--pixel-wood-edge);
-  border-color: var(--pixel-label-dim);
+  background: var(--pixel-wood);
+  border-color: var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
 }
 
 .chips {

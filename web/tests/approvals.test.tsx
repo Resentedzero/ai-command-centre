@@ -70,6 +70,7 @@ describe("Approvals page", () => {
     api.listPendingApprovals.mockResolvedValue([]);
     render(<ApprovalsPage />);
     expect(await screen.findByText("Nothing is waiting for approval.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No approvals are pending" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Approve|Reject/ })).not.toBeInTheDocument();
   });
 
@@ -166,6 +167,9 @@ describe("Approvals page", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/no longer matches/);
     expect(screen.getByText(/Untrusted preview/)).toBeInTheDocument();
+    // The warning is repeated at the decision point, and Approve is not drawn as armed.
+    expect(screen.getByText(/Content changed since it was proposed: approving will fail/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Approve / }).className).not.toMatch(/approve/);
   });
 
   it("selects another request from the queue", async () => {
