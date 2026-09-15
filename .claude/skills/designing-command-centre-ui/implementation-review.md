@@ -126,4 +126,27 @@ Severity:
 - **"/registry lights Agents, /costs lights Workflows":** decided in `screens.md` (screens without a top-bar slot light their parent tab).
 - **Red raw error lines on Workflows and Goals:** these belong to the pre-pixel pages, which the rebuild replaces.
 
+## Round 5 (2026-09-15): Workflows corridor and Cost ledger, commit `6a5b3a6`
+
+**Status:** finding 2 (gauge fill in a state hue) is **resolved**: the fill is cream.
+
+**Faithful, keep as is:**
+- **Corridor:** a corridor of step rooms in graph order, panned and pre-selected on the step needing attention (failed, then awaiting approval, then active).
+- **Light:** cyan only on an `active` step. A step with no Task Instance is dimmed and says "not started".
+- **No invented sprite:** the run's agent carries no id to key identity on, and that is documented in `web/design/workflows.md`.
+- **Step detail:** attempts, an invocation table with failure reasons and output links, one budget counter per unit (never combined), and the run trace on demand.
+- **Cost:**
+  - gauges drawn only for run counters, whose limit is enforced;
+  - other limits shown "as stored";
+  - totals are API-summed per (scope, unit), with copy saying scopes are never added together;
+  - a scope filter;
+  - "cost and success" labelled a measurement that ranks nothing.
+- **No invented controls:** pause, resume and advance are not built (no design frame or §15.2 command covers them).
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 23 | Medium | `app/workflows/WorkflowsScreen.tsx` `Corridor` | Every step room is the same `room-v5-engine-2x.png` crop, so a multi-step corridor reads as one tile repeated, like a list. `visual-language.md` says rooms differ in architecture and mood inside one keep. | Choose each step's room art per task definition, presentation only: hash `taskDefinition.id` over the non-system 2× crops (`room-v5-researcher-2x`, `room-v5-publisher-2x`, `room-v5-engine-2x`), with `null` definitions falling back to the engine room. The same task definition always gets the same room, and neighbours can differ. |
+| 24 | Low | `app/workflows/WorkflowsScreen.tsx` (no `id`) | `/workflows` with nothing selected shows a board that only says "Choose a workflow run". It's the same dead-pane pattern as finding 14, on the screen reached first. | When the list loads, `router.replace` to the run needing attention: first `failed`, then `in_progress`, then `paused`, otherwise the newest. Keep the notice only when the list is empty. |
+| 16 | Low (extended) | `app/costs/page.tsx` "Cost and success" | Rows render in API order, like the Agents performance table. | Sort by agent name, then task definition name, then model tier. Never by `successRate`. |
+
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
