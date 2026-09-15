@@ -5,7 +5,7 @@ import { BUDGET_SCOPES, getCosts, type CostsData } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, PixelButton, Skeleton, StateNotice, UnitGauge, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
-import { errorText, formatAmount, formatTime, stateWord } from "../../lib/keep";
+import { eligibilityWord, errorText, formatAmount, formatTime, stateWord } from "../../lib/keep";
 import c from "./costs.module.css";
 
 type Counter = CostsData["counters"][number];
@@ -157,6 +157,7 @@ export default function CostsPage() {
                       <th>success rate</th>
                       <th>avg retries</th>
                       <th>avg cost</th>
+                      <th>routing</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -178,13 +179,14 @@ export default function CostsPage() {
                             .map(([unit, v]) => `${v} ${unit}`)
                             .join(" · ") || "none recorded"}
                         </td>
+                        <td>{eligibilityWord(p)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
-            <p className={px.detail}>A measurement, not a recommendation.</p>
+            <p className={px.detail}>A measurement, not a recommendation. An eligible row can steer the Model Router&apos;s tier choice; it never approves or runs anything.</p>
           </>
         )}
       </section>

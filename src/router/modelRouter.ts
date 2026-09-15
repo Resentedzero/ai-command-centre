@@ -400,6 +400,10 @@ export async function authorizeRoute(
     escalationFloor !== null && MODEL_TIERS.indexOf(escalationFloor) > MODEL_TIERS.indexOf(defaultTier) ? escalationFloor : defaultTier;
   const historicalPerformance = await readTierPerformance(tx, req.runId, options.minPerformanceSamples);
   const tier = preferTier(baseTier, historicalPerformance);
+  // Which rule set the tier, recorded with the route (§10.7) so no read model re-derives it:
+  // measured performance moved it, an escalation floor raised it, or the default stands.
+  const tierSource: "performance_preference" | "escalation_floor" | "default" =
+    tier !== baseTier ? "performance_preference" : baseTier !== defaultTier ? "escalation_floor" : "default";
   // An automatic retry never spends money (fail-closed reading of §10.6.7: a billed call
   // needs an explicit decision). A retried Run routes only to candidates outside `usd`;
   // with none, the route is refused rather than falling back.
@@ -414,6 +418,7 @@ export async function authorizeRoute(
     attempt,
     escalationFloor,
     historicalPerformance,
+    tierSource,
   };
 
   // Step 1 — ROUTING (Phase 7D): which candidates are eligible, in what order.

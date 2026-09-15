@@ -11,8 +11,9 @@
  * (nothing eligible), the same config pattern as `./dailyBudgetPolicy.ts`. Callers may
  * pass a different N only through an explicit option, which production never does.
  *
- * The only consumer is the Model Router's tier preference (§10.2, §10.5). Policy does
- * not read performance: §9.4's CONDITIONAL rule needs thresholds that are not yet
+ * The only decision that reads it is the Model Router's tier preference (§10.2, §10.5).
+ * The read APIs display each row's eligibility through `../api/performanceEligibilityFields.ts`,
+ * deciding nothing. Policy does not read performance: §9.4's CONDITIONAL rule needs thresholds that are not yet
  * decided, so CONDITIONAL still requires approval. `tests/execution/structuralInvariants.test.ts`
  * enforces both.
  */

@@ -17,11 +17,12 @@
  *   and a day counter once day ceilings exist. `reserved` can include a hold an
  *   interrupted Invocation never released (budget.ts has no reservation ledger).
  * - `costVsSuccess`: `agent_performance` rows with Agent and Task Definition names
- *   (§10.5). Shown whatever the sample count. It is a measurement, not a
- *   recommendation: no minimum sample criterion exists yet (NEXT_PHASE_PLAN §7),
- *   so nothing here ranks tiers or suggests a change.
+ *   (§10.5). Shown whatever the sample count, each with `eligible` from the runtime's
+ *   own gate (`performanceEligibility`, N = 10): whether the Model Router's tier
+ *   preference may use the row. Nothing here ranks tiers, suggests a change or decides.
  */
 import type { FastifyInstance } from "fastify";
+import { eligibilityFields } from "../performanceEligibilityFields.js";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import {
   agentDefinitions,
@@ -124,7 +125,7 @@ export function registerCostsRoutes(app: FastifyInstance, deps: ApiDeps): void {
       }),
       countersTruncated: counterRows.length > COUNTER_LIMIT,
       totals,
-      costVsSuccess: performanceRows,
+      costVsSuccess: performanceRows.map((p) => ({ ...p, ...eligibilityFields(p.sampleCount) })),
     });
   });
 }

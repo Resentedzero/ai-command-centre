@@ -516,9 +516,11 @@ type WorkflowRunDetailBody = {
         artifactIds: string[];
         policyDecision: Record<string, unknown> | null;
         budgetOutcome: string | null;
+        route: Record<string, unknown> | null;
       }>;
       budget: Array<{ resourceUnit: string; consumedAmount: string; limitAmount: string }>;
     } | null;
+    attempts: Array<{ id: string; attempt: number; retryOfRunId: string | null; retryCause: string | null; minimumModelTier: string | null }>;
   }>;
 };
 
@@ -683,6 +685,18 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
     expect(research!.run?.invocations.map((i) => i.policyDecision?.decision ?? null)).toEqual(["ALLOW", null, null]);
     // The Governor's outcome as recorded: the tool and the LLM call reserved; the deterministic step never does.
     expect(research!.run?.invocations.map((i) => i.budgetOutcome)).toEqual(["authorized", "authorized", null]);
+    // The Router's recorded route for the LLM call only, with which rule set the tier.
+    expect(research!.run?.invocations.map((i) => i.route === null)).toEqual([true, false, true]);
+    expect(research!.run?.invocations[1]!.route).toMatchObject({
+      defaultTier: expect.any(String),
+      escalationFloor: null,
+      resultingTier: expect.any(String),
+      attemptedTier: null,
+      tierSource: "default",
+      attempt: 1,
+      modelId: expect.any(String),
+    });
+    expect(research!.attempts).toEqual([expect.objectContaining({ attempt: 1, retryOfRunId: null, retryCause: null, minimumModelTier: null })]);
     expect(research!.run?.invocations[0]!.policyDecision).toMatchObject({
       checkpoint: "pre_dispatch",
       basis: "autonomy_autonomous",
@@ -749,6 +763,15 @@ describe("GET /workflow-runs and GET /workflow-runs/:id (spec 15.1 screen 3)", (
     const body = detail.json() as WorkflowRunDetailBody;
     const failedInvocation = body.steps[0]!.run?.invocations.find((i) => i.status === "failed");
     expect(failedInvocation?.failureReason).toContain("<path>");
+    // Each retry names the Run it retries and the retry policy's cause, as the Interpreter recorded them.
+    const attempts = body.steps[0]!.attempts;
+    expect(attempts.map((a) => [a.attempt, a.retryCause, a.minimumModelTier])).toEqual([
+      [1, null, null],
+      [2, "provider_outcome_unknown", null],
+      [3, "provider_outcome_unknown", null],
+    ]);
+    expect(attempts[1]!.retryOfRunId).toBe(attempts[0]!.id);
+    expect(attempts[2]!.retryOfRunId).toBe(attempts[1]!.id);
     expect(detail.body).not.toMatch(/alice|secret/);
   });
 

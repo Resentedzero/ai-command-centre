@@ -218,6 +218,23 @@ export type InvocationDetail = {
    * undecided and never produced. Display it; never infer it from a failure reason.
    */
   budgetOutcome?: "authorized" | "denied" | null;
+  /** The Model Router's recorded route; null for kinds it does not route. Absent from older API builds. */
+  route?: RouteRecord | null;
+};
+
+/**
+ * The Model Router's recorded route for an LLM Invocation, assembled by the API. `tierSource` is the
+ * Router's own record of which rule set the tier (null on routes recorded before it existed);
+ * `resultingTier` is null and `attemptedTier` set when the route was refused. Display it; never re-derive it.
+ */
+export type RouteRecord = {
+  defaultTier: string | null;
+  escalationFloor: string | null;
+  resultingTier: string | null;
+  attemptedTier: string | null;
+  tierSource: "default" | "escalation_floor" | "performance_preference" | null;
+  attempt: number | null;
+  modelId: string | null;
 };
 
 /**
@@ -280,6 +297,11 @@ export type WorkflowStepDetail = {
   attempts?: {
     id: string;
     attempt: number;
+    /** The Run this one retries and the retry policy's cause (`provider_outcome_unknown`, `output_validation_failed`); null on a first attempt. Absent from older API builds. */
+    retryOfRunId?: string | null;
+    retryCause?: string | null;
+    /** The tier floor a retry after a validation failure carries (§10.4 escalation). */
+    minimumModelTier?: string | null;
     status: string;
     outcomeReason: string | null;
     /** Redacted by the API. */
@@ -375,8 +397,9 @@ export type AgentDetail = {
   } | null;
   /**
    * This version's `agent_performance` rows, refreshed asynchronously (lags recent
-   * Runs). A measurement, shown whatever the sample count: no minimum sample
-   * criterion is set, so nothing may rank or recommend from it.
+   * Runs). A measurement, shown whatever the sample count. Each row's `eligible` is the
+   * runtime's gate (N = 10): an eligible row may steer the Model Router's tier choice.
+   * Never rank from it or compare `sampleCount` with N here.
    */
   performance: AgentPerformanceRow[];
 };
@@ -390,6 +413,13 @@ export type AgentPerformanceRow = {
   avgRetries: string;
   avgCost: Record<string, string>;
   updatedAt: string;
+} & PerformanceEligibility;
+
+/** The runtime's eligibility gate for one performance row, as the API decided it. Absent from older API builds. */
+export type PerformanceEligibility = {
+  eligible?: boolean;
+  eligibilityReason?: "insufficient_samples" | "no_criterion" | null;
+  minSamples?: number | null;
 };
 
 export async function getAgentDetail(id: string): Promise<AgentDetail> {
@@ -532,7 +562,7 @@ export type CostsData = {
   countersTruncated: boolean;
   /** Summed per (scope, unit) by the API. Never add across units or scopes. */
   totals: { scope: string; resourceUnit: string; consumed: string; reserved: string; counters: number }[];
-  costVsSuccess: {
+  costVsSuccess: ({
     agentDefinitionId: string;
     agentName: string;
     agentVersion: number;
@@ -544,7 +574,7 @@ export type CostsData = {
     avgRetries: string;
     avgCost: Record<string, string>;
     updatedAt: string;
-  }[];
+  } & PerformanceEligibility)[];
 };
 
 export async function getCosts(scope?: string): Promise<CostsData> {

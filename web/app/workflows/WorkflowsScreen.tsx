@@ -15,7 +15,7 @@ import {
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
 import { WorldViewport, world } from "../../components/world/World";
-import { countLabel, errorText, formatAmount, formatTime, hashOf, policyToken, stateWord } from "../../lib/keep";
+import { countLabel, errorText, formatAmount, formatTime, hashOf, policyToken, routeToken, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
 
 /**
@@ -373,6 +373,9 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                   {step.attempts.map((a) => (
                     <li key={a.id} className={w.row}>
                       <span>attempt {a.attempt}</span>
+                      {/* Retry lineage and tier floor as recorded by the Interpreter; plain words, no state colour. */}
+                      {a.retryCause && <span className={px.dim}>retry · {stateWord(a.retryCause)}</span>}
+                      {a.minimumModelTier && <span className={px.dim}>floor {a.minimumModelTier}</span>}
                       <StatusMark state={a.status} />
                       {a.outcomeReason && <span className={px.dim}>{a.outcomeReason}</span>}
                       {a.failureReason && (
@@ -411,7 +414,10 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                         <Fragment key={inv.id}>
                           <tr data-testid="invocation-row">
                             <td>{inv.seqNo}</td>
-                            <td>{inv.kind}</td>
+                            <td data-testid="invocation-kind" title={inv.route?.modelId ?? undefined}>
+                              {inv.kind}
+                              {routeToken(inv.route) && ` · ${routeToken(inv.route)}`}
+                            </td>
                             <td>
                               <StatusMark state={inv.status} />
                             </td>

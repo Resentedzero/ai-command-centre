@@ -56,6 +56,7 @@ import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
 import { readPolicyDecisions } from "../policyDecisionRecord.js";
 import { budgetOutcomeOf } from "../budgetOutcome.js";
+import { retryRecordOf, routeRecordOf } from "../routeRecord.js";
 
 function replyForWorkflowRunError(error: unknown, reply: FastifyReply): FastifyReply {
   if (error instanceof WorkflowRunNotFoundError) return reply.status(404).send({ error: error.message });
@@ -159,6 +160,7 @@ async function runDetail(deps: ApiDeps, runId: string) {
           preDispatchChecked: (policyDecisions.get(i.id) ?? []).some((d) => d.checkpoint === "pre_dispatch"),
           approvalRequired: approvalRequiredFor.has(i.id),
         }),
+        route: routeRecordOf(i.kind, startByInvocation.get(i.id), failure),
       };
     }),
     budget: counters.map((c) => ({
@@ -252,9 +254,16 @@ export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps):
           orderBy: (e, { desc }) => desc(e.sequenceNo),
         });
         const failure = (lastFailure?.payload ?? {}) as Record<string, unknown>;
+        // Retry lineage as the Interpreter recorded it on the Run's `run_started`.
+        const started = await deps.db.query.events.findFirst({
+          where: and(eq(events.runId, r.id), eq(events.eventType, "run_started")),
+          orderBy: (e, { asc }) => asc(e.sequenceNo),
+        });
         attempts.push({
           id: r.id,
           attempt: r.attempt,
+          ...retryRecordOf(started?.payload),
+          minimumModelTier: r.minimumModelTier,
           status: r.status,
           outcomeReason: typeof reason === "string" ? reason : null,
           failureReason: typeof failure.reason === "string" ? failure.reason : null,

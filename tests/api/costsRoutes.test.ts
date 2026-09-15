@@ -31,16 +31,29 @@ beforeAll(async () => {
       { scope: "run", scopeRefId: "00000000-0000-4000-8000-000000000000", resourceUnit: "usd", limitAmount: "1.00", reservedAmount: "0.5", consumedAmount: "0.75" },
       { scope: "day", scopeRefId: "2026-09-14", resourceUnit: "usd", limitAmount: "20", reservedAmount: "0", consumedAmount: "1" },
     ]);
-    await tx.insert(schema.agentPerformance).values({
-      agentDefinitionId: agent!.id,
-      agentDefinitionVersion: 2,
-      taskDefinitionId: task!.id,
-      modelTier: "CHEAP",
-      successRate: "0.5",
-      avgCost: { usd: "0.25" },
-      avgRetries: "0",
-      sampleCount: 2,
-    });
+    await tx.insert(schema.agentPerformance).values([
+      {
+        agentDefinitionId: agent!.id,
+        agentDefinitionVersion: 2,
+        taskDefinitionId: task!.id,
+        modelTier: "CHEAP",
+        successRate: "0.5",
+        avgCost: { usd: "0.25" },
+        avgRetries: "0",
+        sampleCount: 2,
+      },
+      // Exactly N samples: eligible under the operator's criterion (N = 10).
+      {
+        agentDefinitionId: agent!.id,
+        agentDefinitionVersion: 2,
+        taskDefinitionId: task!.id,
+        modelTier: "MID",
+        successRate: "1",
+        avgCost: { usd: "0.5" },
+        avgRetries: "0",
+        sampleCount: 10,
+      },
+    ]);
     return run!.id;
   });
   app = buildServer({ db: testDb });
@@ -79,8 +92,21 @@ describe("GET /costs", () => {
       { scope: "run", resourceUnit: "usd", consumed: "1.00", reserved: "0.5", counters: 2 },
     ]);
 
+    // Eligibility comes from the runtime's gate, so a UI never compares sampleCount with N.
     expect(body.costVsSuccess).toEqual([
-      expect.objectContaining({ agentName: "Writer", agentVersion: 2, taskDefinitionName: "Summarise", modelTier: "CHEAP", sampleCount: 2, successRate: "0.5", avgCost: { usd: "0.25" } }),
+      expect.objectContaining({
+        agentName: "Writer",
+        agentVersion: 2,
+        taskDefinitionName: "Summarise",
+        modelTier: "CHEAP",
+        sampleCount: 2,
+        successRate: "0.5",
+        avgCost: { usd: "0.25" },
+        eligible: false,
+        eligibilityReason: "insufficient_samples",
+        minSamples: 10,
+      }),
+      expect.objectContaining({ modelTier: "MID", sampleCount: 10, eligible: true, eligibilityReason: null, minSamples: 10 }),
     ]);
   });
 

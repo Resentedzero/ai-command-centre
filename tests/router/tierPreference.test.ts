@@ -217,6 +217,7 @@ describe("authorizeRoute with measured tier preference", () => {
         defaultTier: "CHEAP",
         historicalPerformance: { consulted: false, reason: "no_criterion" },
         resultingTier: "CHEAP",
+        tierSource: "default",
       });
     });
   });
@@ -242,7 +243,7 @@ describe("authorizeRoute with measured tier preference", () => {
       if ("authorized" in route) throw new Error(route.reason);
       expect(route.modelId).toBe("claude-sonnet-5");
       const payload = await started(tx, request.invocationId);
-      expect(payload).toMatchObject({ defaultTier: "CHEAP", resultingTier: "MID", resultingModelId: "claude-sonnet-5" });
+      expect(payload).toMatchObject({ defaultTier: "CHEAP", resultingTier: "MID", resultingModelId: "claude-sonnet-5", tierSource: "performance_preference" });
       expect(payload!.historicalPerformance).toEqual({
         consulted: true,
         minSamples: 10,
@@ -292,7 +293,12 @@ describe("authorizeRoute with measured tier preference", () => {
       const { request } = await seedBoundRun(tx);
       await tx.update(schema.runs).set({ minimumModelTier: "MID" }).where(eq(schema.runs.id, request.runId));
       expect(await routedTier(tx, request, null)).toBe("MID");
-      expect(await started(tx, request.invocationId)).toMatchObject({ defaultTier: "CHEAP", escalationFloor: "MID", resultingTier: "MID" });
+      expect(await started(tx, request.invocationId)).toMatchObject({
+        defaultTier: "CHEAP",
+        escalationFloor: "MID",
+        resultingTier: "MID",
+        tierSource: "escalation_floor",
+      });
       // A default above the floor stands: high risk forces STRONG.
       expect(await routedTier(tx, { ...request, riskTier: "high" }, null)).toBe("STRONG");
     });

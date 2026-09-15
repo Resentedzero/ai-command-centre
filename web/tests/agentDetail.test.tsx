@@ -68,7 +68,20 @@ const base: AgentDetail = {
     included: [{ id: "ti-0", tier: 1 }],
     excluded: [{ id: "art-9", reason: "stale" }],
   },
-  performance: [{ taskDefinitionId: "td-1", modelTier: "none", sampleCount: 3, successRate: "1", avgRetries: "0", avgCost: { usd: "0.01" }, updatedAt: "t" }],
+  performance: [
+    {
+      taskDefinitionId: "td-1",
+      modelTier: "none",
+      sampleCount: 3,
+      successRate: "1",
+      avgRetries: "0",
+      avgCost: { usd: "0.01" },
+      updatedAt: "t",
+      eligible: false,
+      eligibilityReason: "insufficient_samples",
+      minSamples: 10,
+    },
+  ],
 };
 
 async function renderPage(id = "agent-1") {
@@ -125,7 +138,10 @@ describe("Agent Detail", () => {
     const performance = screen.getByTestId("agent-performance");
     expect(performance).toHaveTextContent("Review-and-Publish v1");
     expect(performance).toHaveTextContent("0.01 usd");
-    expect(screen.getByText(/ranks and recommends nothing/)).toBeInTheDocument();
+    // Eligibility is the API's; the copy never claims performance cannot influence routing.
+    expect(performance).toHaveTextContent("not enough samples · 3 of 10");
+    expect(screen.getByText(/can steer the Model Router's tier choice/)).toBeInTheDocument();
+    expect(screen.queryByText(/ranks and recommends nothing/)).not.toBeInTheDocument();
   });
 
   it("never claims no model calls: a missing context is said to be missing (#50)", async () => {

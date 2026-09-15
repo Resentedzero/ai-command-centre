@@ -161,10 +161,13 @@ describe("agent_performance", () => {
     await testDb.transaction((tx) => refreshAgentPerformance(tx));
     const res = await app.inject({ method: "GET", url: `/agents/${ids.agentA}` });
     expect(res.statusCode).toBe(200);
-    const { performance } = res.json() as { performance: { modelTier: string; sampleCount: number; avgCost: Record<string, string> }[] };
-    expect(performance.map((p) => [p.modelTier, p.sampleCount])).toEqual([
-      ["CHEAP", 2],
-      ["none", 1],
+    const { performance } = res.json() as {
+      performance: { modelTier: string; sampleCount: number; avgCost: Record<string, string>; eligible: boolean; eligibilityReason: string | null }[];
+    };
+    // Below N = 10: shown, and marked ineligible by the runtime's own gate.
+    expect(performance.map((p) => [p.modelTier, p.sampleCount, p.eligible, p.eligibilityReason])).toEqual([
+      ["CHEAP", 2, false, "insufficient_samples"],
+      ["none", 1, false, "insufficient_samples"],
     ]);
     expect(Number(performance[0]!.avgCost.usd)).toBe(0.03);
   });

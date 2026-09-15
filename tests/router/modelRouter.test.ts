@@ -793,6 +793,7 @@ describe("authorizeRoute invocation_started event", () => {
         defaultTier: "STRONG",
         attempt: 1,
         escalationFloor: null,
+        tierSource: "default",
         // N is configured; this fixture's Run is bound to no Agent, so nothing is read.
         historicalPerformance: { consulted: false, reason: "unbound_run" },
         budgetAuthorization: {

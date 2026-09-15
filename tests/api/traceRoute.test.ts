@@ -30,6 +30,7 @@ type Trace = {
     contextLineage: { included: { kind: string }[] } | null;
     policyEvaluations: { checkpoint: string; decision: string; basis: string | null }[];
     budgetOutcome: string | null;
+    route: { tierSource: string | null; resultingTier: string | null } | null;
   }[];
 };
 
@@ -91,6 +92,9 @@ describe("GET /runs/:id/trace", () => {
     expect(llm!.policyEvaluations).toEqual([]);
     expect(deterministic!.policyEvaluations).toEqual([]);
     expect(trace.invocations.map((i) => i.budgetOutcome)).toEqual(["authorized", "authorized", null]);
+    expect(tool!.route).toBeNull();
+    expect(deterministic!.route).toBeNull();
+    expect(llm!.route).toMatchObject({ tierSource: "default", resultingTier: expect.any(String) });
   });
 
   it("rejects a malformed id and reports an unknown Run", async () => {

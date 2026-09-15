@@ -40,6 +40,10 @@ const data: CostsData = {
       avgRetries: "0.25",
       avgCost: { subscription_tokens: "9100" },
       updatedAt: "t",
+      // The API's gate: 4 samples would never be eligible under N = 10, but the UI shows what it is given.
+      eligible: true,
+      eligibilityReason: null,
+      minSamples: 10,
     },
   ],
 };
@@ -64,7 +68,9 @@ describe("Cost ledger", () => {
     expect(counters[1]).toHaveTextContent("2026-09-15");
     expect(screen.getByText(/Showing the 2 most recently updated counters/)).toBeInTheDocument();
     expect(screen.getByTestId("cost-vs-success")).toHaveTextContent("9100 subscription_tokens");
-    expect(screen.getByText("A measurement, not a recommendation.")).toBeInTheDocument();
+    // Shown exactly as the API decided, even where a client-side count would disagree.
+    expect(screen.getByTestId("cost-vs-success")).toHaveTextContent("eligible · meets sample criterion");
+    expect(screen.getByText(/A measurement, not a recommendation\. An eligible row can steer/)).toBeInTheDocument();
     expect(api.getCosts).toHaveBeenCalledWith(undefined);
   });
 

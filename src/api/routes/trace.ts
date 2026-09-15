@@ -11,8 +11,8 @@
  *   lineage (ids, tiers, versions, hashes, exclusions, token estimate — never
  *   content, spec §5.13), or null when it compiled none (tools, deterministic), and
  *   `policyEvaluations`: Policy's record at each checkpoint, in sequence order (tool
- *   Invocations only; `../policyDecisionRecord.ts`), and `budgetOutcome`
- *   (`../budgetOutcome.ts`).
+ *   Invocations only; `../policyDecisionRecord.ts`), `budgetOutcome`
+ *   (`../budgetOutcome.ts`) and `route` (`../routeRecord.ts`).
  *
  * Events not tied to a Run (`goal_created`, `workflow_run_started`, stops,
  * revocations) are outside a Run's trace by the spec's definition.
@@ -25,6 +25,7 @@ import { isUuid } from "../requestGuards.js";
 import { rowToEventEnvelope } from "../eventEnvelopeRow.js";
 import { toPolicyDecisionRecord } from "../policyDecisionRecord.js";
 import { budgetOutcomeOf } from "../budgetOutcome.js";
+import { routeRecordOf } from "../routeRecord.js";
 
 export function registerTraceRoutes(app: FastifyInstance, deps: ApiDeps): void {
   app.get<{ Params: { id: string } }>("/runs/:id/trace", async (request, reply) => {
@@ -77,6 +78,7 @@ export function registerTraceRoutes(app: FastifyInstance, deps: ApiDeps): void {
           ),
           approvalRequired: eventRows.some((e) => e.eventType === "approval_required" && e.invocationId === i.id),
         }),
+        route: routeRecordOf(i.kind, payloadOf("invocation_started", i.id), payloadOf("invocation_failed", i.id)),
       })),
     });
   });

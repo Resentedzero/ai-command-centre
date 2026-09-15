@@ -61,4 +61,4 @@ Architecture invariants that can be checked statically — no provider call or
 tool side effect inside a transaction, the single chokepoint, status changes
 recorded as events, core code naming no capability, Definitions and Grants
 inserted only by the Registry, `agent_performance` read
-only by its projector, read APIs and eligibility gate (imported only by the Router) — are enforced by `tests/execution/structuralInvariants.test.ts`.
+only by its projector, read APIs and eligibility gate (imported only by the Router and the read APIs' display helper) — are enforced by `tests/execution/structuralInvariants.test.ts`.

@@ -239,15 +239,28 @@ describe("agent_performance reaches decisions only through its sample criterion 
     "projections/agentPerformance.ts",
   ];
 
-  it("only the Model Router imports the eligibility gate (never Policy, Approvals or the Executor)", () => {
-    const importers = sourceFiles()
+  // 2026-09-15: the read APIs display each row's eligibility from the gate itself (so no UI
+  // compares sampleCount with N), through one display helper that decides nothing.
+  const importersOf = (pattern: RegExp) =>
+    sourceFiles()
       .filter((file) =>
         parse(file).statements.some(
-          (s) => ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && /\/performanceEligibility\.js$/.test(s.moduleSpecifier.text)
+          (s) =>
+            (ts.isImportDeclaration(s) || ts.isExportDeclaration(s)) &&
+            s.moduleSpecifier !== undefined &&
+            ts.isStringLiteral(s.moduleSpecifier) &&
+            pattern.test(s.moduleSpecifier.text)
         )
       )
-      .map(rel);
-    expect(importers).toEqual(["router/modelRouter.ts"]);
+      .map(rel)
+      .sort();
+
+  it("only the Model Router and the read APIs' display helper import the eligibility gate (never Policy, Approvals or the Executor)", () => {
+    expect(importersOf(/\/performanceEligibility\.js$/)).toEqual(["api/performanceEligibilityFields.ts", "router/modelRouter.ts"]);
+  });
+
+  it("only the two performance read routes import the eligibility display helper", () => {
+    expect(importersOf(/\/performanceEligibilityFields\.js$/)).toEqual(["api/routes/agents.ts", "api/routes/costs.ts"]);
   });
 
   it("only the schema, projector, startup loop and read APIs reference agent_performance", () => {

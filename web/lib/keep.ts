@@ -150,6 +150,38 @@ export function policyToken(
   return withCheckpoint && record.checkpoint ? `${words} · at ${stateWord(record.checkpoint)}` : words;
 }
 
+const TIER_SOURCE_WORD: Record<string, string> = { escalation_floor: "floor", performance_preference: "preference" };
+
+/**
+ * The Router's recorded tier and which rule set it (`MID · floor`, `STRONG · preference`, `CHEAP`),
+ * or what a refused route tried (`MID · refused`). Words only, from the API's `RouteRecord`.
+ */
+export function routeToken(
+  route: { resultingTier: string | null; attemptedTier: string | null; tierSource: string | null } | null | undefined
+): string {
+  if (!route) return "";
+  const tier = route.resultingTier ?? route.attemptedTier;
+  if (!tier) return "";
+  // A route recorded before the Router recorded its source must not read as a default route.
+  const source = route.tierSource === null ? "source not recorded" : TIER_SOURCE_WORD[route.tierSource];
+  return [tier, source, route.resultingTier === null ? "refused" : undefined].filter(Boolean).join(" · ");
+}
+
+/**
+ * Whether a performance row meets the sample criterion, as the API's gate decided it
+ * (`eligible`, `eligibilityReason`); never computed from `sampleCount` here. Meeting it
+ * does not mean the Router uses the row: it reads only the Run's own Agent version and
+ * Task Definition, and only tiers above the default.
+ */
+export function eligibilityWord(row: { eligible?: boolean; eligibilityReason?: string | null; sampleCount: number; minSamples?: number | null }): string {
+  if (row.eligible === undefined) return "";
+  if (row.eligible) return "eligible · meets sample criterion";
+  if (row.eligibilityReason === "insufficient_samples") {
+    return row.minSamples ? `not enough samples · ${row.sampleCount} of ${row.minSamples}` : "not enough samples";
+  }
+  return row.eligibilityReason ? stateWord(row.eligibilityReason) : "not eligible";
+}
+
 /** A count from a capped list is never a total: `100+`. */
 export function countLabel(n: number, cap: number): string {
   return n >= cap ? `${cap}+` : String(n);

@@ -118,8 +118,8 @@ describe("Workflow run detail", () => {
               },
               budgetOutcome: "authorized",
             },
-            { id: "i-2", seqNo: 2, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "interrupted_outcome_unknown", errorCode: "timeout", artifactIds: [], policyDecision: null, budgetOutcome: "authorized" },
-            { id: "i-3", seqNo: 3, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "insufficient_budget", errorCode: null, artifactIds: [], policyDecision: null, budgetOutcome: "denied" },
+            { id: "i-2", seqNo: 2, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "interrupted_outcome_unknown", errorCode: "timeout", artifactIds: [], policyDecision: null, budgetOutcome: "authorized", route: { defaultTier: "CHEAP", escalationFloor: "MID", resultingTier: "MID", attemptedTier: null, tierSource: "escalation_floor", attempt: 2, modelId: "claude-sonnet-5" } },
+            { id: "i-3", seqNo: 3, kind: "llm", status: "failed", startedAt: "t", completedAt: "t", failureReason: "insufficient_budget", errorCode: null, artifactIds: [], policyDecision: null, budgetOutcome: "denied", route: { defaultTier: "MID", escalationFloor: null, resultingTier: null, attemptedTier: "MID", tierSource: "default", attempt: 1, modelId: "claude-sonnet-5" } },
           ],
           budget: [
             { resourceUnit: "subscription_tokens", limitAmount: "200000", reservedAmount: "0", consumedAmount: "1050" },
@@ -128,7 +128,19 @@ describe("Workflow run detail", () => {
         },
         attempts: [
           { id: "run-0", attempt: 1, status: "failed", outcomeReason: "provider_failure", failureReason: "timed out", errorCode: "timeout", startedAt: "t", completedAt: "t" },
-          { id: "run-1", attempt: 2, status: "failed", outcomeReason: "invocation_interrupted", failureReason: null, errorCode: null, startedAt: "t", completedAt: "t" },
+          {
+            id: "run-1",
+            attempt: 2,
+            retryOfRunId: "run-0",
+            retryCause: "output_validation_failed",
+            minimumModelTier: "MID",
+            status: "failed",
+            outcomeReason: "invocation_interrupted",
+            failureReason: null,
+            errorCode: null,
+            startedAt: "t",
+            completedAt: "t",
+          },
         ],
       },
       { index: 1, taskDefinition: { id: "td-2", name: "Review-and-Publish", version: 1 }, taskInstance: null, run: null },
@@ -158,6 +170,10 @@ describe("Workflow run detail", () => {
     expect(step).toHaveTextContent("invocation_interrupted");
     expect(within(screen.getByTestId("attempts")).getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getByTestId("attempts")).toHaveTextContent("timed out (timeout)");
+    // Retry lineage and floor as the API recorded them, in words.
+    const [firstAttempt, retryAttempt] = within(screen.getByTestId("attempts")).getAllByRole("listitem");
+    expect(firstAttempt).not.toHaveTextContent("retry");
+    expect(retryAttempt).toHaveTextContent("attempt 2retry · output validation failedfloor MID");
 
     const rows = screen.getAllByTestId("invocation-row");
     expect(rows).toHaveLength(3);
@@ -174,6 +190,12 @@ describe("Workflow run detail", () => {
     expect(within(rows[0]!).getByTestId("invocation-budget")).toHaveTextContent("authorized");
     expect(within(rows[1]!).getByTestId("invocation-budget")).toHaveTextContent("authorized");
     expect(within(rows[2]!).getByTestId("invocation-budget")).toHaveTextContent("denied");
+    // The Router's recorded tier and why, beside the kind; the model id is the cell's title.
+    expect(within(rows[1]!).getByTestId("invocation-kind")).toHaveTextContent("llm · MID · floor");
+    expect(within(rows[1]!).getByTestId("invocation-kind")).toHaveAttribute("title", "claude-sonnet-5");
+    expect(within(rows[0]!).getByTestId("invocation-kind")).toHaveTextContent(/^tool$/);
+    // A refused route names the tier it tried.
+    expect(within(rows[2]!).getByTestId("invocation-kind")).toHaveTextContent("llm · MID · refused");
     expect(rows[2]!.nextElementSibling).toBe(failures[1]);
     expect(failures[1]).toHaveTextContent("insufficient_budget");
 

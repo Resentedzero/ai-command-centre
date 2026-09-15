@@ -63,6 +63,7 @@ import {
 import type { ApiDeps } from "../server.js";
 import { rowToEventEnvelope } from "../eventEnvelopeRow.js";
 import { isUuid } from "../requestGuards.js";
+import { eligibilityFields } from "../performanceEligibilityFields.js";
 
 /** Bounds for the Agent Detail read model: recent history, not a full archive. */
 const AGENT_RECENT_RUNS = 10;
@@ -115,8 +116,10 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
    *     exclusion reasons, token estimate; never content; spec §5.13).
    *   - `performance`: this version's `agent_performance` rows (per Task Definition
    *     and model tier; avg cost per unit, exact strings). Refreshed asynchronously
-   *     (`../../projections/agentPerformance.ts`), so it lags recent Runs, and it is
-   *     shown whatever the sample count: no criterion for meaningful yet.
+   *     (`../../projections/agentPerformance.ts`), so it lags recent Runs, and shown
+   *     whatever the sample count. Each row carries `eligible` from the runtime's own
+   *     gate (`performanceEligibility`, N = 10): whether the Model Router's tier
+   *     preference may use it. Displayed only; this route decides nothing.
    */
   app.get<{ Params: { id: string } }>("/agents/:id", async (request, reply) => {
     const agentId = request.params.id;
@@ -323,6 +326,7 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
         avgRetries: p.avgRetries,
         avgCost: p.avgCost,
         updatedAt: p.updatedAt,
+        ...eligibilityFields(p.sampleCount),
       })),
     });
   });

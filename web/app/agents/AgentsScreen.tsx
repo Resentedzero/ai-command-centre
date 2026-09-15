@@ -8,7 +8,7 @@ import { AgentRoster, useAgentRoster } from "../../components/agents/roster";
 import { StopControl, type ShownStop } from "../../components/StopControl";
 import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
 import { WorkshopCloseup, type WorkshopState } from "../../components/world/Workshop";
-import { agentState, errorText, formatAmount, formatTime, stateWord } from "../../lib/keep";
+import { agentState, eligibilityWord, errorText, formatAmount, formatTime, stateWord } from "../../lib/keep";
 import a from "./agents.module.css";
 
 /**
@@ -340,6 +340,7 @@ function AgentBoard({
                     <th>success rate</th>
                     <th>avg retries</th>
                     <th>avg cost</th>
+                    <th>routing</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -358,13 +359,18 @@ function AgentBoard({
                           .map(([unit, v]) => `${v} ${unit}`)
                           .join(" · ") || "none recorded"}
                       </td>
+                      {/* The runtime's eligibility gate, as the API returns it; never sampleCount compared here. */}
+                      <td>{eligibilityWord(p)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-          <p className={px.detail}>A measurement, rebuilt after runs finish, so it lags recent work. It ranks and recommends nothing.</p>
+          <p className={px.detail}>
+            A measurement, rebuilt after runs finish, so it lags recent work. An eligible row can steer the Model Router&apos;s tier
+            choice; it never approves or runs anything.
+          </p>
         </section>
       </div>
     </>
