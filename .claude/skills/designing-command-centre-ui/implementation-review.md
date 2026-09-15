@@ -66,4 +66,39 @@ Severity:
 
 **API gap confirmed for CLI1** (don't fake it): the event-arrival room flash (`visual-language.md` Motion) needs the Agent Definition id, or a run id resolvable to one, on `EventDisplayItem`. Today only the notice strip reacts to events.
 
+## Round 3 (2026-09-15): Agents and Registry, commit `440cf64`
+
+**Status of earlier findings:**
+
+| # | Status |
+|---|---|
+| 1 top-bar tabs as boxes | **Open.** `.tab` still has a background, border and outline on every slot. |
+| 2 gauge fill uses `--state-idle` | **Open.** |
+| 3 `filter: brightness()` hover/pressed | **Resolved:** fills shift with `color-mix`, and the outline and text are untouched. |
+| 4 cyan Agents chip | **Resolved:** cyan only while a Run is `active`, neutral otherwise. That is light-as-state, so accepted. |
+| 5 wizard death fallback | **Open.** The outlined `wizard-death-strip-2x-outlined.png` exists in `assets/gamification/adapted/strips-outlined-2x/`. Run `npm run world-art` and point `STRIPS.wizard.death` at it (`n: 12`). |
+| 6 agents beyond the workshops | Resolved (round 2). |
+| 7 plaque type size | **Resolved:** 16 px. |
+| 8 portrait at 1080 tall | Open (optional). |
+| 9 no-workshop copy | Open (low). |
+| 10 "n/a goals" | **Open:** `count()` returns "n/a" and the plaque still appends " goals". |
+| 11 pit tile | Fixed by design; CLI1 still needs to re-run `npm run world-art`. |
+| 12 error rendered as loading | **Resolved:** a failed read shows "n/a". |
+
+**Faithful in the new screens, keep as is:**
+- **Roster:** lists every Agent Definition version from `GET /registry`, joined with active Runs and stops. With no unfinished Run it says "no active run" (neutral), and "state unknown" when the active read fails.
+- **Workshop:** lit cyan only while a Run is `active`, dark and empty while `awaiting_approval` (the agent is at the council seal), and a barrier plus a frozen sprite when stopped.
+- **Keys:** numbered to match their "Key n" cards; a revoked key is dimmed.
+- **Stop:** under the name, and a waiting agent links to its approval.
+- **Performance:** shows `samples` beside every rate, says it "ranks and recommends nothing", and a missing minimum-sample flag is documented as an API gap rather than invented.
+- **Registry:** read-only, with no autonomy or revoke controls, and the read-only statement is on parchment.
+- **Honest states:** not found (404), load failed, refresh failed, and every empty section.
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 13 | Medium | `components/world/workshop.module.css` `.keyIcon` | The key sprite is 16 × 16 source, drawn at 48 px: **3×, inside a 4× workshop.** Mixed pixel scales in one view read as blurry or wrong, and the design rule is one whole-number scale per view (D9). | `width/height: 64px; background-size: 384px 64px` (4×). Space keys 88 px apart instead of 72, so the tags still clear. |
+| 14 | Medium | `app/agents/AgentsScreen.tsx` (no `id`) | `/agents` with nothing selected drops the world (`noWorld`) and shows "Choose an agent". The Agents tab, the screen the operator reaches first, opens with no pixel world at all, which is exactly what makes it read like a SaaS list. | When the roster loads, select an agent: first one needing attention (stopped, then awaiting approval, then active), otherwise the first definition. Use `router.replace` to `/agents/:id`. Keep the "Choose an agent" notice only for an empty Registry. |
+| 15 | Low | `app/registry/page.tsx` grant card | `scope {JSON.stringify(g.scope)}` shows raw JSON to the operator. | Render each scope entry as `key: value` lines in mono. For nested values, show the key plus "· · · (open raw)" in a `<details>`. |
+| 16 | Low | `app/agents/AgentsScreen.tsx` Performance table | Rows render in API order. `runtime-truth.md` asks for a stable, non-ranking order, so a reorder by success can't look like a leaderboard. | Sort by task definition name, then model tier, before rendering. Don't sort by `successRate`. |
+
 **Not yet reviewable:** the screen pages (`app/page.tsx`, `agents`, `approvals`, `goals`, `workflows`) are still the pre-pixel versions. A visual review at 1920, 1440 and 1280 follows once they are rebuilt and the web app runs against the API.
