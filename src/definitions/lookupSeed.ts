@@ -8,8 +8,9 @@
  * UUIDs a prior `npm run seed` run assigned them.
  *
  * Used by two callers:
- *   - `./runSeed.ts` (Ruling 1): the idempotency check — if this returns
- *     non-null, seeding is a no-op.
+ *   - `./seed.ts`'s `seedMissingWorkflows` (`npm run seed`, Ruling 1): the
+ *     idempotency check — if this returns non-null, Research-and-Publish is not
+ *     seeded again.
  *   - `../api/routes/goals.ts`: the default Workflow Definition and Project for
  *     a `POST /goals` that names none. Steps themselves are planned from
  *     persisted Definitions (`../workflow/buildInvocationSpecsFromDefinitions.ts`),

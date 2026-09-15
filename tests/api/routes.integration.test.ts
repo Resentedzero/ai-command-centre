@@ -34,7 +34,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { closeTestDb, resetTestSchema, testDb, testPool } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
-import { seedPublishWorkflow } from "../../src/definitions/seed.js";
+import { seedMissingWorkflows, seedPublishWorkflow } from "../../src/definitions/seed.js";
 import { findSeededPublishWorkflow, type SeededWorkflowRefs } from "../../src/definitions/lookupSeed.js";
 
 vi.mock("../../src/router/providers/anthropic.js", () => ({
@@ -1128,5 +1128,39 @@ describe("Structural: route handlers are thin pass-throughs", () => {
     expect(workflowRunsSource).toContain("pauseWorkflowRun(");
     expect(workflowRunsSource).toContain("resumeWorkflowRun(");
     expect(workflowRunsSource).toContain("advanceWorkflowRunUntilBlocked(");
+  });
+});
+
+describe("Workflow 1 (Research-Report) through POST /goals", () => {
+  it("runs one Task Instance and one Run of tool, llm and deterministic Invocations, ending in a report Artifact", async () => {
+    await testDb.transaction((tx) => seedMissingWorkflows(tx));
+    const workflow1 = await testDb.query.workflowDefinitions.findFirst({ where: eq(schema.workflowDefinitions.name, "Research-Report") });
+    mockLlmOnce("Workflow 1 report");
+    const res = await app.inject({
+      method: "POST",
+      url: "/goals",
+      payload: { title: "Research the keep", workflowDefinitionId: workflow1!.id },
+    });
+    expect(res.statusCode).toBe(201);
+    const created = res.json() as CreatedGoal;
+    expect(created.status).toBe("completed");
+
+    const taskInstances = await testDb.query.taskInstances.findMany({ where: eq(schema.taskInstances.workflowRunId, created.workflowRunId) });
+    expect(taskInstances.map((t) => [t.taskDefinitionId, t.status])).toEqual([[seedRefs.taskDefinitionId, "completed"]]);
+    const runRows = await testDb.query.runs.findMany({ where: eq(schema.runs.taskInstanceId, taskInstances[0]!.id) });
+    expect(runRows).toHaveLength(1);
+    const invocationRows = (await testDb.query.invocations.findMany({ where: eq(schema.invocations.runId, runRows[0]!.id) })).sort(
+      (a, b) => a.seqNo - b.seqNo
+    );
+    expect(invocationRows.map((i) => [i.kind, i.status])).toEqual([
+      ["tool", "completed"],
+      ["llm", "completed"],
+      ["deterministic", "completed"],
+    ]);
+    const report = (await testDb.query.artifacts.findMany({ where: eq(schema.artifacts.type, "report") })).find(
+      (a) => a.producingInvocationId === invocationRows[1]!.id
+    );
+    expect(JSON.parse(report!.inlineContent!)).toEqual({ report: "Workflow 1 report" });
+    expect(callClaudeSubscriptionModel).toHaveBeenCalledTimes(1);
   });
 });

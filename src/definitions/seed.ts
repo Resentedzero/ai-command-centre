@@ -30,12 +30,14 @@
  * plan parameters (spec §18.3). Migration 0012 gives rows seeded before then the same
  * kinds and step bindings.
  */
-import { goals, projects } from "../db/schema.js";
+import { eq } from "drizzle-orm";
+import { goals, projects, workflowDefinitions } from "../db/schema.js";
+import { findSeededPublishWorkflow } from "./lookupSeed.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitLifecycleEvent, NO_CORRELATION } from "../events/lifecycle.js";
 import type { CapabilityPermission } from "../governance/policy.js";
 import type { ContextBudget } from "../context/types.js";
-import type { LinearGraphDefinition } from "../workflow/graphTypes.js";
+import { isLinearGraphDefinition, type LinearGraphDefinition, type LinearGraphStep } from "../workflow/graphTypes.js";
 import { RESEARCH_RETRIEVE_CAPABILITY } from "../capabilities/researchRetrieve/capability.js";
 import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capability.js";
 import { RESEARCH_RETRIEVE_SYNTHETIC } from "../capabilities/researchRetrieve/adapter.js";
@@ -299,4 +301,66 @@ export async function seedPublishWorkflow(tx: DrizzleTransaction): Promise<SeedP
     workflowDefinitionId: workflowDefinition.id,
     workflowDefinitionVersion: workflowDefinition.version!,
   };
+}
+
+// ---------------------------------------------------------------------------
+// seedResearchReportWorkflow
+// ---------------------------------------------------------------------------
+
+/** Workflow 1 (spec §18.2): the standalone `research.retrieve` → Report Task. */
+export const RESEARCH_REPORT_WORKFLOW_NAME = "Research-Report";
+
+/**
+ * Adds Workflow 1 as a one-step Workflow Definition whose step is Research-and-Publish's
+ * research step — the same Task Definition and Agent versions, so the same Grants — so a
+ * database seeded before it existed gains it without re-creating anything.
+ */
+export async function seedResearchReportWorkflow(
+  tx: DrizzleTransaction,
+  researchStep: LinearGraphStep
+): Promise<{ workflowDefinitionId: string; workflowDefinitionVersion: number }> {
+  const { taskDefinitionId, taskDefinitionVersion, agentDefinitionId, agentDefinitionVersion } = researchStep;
+  const graphDefinition: LinearGraphDefinition = {
+    kind: "linear",
+    steps: [{ taskDefinitionId, taskDefinitionVersion, agentDefinitionId, agentDefinitionVersion }],
+  };
+  const workflowDefinition = await createWorkflowDefinition(tx, { name: RESEARCH_REPORT_WORKFLOW_NAME, graphDefinition }, SEED_ACTOR);
+  return { workflowDefinitionId: workflowDefinition.id, workflowDefinitionVersion: workflowDefinition.version! };
+}
+
+/**
+ * `npm run seed`'s body: seeds each workflow that is missing, each by its own check.
+ * Research-and-Publish is found by `findSeededPublishWorkflow`. Workflow 1 is found by
+ * name and must be a one-step graph over the research step; any other Workflow
+ * Definition under that name fails closed rather than counting as seeded.
+ */
+export async function seedMissingWorkflows(tx: DrizzleTransaction): Promise<{ seededPublish: boolean; seededResearchReport: boolean }> {
+  const seededPublish = !(await findSeededPublishWorkflow(tx));
+  if (seededPublish) await seedPublishWorkflow(tx);
+
+  const publishRows = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, "Research-and-Publish") });
+  const publish = publishRows.reduce((a, b) => (b.version > a.version ? b : a));
+  if (!isLinearGraphDefinition(publish.graphDefinition) || !publish.graphDefinition.steps[0]) {
+    throw new Error("seedMissingWorkflows: Research-and-Publish has no valid first step to build Workflow 1 from (fail closed).");
+  }
+  const researchStep = publish.graphDefinition.steps[0];
+
+  const existing = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, RESEARCH_REPORT_WORKFLOW_NAME) });
+  if (existing.length > 0) {
+    const matches = existing.every(
+      (row) =>
+        isLinearGraphDefinition(row.graphDefinition) &&
+        row.graphDefinition.steps.length === 1 &&
+        row.graphDefinition.steps[0]!.taskDefinitionId === researchStep.taskDefinitionId
+    );
+    if (!matches) {
+      throw new Error(
+        `seedMissingWorkflows: a Workflow Definition named "${RESEARCH_REPORT_WORKFLOW_NAME}" exists but is not the one-step ` +
+          "Research-Report workflow (fail closed)."
+      );
+    }
+    return { seededPublish, seededResearchReport: false };
+  }
+  await seedResearchReportWorkflow(tx, researchStep);
+  return { seededPublish, seededResearchReport: true };
 }

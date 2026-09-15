@@ -14,7 +14,8 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: 
 vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
 vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeSubscriptionModel: vi.fn() }));
 
-import { seedPublishWorkflow } from "../../src/definitions/seed.js";
+import { seedMissingWorkflows, seedPublishWorkflow } from "../../src/definitions/seed.js";
+import { createWorkflowDefinition } from "../../src/definitions/registryWrites.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -76,6 +77,65 @@ describe("the seed logs what it creates", () => {
       expect((workflow!.graphDefinition as { steps: unknown[] }).steps).toHaveLength(2);
       const binding = await tx.query.toolBindings.findFirst({ where: eq(schema.toolBindings.id, seeded.toolBindingId) });
       expect(binding).toMatchObject({ kind: "internal", trustLevel: 2, version: 1 });
+    });
+  });
+
+  it("npm run seed on a database seeded before Workflow 1 adds exactly its Workflow Definition, and a second run adds nothing", async () => {
+    await withRollback(async (tx) => {
+      const seeded = await seedPublishWorkflow(tx);
+      const counts = async () =>
+        Promise.all(
+          [schema.agentDefinitions, schema.taskDefinitions, schema.capabilities, schema.capabilityGrants, schema.toolBindings, schema.projects, schema.goals, schema.workflowDefinitions].map(
+            async (table) => (await tx.select().from(table)).length
+          )
+        );
+      const before = await counts();
+
+      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: true });
+      const after = await counts();
+      expect(after).toEqual([...before.slice(0, -1), before.at(-1)! + 1]);
+
+      const row = await tx.query.workflowDefinitions.findFirst({ where: eq(schema.workflowDefinitions.name, "Research-Report") });
+      expect(row).toMatchObject({ version: 1 });
+      expect((row!.graphDefinition as { steps: unknown[] }).steps).toEqual([
+        { taskDefinitionId: seeded.taskDefinitionId, taskDefinitionVersion: 1, agentDefinitionId: seeded.agentDefinitionId, agentDefinitionVersion: 1 },
+      ]);
+      expect(await eventFor(tx, `definition_version_created:${row!.id}`)).toMatchObject({ actor: "human:operator", payload: { definitionType: "workflow_definition" } });
+
+      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: false });
+      expect(await counts()).toEqual(after);
+    });
+  });
+
+  it("seeds both workflows on an empty database", async () => {
+    await withRollback(async (tx) => {
+      expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: true, seededResearchReport: true });
+    });
+  });
+
+  it("fails closed when another Workflow Definition already holds Workflow 1's name", async () => {
+    await withRollback(async (tx) => {
+      const seeded = await seedPublishWorkflow(tx);
+      await createWorkflowDefinition(
+        tx,
+        {
+          name: "Research-Report",
+          graphDefinition: {
+            kind: "linear",
+            steps: [
+              {
+                taskDefinitionId: seeded.reviewAndPublishTaskDefinitionId,
+                taskDefinitionVersion: 1,
+                agentDefinitionId: seeded.publisherAgentDefinitionId,
+                agentDefinitionVersion: 1,
+                parameters: { sourceTaskDefinitionId: seeded.taskDefinitionId },
+              },
+            ],
+          },
+        },
+        "human:operator"
+      );
+      await expect(seedMissingWorkflows(tx)).rejects.toThrow(/not the one-step Research-Report workflow/);
     });
   });
 });

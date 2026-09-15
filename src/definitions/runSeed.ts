@@ -15,20 +15,19 @@
  * If found, this script is a no-op; otherwise it calls `seedPublishWorkflow`
  * inside a transaction that actually commits (unlike the test suite's
  * `withRollback`, which only ever ROLLS BACK).
+ *
+ * Workflow 1 ("Research-Report", `seedResearchReportWorkflow`) has its own check
+ * (`seedMissingWorkflows`), so a database seeded before it existed gains it on the
+ * next run.
  */
 import "dotenv/config";
 import { db, pool } from "../db/client.js";
-import { seedPublishWorkflow } from "./seed.js";
-import { findSeededPublishWorkflow } from "./lookupSeed.js";
+import { seedMissingWorkflows } from "./seed.js";
 
 export async function runSeed(): Promise<{ seeded: boolean }> {
   return db.transaction(async (tx) => {
-    const existing = await findSeededPublishWorkflow(tx);
-    if (existing) {
-      return { seeded: false };
-    }
-    await seedPublishWorkflow(tx);
-    return { seeded: true };
+    const { seededPublish, seededResearchReport } = await seedMissingWorkflows(tx);
+    return { seeded: seededPublish || seededResearchReport };
   });
 }
 
