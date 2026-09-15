@@ -368,7 +368,7 @@ describe("no production caller can override the ceilings", () => {
         file: path.relative(srcRoot, file).replace(/\\/g, "/"),
         code: readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, ""),
       }))
-      .filter(({ file, code }) => file !== "governance/budget.ts" && /\bdailyCeilings\b/.test(code))
+      .filter(({ file, code }) => file !== "governance/budget.ts" && /\b(dailyCeilings|taskInstanceCeilings)\b/.test(code))
       .map(({ file }) => file);
 
     expect(offenders).toEqual([]);
