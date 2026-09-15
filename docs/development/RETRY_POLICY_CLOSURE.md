@@ -61,4 +61,30 @@ Every entry is a reading of the brief's wording against the failure records this
 - `tests/workflow/retries.test.ts`, through the HTTP API with the seeded workflow: a retried step completes on its second Run with the Task Instance never recording a failure; three failures fail the step and Workflow Run after exactly three provider calls; a validation failure routes the retry to MID with the floor recorded; a consumption-free failure is not retried; an interrupted dispatch left by a "crash" is swept, left unfinished, and retried by the re-drive.
 - `tests/execution/durableExecution.test.ts`: the sweep leaves a retryable step unfinished, and fails it when the attempts are exhausted.
 - `tests/capabilities/publishReportSourceAmbiguity.test.ts`: two completed source Runs refused; all-failed refused; failed attempt plus completed Run accepted.
+- `tests/governance/retryPolicy.test.ts` also reads real rows: the Run's last failure (not its first) and its own tier floor.
+
+## Mutation checks
+
+Each mutant was applied, its tests run, and the file restored byte-for-byte.
+
+| Mutant | Result |
+|---|---|
+| R1 a 4th Run allowed (`>=` to `>`) | caught |
+| R2 a Tool Invocation failure retried | caught |
+| R3 a halted Run retried | caught |
+| R4 consumption-free provider failures retried | caught |
+| R5 a validation failure not escalated | caught |
+| R6 escalation past STRONG not exhausted | caught |
+| R7 an unknown-consumption retry drops its floor | caught |
+| R8 the reader ignores the failed Run's floor | survived at first; reader test added; caught |
+| R9 the reader takes the first failure, not the last | survived at first; reader test added; caught |
+| R10 the Router ignores the floor | caught |
+| R11 the Interpreter never retries | caught |
+| R12 the sweep fails a retryable step | caught |
+| R13 the retry Run not made the step's current Run | caught |
+| R14 plans pick any Run of the Task Instance | caught |
+| R15 publishing counts failed attempts | caught |
+| R16 the driver bound ignores retries | caught |
+| R17 the floor not recorded on the route | caught |
+
 - Changed deliberately, none removed: the redaction test now sees three failure events (one per attempt); the sweep test's expected step state; the Router's exact payload gains `escalationFloor`.
