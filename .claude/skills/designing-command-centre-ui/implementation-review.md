@@ -190,4 +190,25 @@ Severity:
 | 30 | Low | `app/goals/goals.module.css` `.summary` | The summary parchment grows to fill the row (`flex: 1 1 280px`). At 1920 it's about 1100 × 256 px of mostly empty cream beside the war room. `visual-language.md`: cream parchment over a large area glares, and parchment is for short cards. | `flex: 0 1 520px` (or `max-width: 560px`), with `align-self: flex-start` so it hugs its content. The war room keeps its fixed size, and the empty wood to the right is fine. |
 | 27 | Check | `app/approvals/page.tsx` at 1280 × 800 | The laptop rule keeps the hash check above the fold: the request card hugs its content, and the artifact strip follows it. This is not verifiable at this commit, because the stale API returns no pending approvals. | Verify on the real-data recapture. If the strip falls below the fold, place `ArtifactToAct`'s status line directly under the request card's `dl`. |
 
+## Round 7 (2026-09-15): CLI1's fix pass on Agents and Registry, commit `01037fc`
+
+CLI1 worked from this review. Verified in the diff:
+
+| # | Status |
+|---|---|
+| 14 `/agents` opens with no world | **Resolved:** with no id in the URL, the screen opens the agent needing attention (stopped or awaiting approval), otherwise the first definition, so the workshop is always shown. |
+| 15 raw JSON grant scope | **Resolved:** the scope renders as `key: value` lines on vellum. |
+| 17 "choose from the roster" when the roster failed (Agents) | **Resolved on Agents:** "No agent is open: the roster couldn't be read." **Still open on Workflows** (see the round-5 extension). |
+| 21 double Retry on Registry | **Partly resolved:** a refresh failure now uses one `RefreshNotice`. With no registry loaded at all, Retry still appears in both the roster and the main pane. |
+| 13 3× keys in the 4× workshop | **Open:** `workshop.module.css` is unchanged. |
+| 16 performance order | **Open** on Agents and Cost. |
+
+**Also improved in this pass (consistent with the design, no change asked):**
+- **Workshop:** grows to 768 px on wide screens (the world as hero); pending workshops are unlit and empty (`tile-pack.md`: pending means absent).
+- **Honest reads:** a failed read shows "state unknown", never loading; unreadable stops and refresh failures are said.
+- **Stops:** a global stop shows as stopped, with no lift offered from the agent screen; Stop can't double-submit.
+- **Registry:** it never substitutes another agent for an unknown id.
+- **Grants:** revoked grants are neutral (a fact, not a failure); keys are numbered in one shared order on both screens.
+- **Refresh notices:** `RefreshNotice` puts routes on the detail line on every screen.
+
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
