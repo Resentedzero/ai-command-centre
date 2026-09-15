@@ -102,4 +102,28 @@ Severity:
 | 17 | Medium | `app/agents/AgentsScreen.tsx` (no `id`) | When the roster read fails (captured 2026-09-15: `GET /registry` → 404), the roster shows "Couldn't load the roster." with Retry, but the detail pane still says "Choose an agent from the roster to see what it is doing." That points the operator at a list that isn't there. | When `roster.error && !roster.registry`, the detail pane shows nothing, or a dim line "The roster couldn't load; retry it on the left." Keep the Retry action in one place only. |
 | 16 | Low | `app/agents/AgentsScreen.tsx` Performance table | Rows render in API order. `runtime-truth.md` asks for a stable, non-ranking order, so a reorder by success can't look like a leaderboard. | Sort by task definition name, then model tier, before rendering. Don't sort by `successRate`. |
 
-**Not yet reviewable:** the screen pages (`app/page.tsx`, `agents`, `approvals`, `goals`, `workflows`) are still the pre-pixel versions. A visual review at 1920, 1440 and 1280 follows once they are rebuilt and the web app runs against the API.
+## Round 4 (2026-09-15): independent visual critic on all routes at 1920, 1440 and 1280
+
+**Capture:** headless Edge at exact viewport sizes, after a 7 s settle, on commit `440cf64`. The API was stale (see the environment note), so most reads showed their error states.
+
+**Critic verdict: "drifting".** The Overview keep and the shared chrome match the direction (Overview 7/10). But at this commit six of nine routes show no world and no pixel chrome, which is expected mid-rollout:
+- **Not built yet:** Workflows, Goals and Approvals are still the pre-pixel pages; Artifacts, Events and Costs have no route (Next.js 404).
+- **Re-review:** these screens get reviewed when CLI1 rebuilds them, against their `04 — Screens` frames.
+
+**Accepted from the critic:**
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 18 | Medium | `app/page.tsx` board, empty state | With nothing running, the board is one line plus a button above about 650 px of empty wood. A dead pane is what makes a screen read as a SaaS page. | Below the empty notice, list every Agent Definition from `GET /registry` as plaques ("no active run", neutral), each linking to its agent. That's real data and a path into the world. Keep Recent events at the bottom. |
+| 19 | Low | `components/pixel/NoticeStrip.tsx` on the Overview | The notice strip and the board's Recent events show the same latest rows. | The strip pins only events worth noticing (`approval_required`, `*_failed`, `execution_stop_engaged`, `run_halted`, `artifact_created`), and the board keeps the full recent list. When nothing notable has happened, the strip shows the feed status line. |
+| 20 | Low | `components/pixel/strip.module.css` at 1280 | The last note is cut in half at the right edge. | Render only the notes that fit whole: a `flex-wrap: wrap` strip with a fixed height and `overflow: hidden` drops the ones that don't fit, instead of slicing one. |
+| 21 | Low | `app/registry/page.tsx` | When the registry read fails, Retry appears in both the roster and the main pane (extends finding 17). | One Retry, in the roster; the main pane shows a dim pointer to it. |
+| 22 | Low (rollout) | `components/pixel/PixelTopBar.tsx` | The Artifacts and Events tabs lead to a black framework 404 until those routes exist. | Until then, add `app/not-found.tsx` in pixel chrome (a wood board: "This room isn't built yet." plus a link back to the Overview), so a missing route stays inside the keep. |
+
+**Rejected, with reasons:**
+- **"Scale the keep to fit 1440/1280 so every room stays visible":** pixel art only scales by whole numbers (D9), so the keep can't shrink to fit a laptop without blurring. The approved laptop rule is to pan to what needs attention (D16, `screens.md`), and plaques cut at the viewport edge are the cost of panning. The one real risk (the act-now room out of view) is already handled by the focus logic.
+- **"The HTTP detail under the error message is dev-speak":** the rule is an operator message plus a dim detail line with the route and status (`visual-language.md`, cycle "State frames"), which is what `StateNotice` renders.
+- **"/registry lights Agents, /costs lights Workflows":** decided in `screens.md` (screens without a top-bar slot light their parent tab).
+- **Red raw error lines on Workflows and Goals:** these belong to the pre-pixel pages, which the rebuild replaces.
+
+**Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
