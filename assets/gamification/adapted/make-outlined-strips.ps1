@@ -15,7 +15,8 @@ $jobs = @(
   @("Knight\Idle\Idle-Sheet.png", "knight-idle", 32),
   @("Knight\Death\Death-Sheet.png", "knight-death", 32),
   @("Wizzard\Run\Run-Sheet.png", "wizard-run", 64),
-  @("Wizzard\Idle\Idle-Sheet.png", "wizard-idle", 32)
+  @("Wizzard\Idle\Idle-Sheet.png", "wizard-idle", 32),
+  @("Wizzard\Death\Death-Sheet.png", "wizard-death", 32)
 )
 foreach ($job in $jobs) {
   $src = [System.Drawing.Bitmap]::FromFile((Join-Path $npc $job[0]))
