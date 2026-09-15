@@ -150,4 +150,44 @@ Severity:
 | 17 | Medium (extended) | `app/workflows/WorkflowsScreen.tsx` (no `id`) | The capture (1920, 1280; stale API) shows the same contradiction as Agents: the runs board says "Couldn't load workflow runs." with Retry, while the detail pane still says "Choose a workflow run to see where it is in its sequence." | Same fix as finding 17. When `runsError && !runs`, the detail pane shows nothing, or a dim pointer to the Retry on the left. With finding 24's auto-select, the "choose" notice only remains for an empty list. |
 | 16 | Low (extended) | `app/costs/page.tsx` "Cost and success" | Rows render in API order, like the Agents performance table. | Sort by agent name, then task definition name, then model tier. Never by `successRate`. |
 
+## Round 6 (2026-09-15): Goals war room and Approvals, commit `800914d`
+
+**Still open from earlier rounds** (unchanged in the code at this commit):
+- 1: top-bar tabs as boxes.
+- 5: `STRIPS.wizard.death` still points at the idle strip; the outlined wizard death strip is ready.
+- 10: "n/a goals".
+- 13: 3× keys in the 4× workshop.
+- 14 and 17: `/agents` opens with no world, and contradicts a failed roster.
+- 23: identical engine-room step rooms.
+- 24: `/workflows` opens on an empty pane.
+
+**Faithful, keep as is:**
+- **Goals:**
+  - a war-room vignette that states no value;
+  - the quota warning in label ink (not amber);
+  - the non-idempotent failure path ("refresh the goals and check before trying again" plus Refresh goals);
+  - zero counts neutral;
+  - goal statuses with a neutral mark, because they are not runtime states and cyan would claim work;
+  - banners on parchment with run chips linking to the corridor.
+- **Approvals, the queue and reading:**
+  - reading-first, with the queue on the left;
+  - the council hall lit amber with the pulsing seal only while a pending request is selected, and dimmed while the feed or a refresh is down;
+  - the preview rendered as text, never HTML;
+  - the full content linked through `/artifacts/:id?full=1`;
+  - the proposed-action snapshot on vellum.
+- **Approvals, the hash check and decision:**
+  - all three states: match (green), mismatch (red marker, "Approving will fail", preview marked untrusted), and no hash pinned (neutral);
+  - Approve and Reject pinned in the action bar;
+  - an "advanced but not continued" notice.
+- **Honest gaps:** no invented "resolved" group (the API returns pending only), and no sprite on the seal (the approval context has no agent id), both documented in `web/design/goals-approvals.md`.
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 25 | Medium | `app/approvals/page.tsx` action bar | On a hash mismatch, the only "Approving will fail" signal is in the artifact strip inside the scrolling reading area. At 1280 × 800 it can scroll out of view, while the pinned **Approve** is still a green, armed control at the decision point. The design rule is that the safety signal stays visible at the moment of decision (`screens.md` laptop rules). | When `selected.context?.artifact?.hashMatchesSnapshot === false`: repeat the warning in the action bar (red marker plus "Content changed since it was proposed: approving will fail."), and render Approve with `kind="neutral"` (no green edge or marker). Don't disable it; the API decides, and the UI only reflects the returned field. |
+| 26 | Low | `app/approvals/page.tsx` `.actionText` | "The decision is recorded and the workflow continues from it." is only true for Approve; a rejection stops that step. | "Your decision is recorded. Approving lets the workflow continue; rejecting stops this step." |
+| 28 | Medium | `app/goals/page.tsx` summary card | When `GET /goals` fails (captured at 1920 and 1280), the summary card keeps showing the loading "· · ·" under its heading while the error notice sits below. It's the same error-as-loading defect as finding 12. | Render the summary's value line from three states: `projects` loaded → counts; `loadError && !projects` → "n/a" (dim); otherwise → skeleton. |
+| 29 | Medium | `app/approvals/page.tsx` reading area | With nothing pending (captured at 1920 and 1280), the queue correctly says "Nothing is waiting for approval.", but the reading area says "Choose a request from the queue.", pointing at an empty queue. The design state frame "Approvals — pixel state: nothing pending" uses the heading "No approvals are pending" plus one plain line. | When `approvals?.length === 0`, render the design's empty state beside the unlit council hall: `px.heading` "No approvals are pending" plus "A request appears here when an agent reaches an approval gate." Keep "Choose a request" only when the queue has rows and none is selected (not reachable today, because the first row is auto-selected). |
+| 30 | Low | `app/goals/goals.module.css` `.summary` | The summary parchment grows to fill the row (`flex: 1 1 280px`). At 1920 it's about 1100 × 256 px of mostly empty cream beside the war room. `visual-language.md`: cream parchment over a large area glares, and parchment is for short cards. | `flex: 0 1 520px` (or `max-width: 560px`), with `align-self: flex-start` so it hugs its content. The war room keeps its fixed size, and the empty wood to the right is fine. |
+| 27 | Check | `app/approvals/page.tsx` at 1280 × 800 | The laptop rule keeps the hash check above the fold: the request card hugs its content, and the artifact strip follows it. This is not verifiable at this commit, because the stale API returns no pending approvals. | Verify on the real-data recapture. If the strip falls below the fold, place `ArtifactToAct`'s status line directly under the request card's `dl`. |
+
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
