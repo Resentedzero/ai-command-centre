@@ -117,7 +117,7 @@ export default function CostsPage() {
             )}
             <span className={px.tab}>Counters</span>
             {data.counters.length === 0 ? (
-              <p className={px.dim}>{scope ? "No counters in this scope." : "No budget counters yet."}</p>
+              <p className={px.dim}>{scope ? "No budget counters in this scope." : "No budget counters yet."}</p>
             ) : (
               <ul className={c.counters}>
                 {data.counters.map((ct) => (
