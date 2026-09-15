@@ -112,7 +112,6 @@ beforeAll(async () => {
       "cli_unavailable",
       "misconfigured",
       "input_too_large",
-      "timeout",
       "context_budget_exceeded",
       "database_error",
     ]) {
@@ -120,8 +119,8 @@ beforeAll(async () => {
     }
     await run(tx, await taskInstance(tx), ids.agentB, failed("execution_error: the step builder found ambiguous data"));
     await run(tx, await taskInstance(tx), ids.agentB, [tier("GATED"), ["run_failed", { reason: "execution_error" }]]);
-    // An output the provider's validator rejected IS the agent's sample (a timeout is infrastructure, above).
-    await run(tx, await taskInstance(tx), ids.agentB, [tier("GATED"), ["invocation_failed", { reason: "invalid output", errorCode: "schema_validation" }], ["run_failed"]]);
+    // A provider failure that may have consumed (timeout, validation) IS the agent's sample.
+    await run(tx, await taskInstance(tx), ids.agentB, [tier("GATED"), ["invocation_failed", { reason: "timed out", errorCode: "timeout" }], ["run_failed"]]);
     await run(tx, await taskInstance(tx), ids.agentB, failed("approval_rejected"));
     await run(tx, await taskInstance(tx), ids.agentB, failed("provider returned malformed output"));
     // A Run halted after another terminal event is still excluded.

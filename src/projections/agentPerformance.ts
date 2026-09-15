@@ -76,9 +76,9 @@ const NOT_AGENT_OUTCOMES_SQL = sql.raw(NOT_AGENT_OUTCOMES.map((reason) => `'${re
  * `reason` is free text (added 2026-09-15 after a cross-feature review): a provider refusal
  * that consumed nothing (`claudeSubscription.ts` NO_CONSUMPTION_CODES), a context that did not
  * fit its (possibly Governor-degraded) budget, a database error, and the pre-dispatch
- * refusals (`executor.ts#toolDispatchRefusal`, `advanceWorkflowRunUntilBlocked.ts`), and a
- * provider call killed at its timeout — infrastructure, like `interrupted_outcome_unknown`
- * (operator decision 2026-09-15: infrastructure failures do not count). A step
+ * refusals (`executor.ts#toolDispatchRefusal`, `advanceWorkflowRunUntilBlocked.ts`). A
+ * `timeout` still counts: with no output or turn cap, a model that runs too long times out
+ * like a hung provider, and excluding it would raise the rate autonomy decides on. A step
  * that could not be built or executed (`execution_error: …`) is excluded by its prefix.
  * Without these, an operator's Policy change, a provider outage or a budget shortage lowered
  * the rate Conditional Autonomy and tier preference decide on.
@@ -89,7 +89,6 @@ const NOT_AGENT_ERROR_CODES = [
   "input_too_large",
   "auth_expired",
   "quota_exhausted",
-  "timeout",
   "context_budget_exceeded",
   "database_error",
   "policy_denied_before_dispatch",
