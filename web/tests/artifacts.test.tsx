@@ -19,6 +19,7 @@ vi.mock("../lib/api", () => api);
 
 import ArtifactsPage from "../app/artifacts/page";
 import ArtifactPage from "../app/artifacts/[id]/page";
+import { readable } from "../app/artifacts/ArtifactsScreen";
 
 const registry: RegistryData = {
   agentDefinitions: [{ id: "agent-1", name: "Researcher", version: 1, role: "r", objective: "o", instructions: "", createdAt: "t" }],
@@ -157,6 +158,55 @@ describe("Artifacts vault index", () => {
       );
     });
     expect(await screen.findByText("Researcher v1's vault is empty.")).toBeInTheDocument();
+    // Nothing to choose is never offered as a choice (#32).
+    expect(screen.getByRole("heading", { name: "Empty vault" })).toBeInTheDocument();
+    expect(screen.queryByText(/Choose an output/)).not.toBeInTheDocument();
+  });
+
+  it("with no agent in the URL, opens the agent with the most recent output (#48)", async () => {
+    api.getRegistry.mockResolvedValue({
+      ...registry,
+      agentDefinitions: [
+        { id: "agent-0", name: "Publisher", version: 1, role: "p", objective: "o", instructions: "", createdAt: "t" },
+        ...registry.agentDefinitions,
+      ],
+    });
+    api.getAgentDetail.mockImplementation(async (id: string) =>
+      id === "agent-1" ? agent : { ...agent, agent: { ...agent.agent, id, name: "Publisher" }, outputs: [] }
+    );
+    await act(async () => {
+      render(
+        <Suspense fallback={<p>suspended</p>}>
+          <ArtifactsPage searchParams={Promise.resolve({})} />
+        </Suspense>
+      );
+    });
+    expect(await screen.findAllByTestId("output")).toHaveLength(2);
     expect(screen.getByText("Choose an output to read it and see where it came from.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Researcher v1/ })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("with the roster unreadable, says so instead of asking for choices (#38)", async () => {
+    api.getRegistry.mockRejectedValue(new Error("API request failed: GET /registry -> 500 Internal Server Error"));
+    await act(async () => {
+      render(
+        <Suspense fallback={<p>suspended</p>}>
+          <ArtifactsPage searchParams={Promise.resolve({})} />
+        </Suspense>
+      );
+    });
+    expect(await screen.findByText("Couldn't load the roster.")).toBeInTheDocument();
+    expect(screen.getAllByText("The roster couldn't be read.")).toHaveLength(2);
+    expect(screen.queryByText(/Choose an/)).not.toBeInTheDocument();
+  });
+});
+
+describe("readable preview (#51)", () => {
+  it("indents JSON as text and leaves everything else as stored", () => {
+    expect(readable('{"a":[1,"<b>"]}')).toBe('{\n  "a": [\n    1,\n    "<b>"\n  ]\n}');
+    expect(readable('{"a":1', true)).toBe('{"a":1');
+    expect(readable('{"a":1}', true)).toBe('{"a":1}');
+    expect(readable("plain words")).toBe("plain words");
+    expect(readable("42")).toBe("42");
   });
 });

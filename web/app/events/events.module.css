@@ -90,6 +90,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.table td.wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  line-height: 20px;
+  padding-block: 4px;
+}
 .table tbody tr:nth-child(even) {
   background: var(--pixel-wood);
 }

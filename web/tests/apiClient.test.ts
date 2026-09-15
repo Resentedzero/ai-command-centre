@@ -75,6 +75,11 @@ describe("lib/api request contract", () => {
     await expect(approveApproval("a-1")).rejects.toThrow(/409 Conflict: Approval "a-1" is already resolved \(status: "expired"\)/);
   });
 
+  it("a body that repeats the status text is not repeated", async () => {
+    respond(404, '{"error":"Not Found"}', "Not Found");
+    await expect(listGoals()).rejects.toThrow(/-> 404 Not Found$/);
+  });
+
   it("a non-JSON failure falls back to the status line", async () => {
     respond(502, "<html>bad gateway</html>", "Bad Gateway");
     await expect(listGoals()).rejects.toThrow(/-> 502 Bad Gateway$/);

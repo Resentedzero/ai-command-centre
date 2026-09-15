@@ -119,6 +119,11 @@
   gap: var(--space-md);
 }
 
+/* The step detail keeps its full height inside the scrolling run column; it never shrinks and spills. */
+.step {
+  flex: none;
+}
+
 .columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -163,6 +168,20 @@
 .table td {
   padding: 2px var(--space-md) 2px 0;
   white-space: nowrap;
+}
+
+.table td.failure {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding-bottom: 6px;
+}
+.failure > :first-child {
+  margin-right: var(--space-sm);
+}
+
+/* A trace read before the run changed: dim until refreshed (no hue, no motion). */
+.outOfDate {
+  color: var(--pixel-label-dim);
 }
 
 .counter {

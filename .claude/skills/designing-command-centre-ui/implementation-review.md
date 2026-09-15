@@ -445,3 +445,34 @@ CLI1 worked through this review. Verified in the committed tree:
 | 44 | Medium | `components/world/workshop.module.css` `.closeup` / `.room` (Agents, Registry at 1920) | The 768 × 640 room sits centred in a world column about 940 px tall, leaving about 200 px of solid void above it and 150 px below. The void reads as letterboxing, not as part of the keep, and makes the hero room look like a pasted thumbnail. | Size the column to the room: `align-self: start; height: 644px` (room plus bevel) on wide screens, and let the board use the full height. Or keep the height and continue the keep around the room: tile the stone-wall strip above and the hall floor below (from `keep-v4-2x.png`), dimmed by the night layer. Don't scale the room fractionally. |
 
 **Next review:** Workflows, Goals and Approvals once rebuilt in pixel chrome; Artifacts, Events and Costs once their routes exist; and a real-data recapture of every screen once the API process is restarted.
+
+## Implementation pass (CLI1, commit `fix(ui): address real-data design QA findings`, on `9cd7c21`)
+
+Implementation status only; nothing here is verified. Every item needs QA confirmation.
+
+| # | Status |
+|---|---|
+| 53 latest failed run on the Overview | **Fixed in code, awaiting QA verification.** With no active Run and the newest `GET /workflow-runs` row `failed`, one plaque under the empty notice reads "Latest run failed · <goal title>" and links to `/workflows/:id`. |
+| 50 "No model calls yet" | **Fixed in code, awaiting QA verification.** "No context was recorded for its model calls." when a run's latest invocation is `llm`, otherwise "No compiled context recorded.". "No model calls" is never claimed, because only each run's latest invocation is known. |
+| 52 Registry scope | **Fixed in code, awaiting QA verification.** The fix-column option "mark ungranted": a capability with no unrevoked grant for the selected version shows a neutral "not granted to this agent". No tabs, no controls. |
+| 54 identical knights | **Fixed in code, awaiting QA verification.** `characterFor(id, definitionIds)` assigns characters in sorted Agent Definition id order (cycling) and falls back to the hash without the Registry. Overview (workshops, seal, portrait) and `WorkshopCloseup` (Agents, Registry) all pass the Registry ids. |
+| 55 truncated failure reason; 36 summary half | **Fixed in code, awaiting QA verification.** `fail` rows wrap their summary (full text kept in `title`), and a leading `${eventType} ` is stripped from the displayed summary. |
+| 46 failure reason behind horizontal scroll | **Fixed in code, awaiting QA verification.** The failure column is gone. A failed invocation gets a full-width line under its row (red marker, reason in label ink, error code dim), and Invocations spans the row. |
+| 47 stale run trace | **Fixed in code, awaiting QA verification.** Still on demand, with no trace polling. The trace shows "read at HH:MM:SS" and a neutral "Refresh the trace" (GET). The last read stays on screen while refreshing. It is marked "out of date" (neutral marker, dim list) when the 5 s run refresh changes `status` or `invocations.length`. |
+| 43 (a) vault floor patches | **Fixed in code, awaiting QA verification.** `npm run world-art` copied the chest-free vault crop into `web/public/world/` (git-ignored), and the CSS floor patches and their markup are removed. |
+| 43 (b) researcher 4× close-up chests | **Blocked (design-side asset).** The only 768 × 640 researcher close-ups in `assets/gamification/adapted/` (`room-researcher-workshop-4x-slate.png`, `room-researcher-workshop-4x.png`) both carry the chest pair. Nothing is hidden with CSS and no art was authored. |
+| 56 laptop layout | **Fixed in code, awaiting QA verification.** Timestamps in the runs list and "trust ≥ n" (Agents, Registry) are `nowrap`. The step detail no longer shrinks inside the scrolling run column (`flex: none`). "Referenced by" spans the panel row. |
+| 37 recent-events truncation | **Fixed in code, awaiting QA verification.** Layout half: the time column ellipsizes first (full timestamp in `title`), and the type keeps its width. The HH:MM:SS-for-today half was already true in `formatTime`. |
+| 40 wide notice cards | **Fixed in code, awaiting QA verification.** `max-width: 640px` on the Goals notice cards and the Approvals empty card. |
+| 41 stops warning under a failed roster | **Fixed in code, awaiting QA verification.** Shown only when the roster loaded. |
+| 42 filters over a failed ledger | **Fixed in code, awaiting QA verification.** Scope filters are disabled while `!data && error`, and the totals note is hidden. Disabled plaques get the disabled treatment (no state colour). |
+| 32 "Choose an output" in an empty vault | **Fixed in code, awaiting QA verification.** The heading reads "Empty vault" with nothing to choose. |
+| 34 "replay from the last cursor" | **Fixed in code, awaiting QA verification.** "Missed events will be filled in when it's back." on the Events screen and in the notice strip. |
+| 35 rooms absent on failed reads | **Fixed in code, awaiting QA verification.** Agents and Registry keep the first workshop close-up, unlit with "state unknown" and no actor or keys. Workflows shows an unlit one-room corridor with no plaque beside the error. |
+| 38 stacked "choose" prompts | **Fixed in code, awaiting QA verification.** With the roster unreadable, the outputs and meta cards say "The roster couldn't be read." (the clipped stops line is gone via #41). |
+| 39 "404 Not Found: Not Found" | **Fixed in code, awaiting QA verification.** `apiFetch` appends the body message only when it differs from the status text. |
+| 44 void bands around the 4× workshop | **Fixed in code, awaiting QA verification.** `.closeup` is `align-self: start; height: min(100%, 644px)`. |
+| 45 18-decimal amounts | **Fixed in code, awaiting QA verification.** `formatAmount` trims trailing zeros on Workflows budget, Agents usage, and Cost counters and totals. The exact strings stay in `title`, and gauges still use the raw values. |
+| 48 default vault agent | **Fixed in code, awaiting QA verification.** With no `?agent` and no artifact, the screen reads each definition's `GET /agents/:id` once and opens the one with the newest `outputs[0].createdAt`, else the first. |
+| 49 empty grant scope bar | **Fixed in code, awaiting QA verification.** The scope list renders only when the scope has keys. |
+| 51 JSON preview blob | **Fixed in code, awaiting QA verification.** A preview or full content that parses as a JSON object or array is shown indented, still as text. A truncated preview is shown as stored. |

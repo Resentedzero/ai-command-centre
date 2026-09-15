@@ -43,6 +43,12 @@
   flex: none;
 }
 
+/* The failed run's goal title wraps inside its plaque rather than running past the border. */
+.failedRun > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .grow {
   flex: 1;
   min-width: 0;
@@ -79,7 +85,8 @@
 }
 .events li {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) auto;
+  /* The type wins the width; a long timestamp ellipsizes first. */
+  grid-template-columns: minmax(0, auto) max-content auto;
   gap: var(--space-sm);
   white-space: nowrap;
 }

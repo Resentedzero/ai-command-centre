@@ -1,6 +1,6 @@
 /** Events: a dense log of events the live feed delivered, newest first, filterable by type client-side, with honest feed states. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { EventDisplayItem, StreamStatus } from "../lib/api";
 
 const api = vi.hoisted(() => ({ subscribeToActivity: vi.fn() }));
@@ -53,10 +53,12 @@ describe("Events page", () => {
 
     const rows = screen.getAllByTestId("event-row");
     expect(rows.map((r) => r.textContent)).toEqual([
-      expect.stringMatching(/run started.*run_started \(kind=tool\)5$/),
-      expect.stringMatching(/invocation failed.*4$/),
+      // The summary drops the type the type column already shows (#36); the full summary stays in the title.
+      expect.stringMatching(/run started\(kind=tool\)5$/),
+      expect.stringMatching(/invocation failed\(kind=tool\)4$/),
       expect.stringMatching(/run started.*3$/),
     ]);
+    expect(within(rows[1]!).getByTitle("invocation_failed (kind=tool)")).toHaveTextContent(/^\(kind=tool\)$/);
     expect(screen.getByText("3 received")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "invocation failed" }));
@@ -68,7 +70,7 @@ describe("Events page", () => {
   it("says the feed is reconnecting and offers Reconnect", async () => {
     await renderPage();
     act(() => onStatus!("reconnecting"));
-    expect(screen.getByRole("status")).toHaveTextContent(/Reconnecting to the live feed\. Missed events replay/);
+    expect(screen.getByRole("status")).toHaveTextContent(/Reconnecting to the live feed\. Missed events will be filled in when it's back\./);
     fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
     await waitFor(() => expect(api.subscribeToActivity).toHaveBeenCalledTimes(2));
   });

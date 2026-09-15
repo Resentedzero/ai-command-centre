@@ -68,6 +68,8 @@ describe("Workflows runs board", () => {
     render(<WorkflowsPage />);
     expect(await screen.findByText("Couldn't load workflow runs.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    // Unloaded means unlit, not absent (#35).
+    expect(screen.getByRole("region", { name: "Workflow corridor, not loaded" })).toBeInTheDocument();
   });
 });
 
@@ -132,12 +134,18 @@ describe("Workflow run detail", () => {
 
     const rows = screen.getAllByTestId("invocation-row");
     expect(rows).toHaveLength(2);
-    expect(rows[1]).toHaveTextContent("interrupted_outcome_unknown (timeout)");
+    // The failure reason is its own full-width line under the failed invocation, never a scrolled-away column (#46).
+    const failures = screen.getAllByTestId("invocation-failure");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toHaveTextContent("interrupted_outcome_unknown (timeout)");
+    expect(rows[1]!.nextElementSibling).toBe(failures[0]);
     expect(within(rows[0]!).getByRole("link", { name: "output 1" })).toHaveAttribute("href", "/artifacts/art-1");
 
     const budget = screen.getByTestId("run-budget");
     expect(budget).toHaveTextContent("1050 consumed of 200000");
-    expect(budget).toHaveTextContent("0.01 consumed of 1.00");
+    // Trailing zeros trimmed for reading (#45); the exact string stays in the title.
+    expect(budget).toHaveTextContent("0.01 consumed of 1 · 0 reserved");
+    expect(within(budget).getByTitle("0.01 consumed of 1.00 · 0 reserved")).toBeInTheDocument();
 
     fireEvent.click(steps[1]!);
     expect(await screen.findByText("No run has started for this step.")).toBeInTheDocument();
@@ -159,6 +167,43 @@ describe("Workflow run detail", () => {
     await waitFor(() => expect(api.getRunTrace).toHaveBeenCalledWith("run-1"));
     const trace = await screen.findByTestId("run-trace");
     expect(trace).toHaveTextContent(/1 run started.*2 invocation failed/);
+  });
+
+  it("keeps the trace on demand: says when it was read, marks it out of date when the run moves, and refreshes only on request", async () => {
+    vi.useFakeTimers();
+    try {
+      const running = { ...detail, workflowRun: { ...detail.workflowRun, status: "in_progress" } };
+      const step0 = detail.steps[0]!;
+      const run0 = step0.run!;
+      const moved = {
+        ...running,
+        steps: [{ ...step0, run: { ...run0, invocations: [...run0.invocations, { ...run0.invocations[1]!, id: "i-3", seqNo: 3 }] } }, detail.steps[1]!],
+      };
+      api.getWorkflowRun.mockResolvedValueOnce(running).mockResolvedValue(moved);
+      api.getRunTrace.mockResolvedValue({ run: { id: "run-1", status: "failed", startedAt: "t", completedAt: "t" }, events: [], invocations: [] });
+      await renderRun();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Show the run trace" }));
+      });
+      expect(screen.getByTestId("run-trace-read")).toHaveTextContent(/read at \d\d:\d\d:\d\d/);
+      expect(screen.queryByText("out of date")).not.toBeInTheDocument();
+
+      // The run detail's own refresh shows a new invocation: the trace is marked, never re-read by itself.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WORKFLOW_REFRESH_MS);
+      });
+      expect(screen.getByText("out of date")).toBeInTheDocument();
+      expect(api.getRunTrace).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Refresh the trace" }));
+      });
+      expect(api.getRunTrace).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText("out of date")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("re-reads an unfinished run periodically, and stops once it has finished", async () => {

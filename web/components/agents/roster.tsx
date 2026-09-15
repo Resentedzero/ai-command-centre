@@ -120,7 +120,7 @@ export function AgentRoster({ roster, selectedId, hrefFor }: { roster: Roster; s
         </ul>
       )}
       {registry && error && <RefreshNotice error={error} />}
-      {stopsUnreadable && <p className={px.detail}>Couldn&apos;t read active stops, so a stop may not show.</p>}
+      {registry && stopsUnreadable && <p className={px.detail}>Couldn&apos;t read active stops, so a stop may not show.</p>}
     </nav>
   );
 }

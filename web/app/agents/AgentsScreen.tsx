@@ -8,7 +8,7 @@ import { AgentRoster, useAgentRoster } from "../../components/agents/roster";
 import { StopControl, type ShownStop } from "../../components/StopControl";
 import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
 import { WorkshopCloseup, type WorkshopState } from "../../components/world/Workshop";
-import { agentState, errorText, formatTime, stateWord } from "../../lib/keep";
+import { agentState, errorText, formatAmount, formatTime, stateWord } from "../../lib/keep";
 import a from "./agents.module.css";
 
 /**
@@ -69,9 +69,12 @@ export function AgentsScreen({ id: routeId }: { id?: string }) {
   const hrefFor = (x: string) => `/agents/${x}`;
 
   if (!id) {
+    // Unloaded means unlit, not absent: a failed roster keeps the workshop on screen, dark and empty.
+    const rosterFailed = !roster.registry && roster.error !== null;
     return (
-      <main className={cx(a.screen, a.noWorld)}>
+      <main className={cx(a.screen, !rosterFailed && a.noWorld)}>
         <AgentRoster roster={roster} hrefFor={hrefFor} />
+        {rosterFailed && <WorkshopCloseup agentId="" state="unknown" label="Workshop, state unknown" />}
         <section className={cx(px.board, a.board)} aria-label="Agent detail">
           {!roster.registry && !roster.error ? (
             <StateNotice role="status" message={<>Loading the roster <Skeleton /></>} />
@@ -113,6 +116,7 @@ export function AgentsScreen({ id: routeId }: { id?: string }) {
         state={roomState}
         label={detail ? `${detail.agent.name}'s workshop` : "Workshop"}
         keys={grants.map((g, i) => ({ n: i + 1, revoked: g.revoked }))}
+        definitionIds={registry?.agentDefinitions.map((d) => d.id)}
       />
       <section className={cx(px.board, a.board)} aria-label="Agent detail">
         {!detail && loadError ? (
@@ -215,7 +219,7 @@ function AgentBoard({
                     Key {i + 1} · {g.capabilityName}
                   </div>
                   <div>
-                    {g.permissions.join(", ")} · {g.autonomyState} · trust ≥ {g.maxTrustLevelRequired}
+                    {g.permissions.join(", ")} · {g.autonomyState} · <span className={px.nowrap}>trust ≥ {g.maxTrustLevelRequired}</span>
                   </div>
                   {g.revoked && <StatusMark state="revoked" tone="neutral" surface="parchment" />}
                 </div>
@@ -236,8 +240,8 @@ function AgentBoard({
               {detail.budgetTotals.map((t) => (
                 <li key={t.resourceUnit}>
                   <div className={px.dim}>{t.resourceUnit}</div>
-                  <div>
-                    {t.consumed} consumed · {t.reserved} reserved
+                  <div title={`${t.consumed} consumed · ${t.reserved} reserved`}>
+                    {formatAmount(t.consumed)} consumed · {formatAmount(t.reserved)} reserved
                   </div>
                 </li>
               ))}
@@ -252,7 +256,10 @@ function AgentBoard({
         <section className={a.section} aria-label="Latest context">
           <span className={px.tab}>Latest context</span>
           {!ctx ? (
-            <p className={px.dim}>No model calls yet.</p>
+            // Only each run's latest invocation is known, so "no model calls" can never be claimed; say what is absent.
+            <p className={px.dim}>
+              {detail.runs.some((r) => r.latestInvocation?.kind === "llm") ? "No context was recorded for its model calls." : "No compiled context recorded."}
+            </p>
           ) : (
             <div className={px.vellum} data-testid="agent-context">
               {ctx.intent && <div>intent: {ctx.intent}</div>}

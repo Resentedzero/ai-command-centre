@@ -118,6 +118,11 @@
 .plaque:hover {
   background: color-mix(in srgb, var(--pixel-wood) 85%, var(--pixel-label));
 }
+.plaque:disabled {
+  background: var(--pixel-wood-dark);
+  color: var(--pixel-label-dim);
+  cursor: not-allowed;
+}
 .selected {
   border-color: var(--pixel-label);
 }
@@ -184,6 +189,10 @@
 }
 .mono {
   font-family: var(--font-mono), monospace;
+}
+/* Timestamps and "trust ≥ n" never break mid-token. */
+.nowrap {
+  white-space: nowrap;
 }
 
 .kv {

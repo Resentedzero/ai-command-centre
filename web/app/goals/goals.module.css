@@ -111,6 +111,11 @@
   gap: 4px var(--space-md);
 }
 
+/* Short notices hug their lines; the war room keeps its size beside them. */
+.notice {
+  max-width: 640px;
+}
+
 .wing {
   display: flex;
   flex-direction: column;

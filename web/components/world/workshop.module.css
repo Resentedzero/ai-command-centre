@@ -1,7 +1,9 @@
 .closeup {
   position: relative;
   overflow: hidden;
-  height: 100%;
+  /* Hugs the 640 px room plus bevel, so no void band sits above and below it; shorter screens keep the centred crop. */
+  align-self: start;
+  height: min(100%, 644px);
   min-height: 0;
   background: var(--void);
   border: 2px solid var(--pixel-wood-edge);

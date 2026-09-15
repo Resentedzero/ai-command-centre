@@ -22,13 +22,17 @@ export function WorkshopCloseup({
   state,
   label,
   keys = [],
+  definitionIds,
 }: {
+  /** "" when no agent could be read: the first close-up, unlit (`state="unknown"` draws no actor). */
   agentId: string;
   state: WorkshopState;
   label: string;
   keys?: KeyMark[];
+  /** The Registry's Agent Definition ids, so the character matches every other screen. */
+  definitionIds?: string[];
 }) {
-  const character = characterFor(agentId);
+  const character = characterFor(agentId, definitionIds);
   const sprite =
     state === "active" ? "run" : state === "idle" || state === "stopped" ? "idle" : null;
   return (

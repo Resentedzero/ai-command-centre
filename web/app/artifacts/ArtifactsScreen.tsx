@@ -21,6 +21,17 @@ function shown(v: unknown): string {
   return v === null || v === undefined ? "not recorded" : String(v);
 }
 
+/** Output that parses as a JSON object or array is indented, still as plain text; a truncated preview or anything else as stored. */
+export function readable(text: string, truncated = false): string {
+  if (truncated) return text;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null ? JSON.stringify(parsed, null, 2) : text;
+  } catch {
+    return text;
+  }
+}
+
 /**
  * Artifacts (spec 15.1 screen 8; Figma "Artifacts — pixel (vault)"): what did
  * the agents produce, and where did it come from? There is no artifact list
@@ -74,7 +85,32 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
     }
   }
 
-  const agentId = agentParam ?? artifact?.producedBy?.agent?.id ?? (id ? undefined : roster.entries[0]?.id);
+  // With no agent and no artifact in the URL, open the agent with the most recent output, else the first (once).
+  const [autoAgent, setAutoAgent] = useState<string | undefined>(undefined);
+  const { entries } = roster;
+  useEffect(() => {
+    if (id || agentParam || autoAgent || entries.length === 0) return;
+    let cancelled = false;
+    // ponytail: one GET /agents/:id per definition, once per visit; an artifact list route would replace this.
+    void Promise.allSettled(entries.map((e) => getAgentDetail(e.id))).then((reads) => {
+      if (cancelled) return;
+      let pick = entries[0]!.id;
+      let newest = "";
+      reads.forEach((r, i) => {
+        const at = r.status === "fulfilled" ? r.value.outputs[0]?.createdAt : undefined;
+        if (at && at > newest) {
+          newest = at;
+          pick = entries[i]!.id;
+        }
+      });
+      setAutoAgent(pick);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, agentParam, autoAgent, entries]);
+  const agentId = agentParam ?? artifact?.producedBy?.agent?.id ?? (id ? undefined : autoAgent);
+  const rosterFailed = !roster.registry && roster.error !== null;
   const [outputs, setOutputs] = useState<Output[] | null>(null);
   const [agentLabel, setAgentLabel] = useState<string | null>(null);
   const [outputsError, setOutputsError] = useState<string | null>(null);
@@ -112,7 +148,17 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
         <nav className={cx(px.board, s.outputs)} aria-label="Outputs">
           <span className={px.tab}>Outputs{outputs ? ` · ${countLabel(outputs.length, OUTPUTS_CAP)}` : ""}</span>
           {!agentId ? (
-            <StateNotice message={id && !artifact && !artifactError ? <Skeleton /> : "Choose an agent to browse its outputs."} />
+            <StateNotice
+              message={
+                !id && rosterFailed ? (
+                  <span className={px.dim}>The roster couldn&apos;t be read.</span>
+                ) : (id ? !artifact && !artifactError : !roster.registry || entries.length > 0) ? (
+                  <Skeleton />
+                ) : (
+                  "Choose an agent to browse its outputs."
+                )
+              }
+            />
           ) : !outputs && outputsError ? (
             <StateNotice role="alert" message="Couldn't load this agent's outputs." detail={outputsError} action={<PixelButton onClick={() => void loadOutputs()}>Retry</PixelButton>} />
           ) : !outputs ? (
@@ -144,7 +190,6 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
           <div className={s.vault} role="img" aria-label={outputs ? `Vault: ${countLabel(outputs.length, OUTPUTS_CAP)} outputs` : "Vault"}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/world/room-v5-vault-2x.png" width={352} height={256} alt="" className={world.base} draggable={false} />
-            <div className={s.floorPatch} />
             <div className={world.night} />
             {outputs?.map((o, i) => (
               <span
@@ -157,10 +202,23 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
 
           <div className={cx(px.parchment, s.meta)}>
             {!id ? (
-              <>
-                <h1 className={px.heading}>Vault</h1>
-                <p>Choose an output to read it and see where it came from.</p>
-              </>
+              outputs?.length === 0 ? (
+                <h1 className={px.heading}>Empty vault</h1>
+              ) : (
+                <>
+                  <h1 className={px.heading}>Vault</h1>
+                  {/* Nothing to choose is never offered as a choice. */}
+                  <p>
+                    {outputs
+                      ? "Choose an output to read it and see where it came from."
+                      : !agentId && rosterFailed
+                        ? "The roster couldn't be read."
+                        : outputsError
+                          ? "The outputs couldn't be read."
+                          : <Skeleton />}
+                  </p>
+                </>
+              )
             ) : !artifact && artifactError ? (
               <StateNotice
                 role="alert"
@@ -266,7 +324,7 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
                   <p className={px.dim}>Nothing is stored inline to read.</p>
                 ) : (
                   <pre className={cx(px.vellum, s.pre, mismatch && s.untrusted)} data-testid="artifact-content">
-                    {content}
+                    {readable(content)}
                   </pre>
                 )
               ) : a.preview === null ? (
@@ -275,7 +333,7 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
                 <>
                   {/* Model or tool output: rendered as text, never HTML. */}
                   <pre className={cx(px.vellum, s.pre, mismatch && s.untrusted)} data-testid="artifact-preview">
-                    {a.preview}
+                    {readable(a.preview, a.truncated)}
                   </pre>
                   {a.truncated && (
                     <div className={s.row}>

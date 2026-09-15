@@ -126,6 +126,20 @@ describe("Agent Detail", () => {
     expect(screen.getByText(/ranks and recommends nothing/)).toBeInTheDocument();
   });
 
+  it("never claims no model calls: a missing context is said to be missing (#50)", async () => {
+    api.getAgentDetail.mockResolvedValue({ ...base, contextLineage: null });
+    await renderPage();
+    expect(await screen.findByText("No compiled context recorded.")).toBeInTheDocument();
+    expect(screen.queryByText(/No model calls/)).not.toBeInTheDocument();
+  });
+
+  it("says a model call's context wasn't recorded when a run's latest invocation is an llm call (#50)", async () => {
+    const run = { ...base.runs[0]!, status: "failed", latestInvocation: { seqNo: 2, kind: "llm", status: "failed" } };
+    api.getAgentDetail.mockResolvedValue({ ...base, runs: [run], contextLineage: null });
+    await renderPage();
+    expect(await screen.findByText("No context was recorded for its model calls.")).toBeInTheDocument();
+  });
+
   it("says so when no performance has been measured", async () => {
     api.getAgentDetail.mockResolvedValue({ ...base, performance: [] });
     await renderPage();
@@ -197,5 +211,7 @@ describe("Agents roster page", () => {
     render(<AgentsPage />);
     expect(await screen.findByText("Couldn't load the roster.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    // Unloaded means unlit, not absent (#35): the workshop stays, with no stops warning under a missing roster (#41).
+    expect(screen.getByRole("img", { name: "Workshop, state unknown" })).toBeInTheDocument();
   });
 });

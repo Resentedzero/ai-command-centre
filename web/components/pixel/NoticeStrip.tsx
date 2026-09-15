@@ -21,7 +21,7 @@ export function NoticeStrip() {
           <span className={s.text} role="status">
             {status === "offline"
               ? "The live feed is offline. What you see may be out of date."
-              : "Reconnecting to the live feed. Missed events replay when it returns."}
+              : "Reconnecting to the live feed. Missed events will be filled in when it's back."}
           </span>
           <PixelButton onClick={reconnect}>Reconnect</PixelButton>
         </>

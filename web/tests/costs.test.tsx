@@ -83,5 +83,9 @@ describe("Cost ledger", () => {
     render(<CostsPage />);
     expect(await screen.findByText("Couldn't load the cost ledger.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    // No filters over a ledger that couldn't be read, and no note about totals that aren't there (#42).
+    expect(screen.getByRole("button", { name: "day" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "all scopes" })).toBeDisabled();
+    expect(screen.queryByText(/Per scope and unit/)).not.toBeInTheDocument();
   });
 });

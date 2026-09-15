@@ -17,6 +17,12 @@ function toneOfEvent(eventType: string): Tone {
   return TYPE_TONES.find(([re]) => re.test(eventType))?.[1] ?? "neutral";
 }
 
+/** The summary without the event type the type column already shows; the full summary stays in `title`. */
+function shownSummary(e: { eventType: string; summary: string }): string {
+  if (e.summary === e.eventType) return "";
+  return e.summary.startsWith(`${e.eventType} `) ? e.summary.slice(e.eventType.length + 1) : e.summary;
+}
+
 /**
  * Events (Figma "Events — pixel (dense log)"): what happened, and in what
  * order? Almost no world (a library strip), then a dense mono log of every
@@ -55,8 +61,7 @@ export default function EventsPage() {
           {isStale(status) && (
             <div className={s.row} role="status">
               <span>
-                {status === "offline" ? "The live feed is offline." : "Reconnecting to the live feed."} Missed events replay from the last cursor when it
-                returns.
+                {status === "offline" ? "The live feed is offline." : "Reconnecting to the live feed."} Missed events will be filled in when it&apos;s back.
               </span>
               <PixelButton onClick={reconnect}>Reconnect</PixelButton>
             </div>
@@ -102,7 +107,10 @@ export default function EventsPage() {
                       {stateWord(e.eventType)}
                     </StatusMark>
                   </td>
-                  <td title={e.summary}>{e.summary}</td>
+                  {/* A failure's reason is the row's most important fact: it wraps instead of being cut. */}
+                  <td title={e.summary} className={toneOfEvent(e.eventType) === "fail" ? s.wrap : undefined}>
+                    {shownSummary(e)}
+                  </td>
                   <td>{e.eventCursor === undefined ? "" : e.eventCursor}</td>
                 </tr>
               ))}

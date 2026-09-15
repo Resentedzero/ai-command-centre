@@ -106,6 +106,30 @@ describe("Overview page", () => {
     expect(await screen.findByRole("link", { name: /Researcher v1.*no active run/ })).toHaveAttribute("href", "/agents/a-1");
   });
 
+  it("with nothing running, points at the newest workflow run when it failed (#53)", async () => {
+    api.listActiveAgents.mockResolvedValue([]);
+    api.listWorkflowRuns.mockResolvedValue([
+      { id: "wr-9", status: "failed", createdAt: "t2", completedAt: "t2", goal: { id: "g-9", title: "Compare EV batteries" }, workflowDefinition: null },
+      { id: "wr-1", status: "completed", createdAt: "t1", completedAt: "t1", goal: null, workflowDefinition: null },
+    ]);
+    render(<OverviewPage />);
+    const line = await screen.findByTestId("latest-failed-run");
+    expect(line).toHaveAttribute("href", "/workflows/wr-9");
+    expect(line).toHaveTextContent("Latest run failed · Compare EV batteries");
+  });
+
+  it("draws no failed-run line when the newest run did not fail", async () => {
+    api.listActiveAgents.mockResolvedValue([]);
+    api.listWorkflowRuns.mockResolvedValue([
+      { id: "wr-2", status: "in_progress", createdAt: "t2", completedAt: null, goal: null, workflowDefinition: null },
+      { id: "wr-1", status: "failed", createdAt: "t1", completedAt: "t1", goal: null, workflowDefinition: null },
+    ]);
+    render(<OverviewPage />);
+    await screen.findByText("Nothing is running. Start a goal to run a workflow.");
+    await waitFor(() => expect(screen.getByRole("link", { name: /Workflows.*1 in progress/ })).toBeInTheDocument());
+    expect(screen.queryByTestId("latest-failed-run")).not.toBeInTheDocument();
+  });
+
   it("shows a load failure with the detail and a Retry that reads again", async () => {
     api.listActiveAgents.mockRejectedValueOnce(new Error("API request failed: GET /agents/active -> 500 Internal Server Error")).mockResolvedValue([]);
     render(<OverviewPage />);

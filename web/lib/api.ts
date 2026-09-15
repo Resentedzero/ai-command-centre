@@ -148,7 +148,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
       const message = parsed.error ?? parsed.message;
-      if (typeof message === "string" && message.length > 0) detail = `${res.statusText}: ${message}`;
+      // A body that only repeats the status text ("Not Found: Not Found") adds nothing.
+      if (typeof message === "string" && message.length > 0 && message !== res.statusText) detail = `${res.statusText}: ${message}`;
     } catch {
       // Not JSON: the status line is all there is.
     }

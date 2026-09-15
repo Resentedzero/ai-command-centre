@@ -139,15 +139,15 @@ export default function GoalsPage() {
         {!projects && loadError ? (
           <StateNotice
             role="alert"
-            className={px.board}
+            className={cx(px.board, g.notice)}
             message="Couldn't load the goals."
             detail={loadError}
             action={<PixelButton onClick={() => void refetch()}>Retry</PixelButton>}
           />
         ) : !projects ? (
-          <StateNotice role="status" className={px.board} message={<>Loading the goals <Skeleton /></>} />
+          <StateNotice role="status" className={cx(px.board, g.notice)} message={<>Loading the goals <Skeleton /></>} />
         ) : goalCount === 0 ? (
-          <StateNotice className={px.board} message="No goals yet. Start one with the form." />
+          <StateNotice className={cx(px.board, g.notice)} message="No goals yet. Start one with the form." />
         ) : (
           <>
             {withGoals.map((project) => (

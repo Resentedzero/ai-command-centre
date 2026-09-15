@@ -84,6 +84,8 @@ export default function OverviewPage() {
   const [inProgress, setInProgress] = useState<Read<{ n: number; capped: boolean }>>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [definitions, setDefinitions] = useState<Read<{ id: string; name: string; version: number }[]>>(null);
+  // The newest workflow run (`GET /workflow-runs` is newest first) when it failed: act-now history the board points at.
+  const [latestFailed, setLatestFailed] = useState<{ id: string; title: string | null } | null>(null);
 
   const load = useCallback(async () => {
     const settle = <T,>(p: Promise<T>) => p.then((v) => ({ ok: true as const, v }), (e: unknown) => ({ ok: false as const, e }));
@@ -106,6 +108,7 @@ export default function OverviewPage() {
     setStops(st.ok ? st.v : "error");
     setGoalCount(g.ok ? g.v.reduce((n, p) => n + p.goals.length, 0) : "error");
     setInProgress(w.ok ? { n: w.v.filter((r) => r.status === "in_progress").length, capped: w.v.length >= WORKFLOW_LIST_CAP } : "error");
+    if (w.ok) setLatestFailed(w.v[0]?.status === "failed" ? { id: w.v[0].id, title: w.v[0].goal?.title ?? null } : null);
   }, []);
 
   useEffect(() => {
@@ -155,6 +158,7 @@ export default function OverviewPage() {
   }, [selected, slots, onSeal, pendingN]);
 
   const loaded = agents !== null;
+  const definitionIds = Array.isArray(definitions) ? definitions.map((d) => d.id) : undefined;
   const count = (v: Read<number>, cap?: number) => (v === null ? <Skeleton /> : v === "error" ? "n/a" : cap ? countLabel(v, cap) : v);
 
   return (
@@ -169,7 +173,7 @@ export default function OverviewPage() {
           {loaded && pendingN > 0 && <img className={world.light} src="/world/light-wait-2x.png" style={{ left: 64, top: -48 }} alt="" />}
           {loaded && (pendingN > 0 || onSeal.length > 0) && <div className={world.seal} style={{ left: 184, top: 96 }} />}
           {onSeal.map((g, i) => (
-            <AgentSprite key={g.key} character={characterFor(g.id!)} pose="idle" footX={240 + (i - (onSeal.length - 1) / 2) * 72} footY={116} />
+            <AgentSprite key={g.key} character={characterFor(g.id!, definitionIds)} pose="idle" footX={240 + (i - (onSeal.length - 1) / 2) * 72} footY={116} />
           ))}
         </Floor>
 
@@ -198,7 +202,7 @@ export default function OverviewPage() {
           return (
             <Floor key={g.key} rect={rect}>
               {g.state === "active" && !g.stop && <img className={world.light} src="/world/light-active-2x.png" style={{ left: 0, top: 0 }} alt="" />}
-              {pose && <AgentSprite character={characterFor(g.id!)} pose={pose} footX={176} footY={200} frozen={g.stop !== null} />}
+              {pose && <AgentSprite character={characterFor(g.id!, definitionIds)} pose={pose} footX={176} footY={200} frozen={g.stop !== null} />}
               {g.stop && <div className={world.barrier} style={{ left: 128, top: 0, width: 96 }} />}
             </Floor>
           );
@@ -278,6 +282,11 @@ export default function OverviewPage() {
                 </Link>
               }
             />
+            {latestFailed && (
+              <Link href={`/workflows/${latestFailed.id}`} className={cx(px.plaque, o.failedRun)} data-testid="latest-failed-run">
+                <StatusMark state="failed">Latest run failed · {latestFailed.title ?? "Goal not found"}</StatusMark>
+              </Link>
+            )}
             {Array.isArray(definitions) && definitions.length > 0 && (
               <ul className={o.roster} aria-label="Agents">
                 {definitions.map((d) => (
@@ -300,6 +309,7 @@ export default function OverviewPage() {
             <AgentBoard
               groups={groups}
               selected={selected}
+              definitionIds={definitionIds}
               placed={placed.includes(selected)}
               stopsUnreadable={stops === "error"}
               onSelect={setSelectedKey}
@@ -328,6 +338,7 @@ function SystemPlaque({ rect, href, name, children }: { rect: Rect; href: string
 function AgentBoard({
   groups,
   selected,
+  definitionIds,
   placed,
   stopsUnreadable,
   onSelect,
@@ -335,6 +346,7 @@ function AgentBoard({
 }: {
   groups: Group[];
   selected: Group;
+  definitionIds: string[] | undefined;
   placed: boolean;
   stopsUnreadable: boolean;
   onSelect: (key: string) => void;
@@ -361,7 +373,7 @@ function AgentBoard({
         {selected.id && (
           // The 4x portrait shows only on screens at least 1080 px tall (screens.md laptop rule).
           <div className={o.portrait} aria-hidden>
-            <AgentSprite character={characterFor(selected.id)} pose="idle" footX={72} footY={140} scale={2} frozen={selected.stop !== null} />
+            <AgentSprite character={characterFor(selected.id, definitionIds)} pose="idle" footX={72} footY={140} scale={2} frozen={selected.stop !== null} />
           </div>
         )}
         <h2 className={px.heading}>{selected.name}</h2>
@@ -419,8 +431,10 @@ function RecentEvents() {
             .reverse()
             .map((e) => (
               <li key={e.eventId} data-testid="activity-item">
-                <span className={px.dim}>{formatTime(e.occurredAt)}</span>
-                <span className={o.ellipsis}>{stateWord(e.eventType)}</span>
+                <span className={cx(px.dim, o.ellipsis)} title={e.occurredAt}>
+                  {formatTime(e.occurredAt)}
+                </span>
+                <span>{stateWord(e.eventType)}</span>
                 <span className={px.dim}>{e.eventCursor === undefined ? "" : `#${e.eventCursor}`}</span>
               </li>
             ))}

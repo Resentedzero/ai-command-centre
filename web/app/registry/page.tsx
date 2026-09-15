@@ -25,6 +25,9 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
   const grants = def
     ? reg!.capabilityGrants.filter((g) => g.agentDefinitionId === def.id && g.agentDefinitionVersion === def.version).sort((x, y) => (x.id < y.id ? -1 : 1))
     : [];
+  // Capabilities this version holds an unrevoked grant for; the capability list itself is registry-wide.
+  const granted = new Set(grants.filter((g) => g.revokedAt === null).map((g) => g.capabilityId));
+  const rosterFailed = !reg && roster.error !== null;
   const capabilityName = (id: string) => reg?.capabilities.find((c) => c.id === id)?.name ?? "capability not in the Registry";
   const entry = roster.entries.find((e) => e.id === def?.id);
   const roomState: WorkshopState = !def
@@ -38,15 +41,19 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
           : "idle";
 
   return (
-    <main className={cx(a.screen, !def && a.noWorld)}>
+    <main className={cx(a.screen, !def && !rosterFailed && a.noWorld)}>
       <AgentRoster roster={roster} selectedId={def?.id} hrefFor={(x) => `/registry?agent=${x}`} />
-      {def && (
+      {def ? (
         <WorkshopCloseup
           agentId={def.id}
           state={roomState}
           label={`${def.name}'s keys`}
           keys={grants.map((g, i) => ({ n: i + 1, revoked: g.revokedAt !== null }))}
+          definitionIds={reg!.agentDefinitions.map((d) => d.id)}
         />
+      ) : (
+        // Unloaded means unlit, not absent: the workshop stays, dark, with no actor or keys.
+        rosterFailed && <WorkshopCloseup agentId="" state="unknown" label="Workshop, state unknown" />
       )}
       <section className={cx(px.board, a.board)} aria-label="Registry">
         {!reg && roster.error ? (
@@ -85,9 +92,9 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
                             Key {i + 1} · {capabilityName(g.capabilityId)}
                           </div>
                           <div>
-                            {g.permissions.join(", ")} · {g.autonomyState} · trust ≥ {g.maxTrustLevelRequired}
+                            {g.permissions.join(", ")} · {g.autonomyState} · <span className={px.nowrap}>trust ≥ {g.maxTrustLevelRequired}</span>
                           </div>
-                          {g.scope && (
+                          {g.scope && Object.keys(g.scope).length > 0 && (
                             <ul className={cx(px.vellum, a.plainList)} aria-label="Grant scope">
                               {Object.entries(g.scope).map(([k, v]) => (
                                 <li key={k}>
@@ -120,6 +127,11 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
                         <div>
                           {c.name} <span className={px.dim}>· risk {c.staticRiskTag}</span>
                         </div>
+                        {def && !granted.has(c.id) && (
+                          <StatusMark state="none" tone="neutral">
+                            not granted to this agent
+                          </StatusMark>
+                        )}
                         {c.description && <div className={px.dim}>{c.description}</div>}
                         {c.toolBindings.length === 0 ? (
                           <div className={px.dim}>No tool bindings.</div>

@@ -75,21 +75,6 @@
   background: url(/world/lootchest_item_static_open.png) 0 0 / 32px 32px no-repeat;
 }
 
-/* The base art has three chests painted on the floor; clean floor rows from the same
-   image cover them so the vault shows only the drawn outputs. ponytail: replace with a
-   chestless vault base when the design asset exists. */
-.floorPatch {
-  position: absolute;
-  left: 0;
-  top: 199px;
-  width: 352px;
-  height: 34px;
-  background:
-    url(/world/room-v5-vault-2x.png) 0 -232px / 352px 256px no-repeat,
-    url(/world/room-v5-vault-2x.png) 0 -222px / 352px 256px no-repeat;
-  image-rendering: pixelated;
-}
-
 .worldChest {
   position: absolute;
 }
@@ -168,7 +153,8 @@
   align-self: flex-start;
 }
 
-.reading {
+.reading,
+.referenced {
   grid-column: 1 / -1;
 }
 

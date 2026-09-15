@@ -1,20 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   getRunTrace,
   getWorkflowRun,
   listWorkflowRuns,
+  type RunDetail,
   type RunTrace,
   type WorkflowRunDetail,
   type WorkflowRunSummary,
   type WorkflowStepDetail,
 } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
-import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
+import { RefreshNotice, ButtonMark, PixelButton, Skeleton, StateNotice, StatusMark, UnitGauge, buttonClass, cx, px } from "../../components/pixel/Pixel";
 import { WorldViewport, world } from "../../components/world/World";
-import { countLabel, errorText, formatTime, hashOf, stateWord } from "../../lib/keep";
+import { countLabel, errorText, formatAmount, formatTime, hashOf, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
 
 /**
@@ -41,6 +42,24 @@ const STEP_ROOMS = [
 ];
 function roomFor(taskDefinitionId: string | undefined) {
   return taskDefinitionId ? STEP_ROOMS[hashOf(taskDefinitionId) % STEP_ROOMS.length]! : STEP_ROOMS[0]!;
+}
+
+/** Unloaded means unlit, not absent: while a read has failed, one dark engine room with no plaque. */
+function UnlitCorridor() {
+  return (
+    <WorldViewport width={ROOM_W + 2 * HALL_W} height={ROOM_H} label="Workflow corridor, not loaded" className={cx(w.corridor, world.stale)}>
+      {[0, HALL_W + ROOM_W].map((left) => (
+        <div key={left} className={w.hall} style={{ left, width: HALL_W, height: ROOM_H }}>
+          <div className={world.night} />
+        </div>
+      ))}
+      <div className={w.room} style={{ left: HALL_W, width: ROOM_W, height: ROOM_H }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={STEP_ROOMS[0]!.src} width={ROOM_W} height={STEP_ROOMS[0]!.h} alt="" className={world.base} draggable={false} />
+        <div className={world.night} />
+      </div>
+    </WorldViewport>
+  );
 }
 
 /** A step's runtime state, or null when no Task Instance exists yet (not started). */
@@ -115,7 +134,8 @@ export function WorkflowsScreen({ id: routeId }: { id?: string }) {
                   <span className={w.title}>{r.goal?.title ?? "Goal not found"}</span>
                   <StatusMark state={r.status} />
                   <span className={cx(px.dim, w.meta)}>
-                    {r.workflowDefinition ? `${r.workflowDefinition.name} v${r.workflowDefinition.version}` : "definition not found"} · {formatTime(r.createdAt)}
+                    {r.workflowDefinition ? `${r.workflowDefinition.name} v${r.workflowDefinition.version}` : "definition not found"} ·{" "}
+                    <span className={px.nowrap}>{formatTime(r.createdAt)}</span>
                   </span>
                 </Link>
               </li>
@@ -135,7 +155,10 @@ export function WorkflowsScreen({ id: routeId }: { id?: string }) {
       ) : (
         <section className={cx(px.board, w.detail)}>
           {!runs && runsError ? (
-            <StateNotice message="No run is open: the list couldn't be read." />
+            <>
+              <UnlitCorridor />
+              <StateNotice message="No run is open: the list couldn't be read." />
+            </>
           ) : !runs ? (
             <StateNotice role="status" message={<>Loading workflow runs <Skeleton /></>} />
           ) : (
@@ -177,12 +200,15 @@ function RunView({ id }: { id: string }) {
     return (
       <section className={cx(px.board, w.detail)}>
         {loadError ? (
-          <StateNotice
-            role="alert"
-            message={/ 404 /.test(loadError) ? "This workflow run wasn't found." : "Couldn't load this workflow run."}
-            detail={loadError}
-            action={<PixelButton onClick={() => void load()}>Retry</PixelButton>}
-          />
+          <>
+            <UnlitCorridor />
+            <StateNotice
+              role="alert"
+              message={/ 404 /.test(loadError) ? "This workflow run wasn't found." : "Couldn't load this workflow run."}
+              detail={loadError}
+              action={<PixelButton onClick={() => void load()}>Retry</PixelButton>}
+            />
+          </>
         ) : (
           <StateNotice role="status" message={<>Loading the workflow run <Skeleton /></>} />
         )}
@@ -282,24 +308,38 @@ function Corridor({
   );
 }
 
+/** What the run looked like when its trace was read; a later run detail that differs makes the trace out of date. */
+export type TraceRead = { at: string; status: string; invocations: number };
+
+export function traceOutOfDate(read: TraceRead | null, run: RunDetail | null): boolean {
+  return read !== null && run !== null && (read.status !== run.status || read.invocations !== run.invocations.length);
+}
+
 function StepDetail({ step }: { step: WorkflowStepDetail }) {
   const run = step.run;
-  const [trace, setTrace] = useState<RunTrace | "loading" | null>(null);
+  // On demand only: the trace is never re-read on a timer, and a refresh keeps the last read on screen.
+  const [trace, setTrace] = useState<RunTrace | null>(null);
+  const [traceRead, setTraceRead] = useState<TraceRead | null>(null);
+  const [traceLoading, setTraceLoading] = useState(false);
   const [traceError, setTraceError] = useState<string | null>(null);
+  const outOfDate = traceOutOfDate(traceRead, run);
 
-  async function showTrace(runId: string) {
-    setTrace("loading");
+  async function readTrace(r: RunDetail) {
+    const read = { at: new Date().toISOString(), status: r.status, invocations: r.invocations.length };
+    setTraceLoading(true);
     setTraceError(null);
     try {
-      setTrace(await getRunTrace(runId));
+      setTrace(await getRunTrace(r.id));
+      setTraceRead(read);
     } catch (err) {
-      setTrace(null);
       setTraceError(errorText(err));
+    } finally {
+      setTraceLoading(false);
     }
   }
 
   return (
-    <section className={cx(px.board, w.detail)} aria-label="Step detail" data-testid="step-detail">
+    <section className={cx(px.board, w.detail, w.step)} aria-label="Step detail" data-testid="step-detail">
       <div className={w.row}>
         <h2 className={px.label}>
           Step {step.index + 1} · {step.taskDefinition ? `${step.taskDefinition.name} v${step.taskDefinition.version}` : "task definition not found"}
@@ -348,7 +388,7 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
               </div>
             )}
 
-            <div className={w.col}>
+            <div className={cx(w.col, w.wide)}>
               <span className={px.tab}>Invocations</span>
               {run.invocations.length === 0 ? (
                 <p className={px.dim}>No invocations yet.</p>
@@ -361,34 +401,41 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                         <th>kind</th>
                         <th>status</th>
                         <th>time</th>
-                        <th>failure</th>
                         <th>outputs</th>
                       </tr>
                     </thead>
                     <tbody>
                       {run.invocations.map((inv) => (
-                        <tr key={inv.id} data-testid="invocation-row">
-                          <td>{inv.seqNo}</td>
-                          <td>{inv.kind}</td>
-                          <td>
-                            <StatusMark state={inv.status} />
-                          </td>
-                          <td>
-                            {formatTime(inv.startedAt)}
-                            {inv.completedAt ? ` → ${formatTime(inv.completedAt)}` : ""}
-                          </td>
-                          <td>
-                            {inv.failureReason ?? ""}
-                            {inv.errorCode ? ` (${inv.errorCode})` : ""}
-                          </td>
-                          <td>
-                            {inv.artifactIds.map((artifactId, k) => (
-                              <Link key={artifactId} href={`/artifacts/${artifactId}`} className={w.link}>
-                                output {k + 1}
-                              </Link>
-                            ))}
-                          </td>
-                        </tr>
+                        <Fragment key={inv.id}>
+                          <tr data-testid="invocation-row">
+                            <td>{inv.seqNo}</td>
+                            <td>{inv.kind}</td>
+                            <td>
+                              <StatusMark state={inv.status} />
+                            </td>
+                            <td>
+                              {formatTime(inv.startedAt)}
+                              {inv.completedAt ? ` → ${formatTime(inv.completedAt)}` : ""}
+                            </td>
+                            <td>
+                              {inv.artifactIds.map((artifactId, k) => (
+                                <Link key={artifactId} href={`/artifacts/${artifactId}`} className={w.link}>
+                                  output {k + 1}
+                                </Link>
+                              ))}
+                            </td>
+                          </tr>
+                          {/* What failed answers this screen's question, so it gets a full-width line that no scroll can hide. */}
+                          {(inv.failureReason || inv.errorCode) && (
+                            <tr data-testid="invocation-failure">
+                              <td colSpan={5} className={w.failure}>
+                                <ButtonMark tone="fail" />
+                                {inv.failureReason ?? "no reason recorded"}
+                                {inv.errorCode && <span className={px.dim}> ({inv.errorCode})</span>}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -405,8 +452,8 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
                   <div key={c.resourceUnit} className={cx(px.vellum, w.counter)}>
                     <div className={px.dim}>{c.resourceUnit}</div>
                     <UnitGauge consumed={c.consumedAmount} reserved={c.reservedAmount} limit={c.limitAmount} />
-                    <div>
-                      {c.consumedAmount} consumed of {c.limitAmount} · {c.reservedAmount} reserved
+                    <div title={`${c.consumedAmount} consumed of ${c.limitAmount} · ${c.reservedAmount} reserved`}>
+                      {formatAmount(c.consumedAmount)} consumed of {formatAmount(c.limitAmount)} · {formatAmount(c.reservedAmount)} reserved
                     </div>
                   </div>
                 ))
@@ -417,22 +464,39 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
             <div className={cx(w.col, w.wide)}>
               <span className={px.tab}>Run trace</span>
               {trace === null ? (
-                <PixelButton onClick={() => void showTrace(run.id)}>Show the run trace</PixelButton>
-              ) : trace === "loading" ? (
-                <Skeleton />
-              ) : trace.events.length === 0 ? (
-                <p className={px.dim}>No events recorded for this run.</p>
+                traceLoading ? (
+                  <Skeleton />
+                ) : (
+                  <PixelButton onClick={() => void readTrace(run)}>Show the run trace</PixelButton>
+                )
               ) : (
-                <ol className={cx(px.vellum, w.plain)} data-testid="run-trace">
-                  {trace.events.map((e) => (
-                    <li key={e.eventId}>
-                      <span className={px.dim}>{e.sequenceNo}</span> {stateWord(e.eventType)}{" "}
-                      <span className={px.dim}>
-                        {formatTime(e.occurredAt)} · {e.actor}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
+                <>
+                  <div className={w.row} data-testid="run-trace-read">
+                    <span className={px.dim}>read at {formatTime(traceRead?.at)}</span>
+                    {outOfDate && (
+                      <StatusMark state="none" tone="neutral">
+                        out of date
+                      </StatusMark>
+                    )}
+                    <PixelButton onClick={() => void readTrace(run)} disabled={traceLoading}>
+                      Refresh the trace
+                    </PixelButton>
+                  </div>
+                  {trace.events.length === 0 ? (
+                    <p className={px.dim}>No events recorded for this run.</p>
+                  ) : (
+                    <ol className={cx(px.vellum, w.plain, outOfDate && w.outOfDate)} data-testid="run-trace">
+                      {trace.events.map((e) => (
+                        <li key={e.eventId}>
+                          <span className={px.dim}>{e.sequenceNo}</span> {stateWord(e.eventType)}{" "}
+                          <span className={px.dim}>
+                            {formatTime(e.occurredAt)} · {e.actor}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </>
               )}
               {traceError && (
                 <p role="alert" className={px.detail}>

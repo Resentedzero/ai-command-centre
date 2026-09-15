@@ -1,7 +1,7 @@
 /** Registry (spec 15.1 screen 6): every Definition from GET /registry, read-only, one key per grant. */
 import { Suspense } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import type { RegistryData } from "../lib/api";
 
 const api = vi.hoisted(() => ({ getRegistry: vi.fn(), listActiveAgents: vi.fn(), listActiveStops: vi.fn() }));
@@ -23,11 +23,12 @@ const registry: RegistryData = {
       costProfile: null,
       toolBindings: [{ id: "b-1", kind: "internal", version: 1, trustLevel: 1, internalFunction: "retrieveSources" }],
     },
+    { id: "c-2", name: "publish.report", description: null, staticRiskTag: "highest", costProfile: null, toolBindings: [] },
   ],
   capabilityGrants: [
-    { id: "g-1", agentDefinitionId: "a-1", agentDefinitionVersion: 1, capabilityId: "c-1", permissions: ["READ"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: 1, scope: null, createdAt: "t", revokedAt: null },
-    { id: "g-2", agentDefinitionId: "a-1", agentDefinitionVersion: 1, capabilityId: "c-1", permissions: ["READ"], autonomyState: "ALWAYS_APPROVE", maxTrustLevelRequired: 2, scope: null, createdAt: "t", revokedAt: "t2" },
-    { id: "g-3", agentDefinitionId: "a-2", agentDefinitionVersion: 1, capabilityId: "c-1", permissions: ["PUBLISH"], autonomyState: "ALWAYS_APPROVE", maxTrustLevelRequired: 1, scope: null, createdAt: "t", revokedAt: null },
+    { id: "g-1", agentDefinitionId: "a-1", agentDefinitionVersion: 1, capabilityId: "c-1", permissions: ["READ"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: 1, scope: {}, createdAt: "t", revokedAt: null },
+    { id: "g-2", agentDefinitionId: "a-1", agentDefinitionVersion: 1, capabilityId: "c-1", permissions: ["READ"], autonomyState: "ALWAYS_APPROVE", maxTrustLevelRequired: 2, scope: { path: "/out" }, createdAt: "t", revokedAt: "t2" },
+    { id: "g-3", agentDefinitionId: "a-2", agentDefinitionVersion: 1, capabilityId: "c-2", permissions: ["PUBLISH"], autonomyState: "ALWAYS_APPROVE", maxTrustLevelRequired: 1, scope: null, createdAt: "t", revokedAt: null },
   ],
   taskDefinitions: [{ id: "t-1", name: "Research-Report", kind: "research", version: 1, planRegistered: false }],
   workflowDefinitions: [{ id: "w-1", name: "Research-and-Publish", version: 1, createdAt: "t" }],
@@ -61,7 +62,15 @@ describe("Registry page", () => {
     expect(grants[0]).toHaveTextContent("READ · AUTONOMOUS · trust ≥ 1");
     expect(grants[1]).toHaveTextContent("revoked");
     expect(screen.getByTestId("read-only")).toHaveTextContent("Read-only");
-    expect(screen.getByTestId("capability")).toHaveTextContent("internal v1 · trust 1 · retrieveSources");
+    // An empty scope draws no empty list (#49); a real one is listed.
+    expect(within(grants[0]!).queryByRole("list", { name: "Grant scope" })).not.toBeInTheDocument();
+    expect(within(grants[1]!).getByRole("list", { name: "Grant scope" })).toHaveTextContent("path: /out");
+    // The capability list is registry-wide, so one this agent isn't granted says so (#52).
+    const capabilities = screen.getAllByTestId("capability");
+    expect(capabilities[0]).toHaveTextContent("internal v1 · trust 1 · retrieveSources");
+    expect(capabilities[0]).not.toHaveTextContent("not granted");
+    expect(capabilities[1]).toHaveTextContent("publish.report");
+    expect(capabilities[1]).toHaveTextContent("not granted to this agent");
     expect(screen.getByText(/no plan registered/)).toBeInTheDocument();
     expect(screen.getByText("Research-and-Publish v1")).toBeInTheDocument();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
@@ -71,6 +80,9 @@ describe("Registry page", () => {
     await renderPage("a-2");
     expect(await screen.findByRole("heading", { name: "Registry · Publisher v1" })).toBeInTheDocument();
     expect(screen.getAllByTestId("grant")).toHaveLength(1);
+    const capabilities = screen.getAllByTestId("capability");
+    expect(capabilities[0]).toHaveTextContent("not granted to this agent");
+    expect(capabilities[1]).not.toHaveTextContent("not granted");
   });
 
   it("says an unknown agent id is unknown instead of showing another agent's keys", async () => {
@@ -85,5 +97,6 @@ describe("Registry page", () => {
     await renderPage();
     expect(await screen.findByText("Couldn't load the Registry.")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Retry" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("img", { name: "Workshop, state unknown" })).toBeInTheDocument();
   });
 });

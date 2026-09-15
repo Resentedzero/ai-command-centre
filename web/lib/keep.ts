@@ -66,10 +66,22 @@ export function agentState(statuses: string[]): string {
 }
 
 export type Character = "knight" | "wizard";
+const CHARACTERS: Character[] = ["knight", "wizard"];
 
-/** Visual identity from the Agent Definition id (a hash), never from role or name. */
-export function characterFor(id: string): Character {
-  return hashOf(id) % 2 === 0 ? "knight" : "wizard";
+/**
+ * Visual identity from the Agent Definition id, never from role or name. With
+ * the Registry's definition ids, characters go out in sorted id order (cycling),
+ * so the definitions that exist look distinct; without them, a hash of the id.
+ * Every sprite on every screen goes through here, so an agent looks the same everywhere.
+ */
+export function characterFor(id: string, definitionIds?: string[] | null): Character {
+  const i = definitionIds ? [...definitionIds].sort().indexOf(id) : -1;
+  return CHARACTERS[(i >= 0 ? i : hashOf(id)) % CHARACTERS.length]!;
+}
+
+/** An exact decimal string without trailing zeros ("0.000000" → "0", "1.50" → "1.5"): the same value, readable at a glance. */
+export function formatAmount(amount: string): string {
+  return /^-?\d+\.\d+$/.test(amount) ? amount.replace(/\.?0+$/, "") : amount;
 }
 
 export type Tone = "active" | "done" | "wait" | "fail" | "idle" | "neutral";

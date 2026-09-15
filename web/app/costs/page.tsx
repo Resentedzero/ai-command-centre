@@ -5,7 +5,7 @@ import { BUDGET_SCOPES, getCosts, type CostsData } from "../../lib/api";
 import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, PixelButton, Skeleton, StateNotice, UnitGauge, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
-import { errorText, formatTime, stateWord } from "../../lib/keep";
+import { errorText, formatAmount, formatTime, stateWord } from "../../lib/keep";
 import c from "./costs.module.css";
 
 type Counter = CostsData["counters"][number];
@@ -52,6 +52,8 @@ export default function CostsPage() {
     void load();
   }, [load]);
   useRefetchOnEvents(load);
+  // A filter over a ledger that couldn't be read is a control without an object.
+  const unread = !data && error !== null;
 
   return (
     <main className={c.screen}>
@@ -69,6 +71,7 @@ export default function CostsPage() {
               type="button"
               className={cx(px.plaque, c.scope, scope === s && px.selected)}
               aria-pressed={scope === s}
+              disabled={unread}
               onClick={() => setScope(s)}
             >
               {s ? stateWord(s) : "all scopes"}
@@ -89,8 +92,8 @@ export default function CostsPage() {
                   <div className={px.label}>
                     {stateWord(t.scope)} · {t.resourceUnit}
                   </div>
-                  <div>
-                    {t.consumed} consumed · {t.reserved} reserved
+                  <div title={`${t.consumed} consumed · ${t.reserved} reserved`}>
+                    {formatAmount(t.consumed)} consumed · {formatAmount(t.reserved)} reserved
                   </div>
                   <div>
                     across {t.counters} counter{t.counters === 1 ? "" : "s"}
@@ -99,9 +102,7 @@ export default function CostsPage() {
               ))}
             </ul>
           )}
-          <p className={px.detail}>
-            Per scope and unit. The same spend can appear in a run and a day counter.
-          </p>
+          {!unread && <p className={px.detail}>Per scope and unit. The same spend can appear in a run and a day counter.</p>}
         </section>
       </aside>
 
@@ -128,8 +129,8 @@ export default function CostsPage() {
                     </div>
                     <div className={c.ellipsis}>{counterLabel(ct)}</div>
                     {ct.scope === "run" && <UnitGauge consumed={ct.consumedAmount} reserved={ct.reservedAmount} limit={ct.limitAmount} />}
-                    <div>
-                      {ct.consumedAmount} consumed · {ct.reservedAmount} reserved · limit {ct.limitAmount}
+                    <div title={`${ct.consumedAmount} consumed · ${ct.reservedAmount} reserved · limit ${ct.limitAmount}`}>
+                      {formatAmount(ct.consumedAmount)} consumed · {formatAmount(ct.reservedAmount)} reserved · limit {formatAmount(ct.limitAmount)}
                     </div>
                     <div className={px.dim}>updated {formatTime(ct.updatedAt)}</div>
                   </li>
