@@ -185,7 +185,12 @@ export function effectiveLimits(step: LoopLimits, profile: ExecutionProfile): { 
 // Schemas (JSON Schema, so the Claude CLI's --json-schema enforces them)
 // ---------------------------------------------------------------------------
 
-export function decisionSchema(): Record<string, unknown> {
+/**
+ * The decision's JSON Schema. Given the step's allowed thinking actions and tools, `intent`
+ * and `capability` are enums of exactly those (plus "" when unused), so the structured-output
+ * validator refuses an invented action before it reaches the loop's own refusal check.
+ */
+export function decisionSchema(allowed?: { intents: string[]; tools: string[] }): Record<string, unknown> {
   return {
     type: "object",
     properties: {
@@ -195,8 +200,8 @@ export function decisionSchema(): Record<string, unknown> {
         type: "object",
         properties: {
           type: { type: "string", enum: ["think", "tool", "gate", "finish"] },
-          intent: { type: "string" },
-          capability: { type: "string" },
+          intent: allowed ? { type: "string", enum: [...allowed.intents, ""] } : { type: "string" },
+          capability: allowed ? { type: "string", enum: [...allowed.tools, ""] } : { type: "string" },
           input: {
             type: "object",
             properties: Object.fromEntries(loopInputFieldNames().map((f) => [f, { type: "string" }])),
@@ -453,7 +458,7 @@ export async function buildAgentObjectiveInvocationSpecs(
         }),
         candidateArtifactIds: [...new Set(candidates)],
         contextBudget: decideBudget,
-        expectedOutputShape: decisionSchema(),
+        expectedOutputShape: decisionSchema({ intents: config.parameters.intents, tools: config.parameters.tools.map((t) => t.capability) }),
       };
       return spec;
     }) satisfies DeferredInvocationSpec);

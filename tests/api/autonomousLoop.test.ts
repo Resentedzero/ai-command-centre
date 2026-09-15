@@ -27,6 +27,7 @@ import { buildServer } from "../../src/api/server.js";
 import { engageStop } from "../../src/governance/executionStop.js";
 import {
   computeActiveSeconds,
+  decisionSchema,
   effectiveLimits,
   parseDecision,
   parseObjectiveParameters,
@@ -227,6 +228,10 @@ describe("bounded autonomy rules", () => {
     expect(parseLoopActionInput(action, { query: "x", amountOrScope: 1, isNovelAction: false })).toMatchObject({ ok: false });
     expect(action.toSnapshot({ query: "x" })).toEqual({ query: "x" });
     expect(parseDecision({ action: { type: "self_promote" } })).toMatchObject({ ok: false });
+    // The decision schema itself only admits the step's allowed actions.
+    const schema = decisionSchema({ intents: ["brainstorm"], tools: ["research.retrieve"] }) as { properties: { action: { properties: Record<string, { enum?: string[] }> } } };
+    expect(schema.properties.action.properties.intent!.enum).toEqual(["brainstorm", ""]);
+    expect(schema.properties.action.properties.capability!.enum).toEqual(["research.retrieve", ""]);
   });
 });
 
