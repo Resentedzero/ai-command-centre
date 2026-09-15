@@ -32,6 +32,7 @@ Run it with `powershell -File compose-w2-keep.ps1`. It needs Windows PowerShell 
 - The command room floor is shifted teal → slate, so cyan stays unique to "active".
 - The Researcher workshop floor gets the same slate shift, and the pale Publisher stone is dimmed ×(0.72, 0.72, 0.76). An unlit room must never look lit or cyan.
 - `room-researcher-workshop-4x-slate.png`: the 4× close-up with only its teal pixels (B > R+12 and G > R+8) slate-shifted, so the furniture keeps its colours. It replaces `room-researcher-workshop-4x.png` in Figma.
+  - **2026-09-15:** the decorative chest pair on its floor is covered with the floor tile one period (192 px) to the right: a 152 × 128 area at (16, 356). In this UI a chest means one real artifact, so no room art may carry painted chests. `room-researcher-workshop-4x-slate-nochests.png` is an identical copy of the patched file. The un-patched slate version was overwritten, and is reproducible from `room-researcher-workshop-4x.png` plus the slate shift above and this patch. The vault and keep composites carry no chests either (`compose-keep-v4.ps1`).
 - No chests are baked into the vault. On the Artifacts screen each chest is one real artifact.
 
 ## What the composite contains

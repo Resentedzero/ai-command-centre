@@ -405,7 +405,7 @@ CLI1 worked through this review. Verified in the committed tree:
 **Independent critic (all 45 real-data captures), verdict: on track.** Every checked value matched the live data. No cyan or amber is lit without current state, and red and green appear only on outcomes and controls. Each screen keeps its distinct room (keep, workshop, corridor, war room, council hall, vault, library, forge).
 - **Accepted as findings #52–#56.**
 - **New evidence for #43:** a chest pair beside the vault cabinets shows in the empty Publisher vault and on the Overview. The regenerated vault crop already removes it, but CLI1's CSS patches don't.
-- **Asset follow-up (design side, logged, not done in this round):** the 4× researcher workshop close-up (`room-researcher-workshop-4x-slate.png`, derived from the older W2 keep at 768 × 640) also carries a decorative chest pair beside an agent with a real output. Since a chest means one artifact, it should be re-derived without chests at the same 768 × 640 size.
+- **Asset follow-up (design side): done after the round.** The 4× researcher workshop close-up (`room-researcher-workshop-4x-slate.png`, 768 × 640) carried a decorative chest pair beside an agent with a real output. The pair is now covered with the floor tile one period to the right (grid continuous, same size and name; see `assets/gamification/adapted/README.md`), and the Figma workshop layers are updated. **CLI1:** `npm run world-art` picks up both this and the chest-free vault crop. Then the vault floor patches in `artifacts.module.css` can go (#43).
 - **Rejected as acceptable choices:**
   - renaming the goal status "active": it's the API's goal status, and it already has a neutral marker;
   - the empty band under the Events filter chips;
