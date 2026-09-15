@@ -1624,6 +1624,17 @@ export async function executeRun(
           throw error;
         }
         const spec = await resolvePlannedSpec(tx, runId, seqNo, planned);
+        if (spec.kind !== "tool") {
+          // R1 (independent review): a position awaiting approval that no longer resolves to a
+          // tool (a deferred plan whose inputs changed, e.g. a Grant it checked) fails exactly
+          // like any other resume mismatch: its hold released, nothing run.
+          const heldReservationId = await peekPendingReservation(tx, runId, seqNo);
+          if (isRealReservation(heldReservationId)) await releaseReservation(tx, heldReservationId);
+          await clearPendingReservation(tx, runId, seqNo);
+          await failInvocation(tx, { invocationId: existing.id, runId, taskInstanceId: run.taskInstanceId, reason: "resume_spec_mismatch" });
+          await failRun(tx, runId);
+          return { status: "failed", runId };
+        }
         assertToolSpec(spec); // only "tool" specs ever reach awaiting_approval
         const outcome = await resumeToolSpec(tx, run, seqNo, spec, existing);
         if (outcome.status !== "completed") return outcome;

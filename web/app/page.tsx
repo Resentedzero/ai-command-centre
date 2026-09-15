@@ -33,6 +33,7 @@ import {
   type Rect,
 } from "../lib/keep";
 import o from "./overview.module.css";
+import { useKeeper } from "../components/keeper/Keeper";
 
 /**
  * Overview (spec 15.1 screen 1; Figma "Overview A5 — pixel keep"): is the
@@ -76,6 +77,7 @@ function Floor({ rect, children }: { rect: Rect; children: ReactNode }) {
 
 export default function OverviewPage() {
   const { status } = useLive();
+  const keeper = useKeeper();
   const [agents, setAgents] = useState<AgentCardData[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pending, setPending] = useState<Read<number>>(null);
@@ -238,6 +240,15 @@ export default function OverviewPage() {
           <StatusMark state={status} tone={status === "live" ? "done" : "neutral"} />
         </SystemPlaque>
         <SystemPlaque rect={SYSTEM_ROOMS.artifacts} href="/artifacts" name="Artifacts" />
+
+        {/* The Keeper lives in the entrance hall: a guide, not an agent, so no state light and no workshop. */}
+        <Floor rect={SYSTEM_ROOMS.entrance}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/world/strips/rogue-idle-2x-outlined.png" width={68} height={68} alt="" className={o.keeper} draggable={false} />
+        </Floor>
+        <button type="button" className={world.plaque} style={plaqueAt(SYSTEM_ROOMS.entrance)} onClick={() => keeper.setOpen(true)}>
+          Keeper
+        </button>
         <span className={cx(world.plaque, world.plaqueStatic)} style={plaqueAt(SYSTEM_ROOMS.runtime)}>
           Runtime
         </span>

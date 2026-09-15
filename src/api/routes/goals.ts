@@ -29,6 +29,55 @@ import { MAX_TEXT_LENGTH } from "../../definitions/registryWrites.js";
 
 type CreateGoalBody = { title?: string; description?: string; workflowDefinitionId?: string; projectId?: string; async?: boolean };
 
+/**
+ * Creates a Goal and starts its Workflow Run, committed as one unit in the transaction
+ * that confirms the Workflow Definition and Project exist (either defaults to the
+ * seed's). The driver then advances in its own short transactions (Phase 9). Shared by
+ * `POST /goals` and Keeper Think (`./keeper.ts`), so both start work the same way.
+ */
+export async function createGoalWithWorkflowRun(
+  deps: ApiDeps,
+  input: { title: string; description: string | null; workflowDefinitionId?: string; projectId?: string }
+): Promise<{ error: string } | { goalId: string; workflowRunId: string }> {
+  return deps.db.transaction(async (tx) => {
+    const seed = input.workflowDefinitionId && input.projectId ? null : await requireSeededPublishWorkflow(tx);
+    const workflowDefinitionId = input.workflowDefinitionId ?? seed!.workflowDefinitionId;
+    const projectId = input.projectId ?? seed!.projectId;
+    if (!(await tx.query.workflowDefinitions.findFirst({ where: eq(workflowDefinitions.id, workflowDefinitionId) }))) {
+      return { error: "workflowDefinitionId does not name a Workflow Definition" };
+    }
+    if (!(await tx.query.projects.findFirst({ where: eq(projects.id, projectId) }))) {
+      return { error: "projectId does not name a Project" };
+    }
+    const [goalRow] = await tx.insert(goals).values({ projectId, title: input.title, description: input.description, status: "active" }).returning();
+    const goalId = goalRow!.id;
+    // Spec §8.2 `goal_created`, same transaction as the row. The V1 operator identity.
+    await emitLifecycleEvent(tx, {
+      eventType: "goal_created",
+      subjectId: goalId,
+      correlation: { ...NO_CORRELATION, goalId },
+      producer: "api",
+      actor: "human:operator",
+      payload: { title: input.title },
+    });
+    const { workflowRunId } = await startWorkflowRun(tx, workflowDefinitionId, goalId);
+    return { goalId, workflowRunId };
+  });
+}
+
+/**
+ * R2 (V1.1): the Goal and Workflow Run are committed; the same driver continues in this
+ * process after the response. Postgres stays authoritative: the run's state is in its
+ * rows and events, the UI follows the event stream, and if the process dies the startup
+ * re-drive (`../start.ts`) picks the run up. No queue, no broker.
+ */
+export function driveInBackground(relay: ReturnType<typeof createWorkflowRelay>, workflowRunId: string): void {
+  void advanceWorkflowRunUntilBlocked(relay.runInTx, workflowRunId, buildInvocationSpecsFromDefinitions).catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error(`Driving workflow run ${workflowRunId} in the background failed; POST /workflow-runs/${workflowRunId}/advance retries:`, error);
+  });
+}
+
 /** Most recent Goals returned by `GET /goals`. Ample for a single operator; a paged listing can follow real volume. */
 const GOALS_LIST_LIMIT = 500;
 
@@ -109,57 +158,14 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
     }
 
     const relay = createWorkflowRelay(deps.db);
-    // Goal + Workflow Run commit first, as one unit, in the same transaction that
-    // confirms their Workflow Definition and Project exist; the driver then
-    // advances in its own short transactions (Phase 9 — see the driver's
-    // header), each relayed to live subscribers as it commits.
-    const created = await deps.db.transaction(async (tx) => {
-      // Either may be omitted; the seeded Workflow Definition and fixture Project
-      // are the defaults, so a caller that names both needs no seed at all.
-      const seed =
-        requestedWorkflowDefinitionId && requestedProjectId ? null : await requireSeededPublishWorkflow(tx);
-      const workflowDefinitionId = requestedWorkflowDefinitionId ?? seed!.workflowDefinitionId;
-      const projectId = requestedProjectId ?? seed!.projectId;
-      if (!(await tx.query.workflowDefinitions.findFirst({ where: eq(workflowDefinitions.id, workflowDefinitionId) }))) {
-        return { error: "workflowDefinitionId does not name a Workflow Definition" } as const;
-      }
-      if (!(await tx.query.projects.findFirst({ where: eq(projects.id, projectId) }))) {
-        return { error: "projectId does not name a Project" } as const;
-      }
-
-      const [goalRow] = await tx
-        .insert(goals)
-        .values({ projectId, title, description: description ?? null, status: "active" })
-        .returning();
-      const goalId = goalRow!.id;
-      // Spec §8.2 `goal_created`, same transaction as the row. The V1 operator
-      // identity, as for Approval resolutions (routes/approvals.ts).
-      await emitLifecycleEvent(tx, {
-        eventType: "goal_created",
-        subjectId: goalId,
-        correlation: { ...NO_CORRELATION, goalId },
-        producer: "api",
-        actor: "human:operator",
-        payload: { title },
-      });
-
-      const { workflowRunId } = await startWorkflowRun(tx, workflowDefinitionId, goalId);
-      return { goalId, workflowRunId } as const;
-    });
+    const created = await createGoalWithWorkflowRun(deps, { title, description: description ?? null, workflowDefinitionId: requestedWorkflowDefinitionId, projectId: requestedProjectId });
     if ("error" in created) return reply.status(400).send({ error: created.error });
 
     await relay.track(created.workflowRunId, { fresh: true });
     await relay.flush();
 
     if (runAsync) {
-      // R2 (V1.1): the Goal and Workflow Run are committed; the same driver continues in
-      // this process after the response. Postgres stays authoritative: the run's state is
-      // in its rows and events, the UI follows the event stream, and if the process dies
-      // the startup re-drive (`../start.ts`) picks the run up. No queue, no broker.
-      void advanceWorkflowRunUntilBlocked(relay.runInTx, created.workflowRunId, buildInvocationSpecsFromDefinitions).catch((error) => {
-        // eslint-disable-next-line no-console
-        console.error(`Driving workflow run ${created.workflowRunId} in the background failed; POST /workflow-runs/${created.workflowRunId}/advance retries:`, error);
-      });
+      driveInBackground(relay, created.workflowRunId);
       return reply.status(202).send({ goalId: created.goalId, workflowRunId: created.workflowRunId, status: "in_progress" });
     }
 

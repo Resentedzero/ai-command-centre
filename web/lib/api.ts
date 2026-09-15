@@ -666,6 +666,36 @@ export async function createAgentDefinition(input: AgentDefinitionInput): Promis
   return apiFetch("/agent-definitions", { method: "POST", body: JSON.stringify(input) });
 }
 
+// ---------------------------------------------------------------------------
+// Keeper (V1.1): explain and guide use no model; Think starts a governed Goal
+// ---------------------------------------------------------------------------
+
+export type KeeperExplanation = {
+  subject: { type: string; id: string | null };
+  headline: string;
+  status: string | null;
+  facts: { label: string; value: string }[];
+  reasons: string[];
+  next: { label: string; href: string }[];
+};
+
+export type KeeperGuideCard = { slug: string; title: string; body: string };
+
+/** `subject`: "system" or "<workflow_run|goal|approval|agent|artifact|run>:<id>". Deterministic; no model. */
+export async function keeperExplain(subject: string): Promise<KeeperExplanation> {
+  return apiFetch(`/keeper/explain?subject=${encodeURIComponent(subject)}`);
+}
+
+/** The guide cards matching a question. Deterministic; no model. */
+export async function keeperGuide(q: string): Promise<KeeperGuideCard[]> {
+  return (await apiFetch<{ cards: KeeperGuideCard[] }>(`/keeper/guide?q=${encodeURIComponent(q)}`)).cards;
+}
+
+/** Keeper Think: an explicit, governed Goal in the Keeper project (CHEAP tier, READ-only). Uses subscription quota. */
+export async function askKeeper(question: string, subject: string): Promise<{ goalId: string; workflowRunId: string; status: string }> {
+  return apiFetch("/keeper/questions", { method: "POST", body: JSON.stringify({ question, subject }) });
+}
+
 /** Revokes one Grant (spec §9.7); the API closes its pending Approvals. */
 export async function revokeCapabilityGrant(grantId: string): Promise<{ grantId: string; revoked: boolean; cancelledApprovalIds: string[] }> {
   return apiFetch(`/capability-grants/${encodeURIComponent(grantId)}/revoke`, { method: "POST" });

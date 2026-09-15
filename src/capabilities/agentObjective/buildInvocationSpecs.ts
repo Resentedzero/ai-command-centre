@@ -74,6 +74,8 @@ const MAX_REQUESTED_ARTIFACTS = 4;
 const MAX_LEDGER_ARTIFACTS = 30;
 const NOTE_CHARS = 280;
 const SUMMARY_CHARS = 400;
+const REASON_CHARS = 300;
+const NAME_CHARS = 80;
 
 // ---------------------------------------------------------------------------
 // Parameters
@@ -395,8 +397,23 @@ export async function buildAgentObjectiveInvocationSpecs(
   const refused = (reason: string): DeterministicInvocationSpec => ({
     kind: "deterministic",
     costClass: "deterministic",
-    execute: async () => ({ refused: true, reason }),
+    // Reasons can quote model output (an unknown intent or capability): bounded before they are stored.
+    execute: async () => ({ refused: true, reason: reason.slice(0, REASON_CHARS) }),
   });
+
+  // The ceiling is fixed for the Run's life (R1): a plan rebuilt with a different N (a changed
+  // ceiling constant mid-run) would misplace its closing positions, so it fails closed.
+  const recorded = await tx
+    .select({ content: artifacts.inlineContent })
+    .from(artifacts)
+    .innerJoin(invocations, eq(artifacts.producingInvocationId, invocations.id))
+    .where(and(eq(invocations.runId, runId), eq(invocations.kind, "deterministic")));
+  for (const row of recorded) {
+    const ledger = parseJsonObject(row.content);
+    if (ledger?.format === "agent_ledger/v1" && ledger.maxIterations !== N) {
+      throw new Error(`agent_objective: run "${runId}" started with ${String(ledger.maxIterations)} iterations but its plan now has ${N} (fail closed).`);
+    }
+  }
 
   const plan: PlannedInvocationSpec[] = [];
   for (let k = 1; k <= N; k++) {
@@ -521,10 +538,10 @@ export async function buildAgentObjectiveInvocationSpecs(
           const result = actArtifact ? ((await readJson(tx, actArtifact.artifactId)) as Record<string, unknown> | null) : null;
           const finished = d?.action.type === "finish";
           let outcome: LedgerEntry["outcome"];
-          if (!decision.parsed.ok) outcome = { status: "refused", reason: decision.parsed.reason };
+          if (!decision.parsed.ok) outcome = { status: "refused", reason: decision.parsed.reason.slice(0, REASON_CHARS) };
           else if (finished) outcome = { status: "finished" };
           else if (!actInvocation) outcome = { status: "skipped" };
-          else if (result && result.refused === true) outcome = { status: "refused", reason: String(result.reason ?? "") };
+          else if (result && result.refused === true) outcome = { status: "refused", reason: String(result.reason ?? "").slice(0, REASON_CHARS) };
           else outcome = { status: "completed" };
 
           const summary =
@@ -534,7 +551,11 @@ export async function buildAgentObjectiveInvocationSpecs(
                 ? result.summary.slice(0, SUMMARY_CHARS)
                 : JSON.stringify(result).slice(0, SUMMARY_CHARS);
           const action: LedgerEntry["action"] = d
-            ? { type: d.action.type, ...(d.action.type === "think" ? { intent: d.action.intent } : {}), ...(d.action.type === "tool" ? { capability: d.action.capability } : {}) }
+            ? {
+                type: d.action.type,
+                ...(d.action.type === "think" ? { intent: d.action.intent.slice(0, NAME_CHARS) } : {}),
+                ...(d.action.type === "tool" ? { capability: d.action.capability.slice(0, NAME_CHARS) } : {}),
+              }
             : { type: "invalid" };
           const resultArtifactId = outcome.status === "completed" && actArtifact ? actArtifact.artifactId : null;
           const entry: LedgerEntry = { iteration: k, action, outcome, resultArtifactId, summary, note: d?.ledgerNote ?? "" };
@@ -649,6 +670,15 @@ export async function buildAgentObjectiveInvocationSpecs(
   }) satisfies DeferredInvocationSpec);
 
   return plan;
+}
+
+function parseJsonObject(text: string | null): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(text ?? "null");
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function goalTitleOf(tx: DrizzleTransaction, workflowRunId: string | null): Promise<string | null> {

@@ -101,6 +101,8 @@ export function basisLine(b: EvidenceBasis): string {
   if (kinds.has("external")) parts.push("external sources");
   if (kinds.has("local_corpus")) parts.push("local documents already held");
   if (kinds.has("fixture")) parts.push("fixture (test) data, not real research");
+  if (kinds.has("system_state")) parts.push("the Command Keep's own records");
   if (parts.length === 0) parts.push("the model's own knowledge only");
+  else if (!kinds.has("external") && !kinds.has("local_corpus") && !kinds.has("fixture")) parts.push("otherwise the model's own knowledge");
   return `${b.externalResearch ? "External research was performed." : "No external research was performed."} Evidence: ${parts.join("; ")}.`;
 }

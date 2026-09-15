@@ -58,6 +58,7 @@ import { registerRegistryRoutes } from "./routes/registry.js";
 import { registerCostsRoutes } from "./routes/costs.js";
 import { registerTraceRoutes } from "./routes/trace.js";
 import { registerArtifactsRoutes } from "./routes/artifacts.js";
+import { registerKeeperRoutes } from "./routes/keeper.js";
 import { makeRequestGuard } from "./requestGuards.js";
 import { SeedMissingError } from "../definitions/lookupSeed.js";
 
@@ -160,6 +161,7 @@ export function buildServer(overrides?: Partial<ApiDeps>): FastifyInstance {
   registerCostsRoutes(app, deps); // V2 — budget counters and cost-vs-success, read-only.
   registerTraceRoutes(app, deps); // Spec 8.4 — a Run's trace, read-only.
   registerArtifactsRoutes(app, deps); // Spec 15.1 screens 2/8 — an Artifact with provenance, read-only.
+  registerKeeperRoutes(app, deps); // V1.1 Keeper: deterministic explain and guide; Think as a governed Goal.
 
   return app;
 }

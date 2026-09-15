@@ -121,3 +121,12 @@
     display: none;
   }
 }
+
+
+/* The Keeper stands in the entrance hall (V1.1). */
+.keeper {
+  position: absolute;
+  left: 206px;
+  top: 52px;
+  image-rendering: pixelated;
+}

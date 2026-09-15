@@ -29,4 +29,6 @@ const files = [
 mkdirSync(join(out, "strips"), { recursive: true });
 for (const [dir, name] of files) cpSync(join(dir, name), join(out, name));
 cpSync(join(adapted, "strips-outlined-2x"), join(out, "strips"), { recursive: true });
+// The Keeper: one outlined Rogue frame (read from the design workstream's art; no strip exists yet).
+cpSync(join(adapted, "sprites-outlined-2x", "rogue-idle-2x-outlined.png"), join(out, "strips", "rogue-idle-2x-outlined.png"));
 console.log(`Copied ${files.length} files and the outlined strips into public/world/`);

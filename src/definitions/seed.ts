@@ -34,6 +34,10 @@ import { and, eq } from "drizzle-orm";
 import { agentDefinitions, capabilities, goals, projects, taskDefinitions, workflowDefinitions } from "../db/schema.js";
 import { REVIEW_CHECKPOINT_CAPABILITY, REVIEW_CHECKPOINT_PERMISSION } from "../capabilities/reviewCheckpoint/capability.js";
 import { REVIEW_CHECKPOINT_RECORD } from "../capabilities/reviewCheckpoint/adapter.js";
+import { SYSTEM_INSPECT_CAPABILITY } from "../capabilities/systemInspect/capability.js";
+import { SYSTEM_INSPECT_READ } from "../capabilities/systemInspect/adapter.js";
+import { DOCS_RETRIEVE_CAPABILITY } from "../capabilities/docsRetrieve/capability.js";
+import { DOCS_RETRIEVE_GUIDE } from "../capabilities/docsRetrieve/adapter.js";
 import { findSeededPublishWorkflow } from "./lookupSeed.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitLifecycleEvent, NO_CORRELATION } from "../events/lifecycle.js";
@@ -44,7 +48,7 @@ import { RESEARCH_RETRIEVE_CAPABILITY } from "../capabilities/researchRetrieve/c
 import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capability.js";
 import { RESEARCH_RETRIEVE_SYNTHETIC } from "../capabilities/researchRetrieve/adapter.js";
 import { PUBLISH_REPORT_FILESYSTEM } from "../capabilities/publishReport/adapter.js";
-import { AGENT_OBJECTIVE_KIND, AGENT_TASK_KIND, OPERATOR_CHECKPOINT_KIND, PUBLISH_REPORT_TASK_KIND, RESEARCH_REPORT_TASK_KIND } from "../capabilities/taskPlans.js";
+import { AGENT_OBJECTIVE_KIND, AGENT_TASK_KIND, KEEPER_ANSWER_KIND, OPERATOR_CHECKPOINT_KIND, PUBLISH_REPORT_TASK_KIND, RESEARCH_REPORT_TASK_KIND } from "../capabilities/taskPlans.js";
 import {
   createAgentDefinition,
   createCapability,
@@ -483,6 +487,104 @@ export async function seedV11Definitions(tx: DrizzleTransaction): Promise<boolea
             maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED,
           },
         ],
+      },
+      SEED_ACTOR
+    );
+    created = true;
+  }
+  if (await seedKeeper(tx)) created = true;
+  return created;
+}
+
+// ---------------------------------------------------------------------------
+// seedKeeper
+// ---------------------------------------------------------------------------
+
+export const KEEPER_PROJECT_NAME = "Keeper";
+export const KEEPER_AGENT_NAME = "Keeper";
+export const KEEPER_TASK_DEFINITION_NAME = "Keeper Answer";
+export const KEEPER_WORKFLOW_NAME = "Keeper Think";
+
+/** Keeper Think's Context Budget: a small snapshot, a few guide cards, a short answer. Documented placeholders. */
+export const KEEPER_ANSWER_CONTEXT_BUDGET: ContextBudget = {
+  maxInputTokens: 6_000,
+  maxArtifactTokens: 2_500,
+  maxRetrievedItems: 4,
+  maxToolSchemaTokens: 0,
+  compressionThreshold: 2_500,
+  freshnessRequirementSeconds: 0,
+  expectedOutputTokens: 1_200,
+};
+
+/**
+ * The Keeper as ordinary Definitions (no special case in the runtime): the READ-only
+ * `system.inspect` and `docs.retrieve` Capabilities with their bindings, the "Keeper"
+ * Agent (CHEAP tier; READ Grants only, autonomous because they only read), the
+ * `keeper_answer` Task Definition, the "Keeper" Project that holds Think questions, and
+ * the one-step "Keeper Think" Workflow. Each is created only if missing.
+ */
+export async function seedKeeper(tx: DrizzleTransaction): Promise<boolean> {
+  let created = false;
+  const ensureCapability = async (contract: typeof SYSTEM_INSPECT_CAPABILITY, fn: string) => {
+    const existing = await tx.query.capabilities.findFirst({ where: eq(capabilities.name, contract.id) });
+    if (existing) return existing.id;
+    const c = await createCapability(
+      tx,
+      { name: contract.id, description: contract.description, staticRiskTag: contract.staticRiskTag, costProfile: contract.costProfile },
+      SEED_ACTOR
+    );
+    await createToolBinding(tx, { capabilityId: c.id, kind: "internal", config: { function: fn }, trustLevel: 2 }, SEED_ACTOR);
+    created = true;
+    return c.id;
+  };
+  const inspectId = await ensureCapability(SYSTEM_INSPECT_CAPABILITY, SYSTEM_INSPECT_READ);
+  const docsId = await ensureCapability(DOCS_RETRIEVE_CAPABILITY, DOCS_RETRIEVE_GUIDE);
+
+  let task = await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.name, KEEPER_TASK_DEFINITION_NAME) });
+  if (!task) {
+    const t = await createTaskDefinition(tx, { name: KEEPER_TASK_DEFINITION_NAME, kind: KEEPER_ANSWER_KIND, defaultContextBudget: KEEPER_ANSWER_CONTEXT_BUDGET }, SEED_ACTOR);
+    task = await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.id, t.id) });
+    created = true;
+  }
+
+  let agent = await tx.query.agentDefinitions.findFirst({ where: eq(agentDefinitions.name, KEEPER_AGENT_NAME) });
+  if (!agent) {
+    const a = await createAgentDefinition(
+      tx,
+      {
+        name: KEEPER_AGENT_NAME,
+        role: "The Command Keep's guide",
+        objective: "Help the operator understand and operate the Command Keep, from its real records.",
+        instructions: "Explain plainly and briefly. Read state only through your capabilities. Never claim to change anything; propose instead.",
+        executionProfile: { preferredTier: "CHEAP" },
+        grants: [
+          { capabilityId: inspectId, permissions: ["READ"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED },
+          { capabilityId: docsId, permissions: ["READ"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED },
+        ],
+      },
+      SEED_ACTOR
+    );
+    agent = await tx.query.agentDefinitions.findFirst({ where: eq(agentDefinitions.id, a.id) });
+    created = true;
+  }
+
+  if (!(await tx.query.projects.findFirst({ where: eq(projects.name, KEEPER_PROJECT_NAME) }))) {
+    await tx.insert(projects).values({ name: KEEPER_PROJECT_NAME, description: "Questions the operator asked the Keeper to think about." });
+    created = true;
+  }
+
+  if (!(await tx.query.workflowDefinitions.findFirst({ where: eq(workflowDefinitions.name, KEEPER_WORKFLOW_NAME) }))) {
+    await createWorkflowDefinition(
+      tx,
+      {
+        name: KEEPER_WORKFLOW_NAME,
+        graphDefinition: {
+          kind: "linear",
+          description: "The Keeper thinks about one operator question, reading state and guide cards only.",
+          steps: [
+            { stepId: "answer", label: "Answer", taskDefinitionId: task!.id, taskDefinitionVersion: task!.version, agentDefinitionId: agent!.id, agentDefinitionVersion: agent!.version },
+          ],
+        },
       },
       SEED_ACTOR
     );

@@ -30,6 +30,7 @@ import { registerLoopAction } from "./shared/loopActions.js";
 import { researchRetrieveLoopAction } from "./researchRetrieve/loopAction.js";
 import { buildAgentObjectiveInvocationSpecs, parseObjectiveParameters, validateObjectiveStep } from "./agentObjective/buildInvocationSpecs.js";
 import { excludeTaskKindFromAutomaticRetry } from "../governance/retryPolicy.js";
+import { buildKeeperAnswerInvocationSpecs } from "./keeperAnswer/buildInvocationSpecs.js";
 
 export type TaskPlanContext = {
   taskDefinition: typeof taskDefinitions.$inferSelect;
@@ -217,6 +218,25 @@ registerTaskPlanBuilder(
     );
   },
   { validateStepParameters: validateObjectiveStep }
+);
+
+/** V1.1: Keeper Think, an explicit, governed, read-only reasoning answer about the Command Keep. */
+export const KEEPER_ANSWER_KIND = "keeper_answer";
+
+registerTaskPlanBuilder(
+  KEEPER_ANSWER_KIND,
+  async (tx, ctx) =>
+    buildKeeperAnswerInvocationSpecs(
+      tx,
+      {
+        contextBudget: requireContextBudget(ctx.taskDefinition.defaultContextBudget, ctx.taskDefinition.name),
+        profile: await loadExecutionProfile(tx, ctx.agentDefinitionId, ctx.agentDefinitionVersion),
+      },
+      ctx.params
+    ),
+  {
+    validateStepParameters: async (_tx, ctx) => (Object.keys(ctx.parameters).length > 0 ? "a Keeper answer step takes no parameters." : null),
+  }
 );
 
 registerTaskPlanBuilder(

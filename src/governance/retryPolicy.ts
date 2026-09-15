@@ -44,7 +44,9 @@ export const RETRY_LIMIT = 2;
 /** The Runs a Task Instance may have in total. */
 export const MAX_RUN_ATTEMPTS = 1 + RETRY_LIMIT;
 
-const AUTOMATIC_RETRY_EXCLUDED_KINDS = new Set<string>();
+// Pinned here, not only by registration, so no process can retry an autonomous Run just
+// because it never loaded the task plans (independent R1 review, finding 3).
+const AUTOMATIC_RETRY_EXCLUDED_KINDS = new Set<string>(["agent_objective"]);
 
 /**
  * V1.1 (operator decision 2026-09-15): a Task Definition kind whose failed Runs are never

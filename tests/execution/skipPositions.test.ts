@@ -128,7 +128,7 @@ describe("R1: a deferred position may resolve to skip", () => {
     });
   });
 
-  it("a position that already has an Invocation can never become a skip (fails closed)", async () => {
+  it("a position that already has an Invocation can never become a skip: it fails as a resume mismatch, nothing runs", async () => {
     await withRollback(async (tx) => {
       const f = await fixture(tx, "ALWAYS_APPROVE");
       let first = true;
@@ -141,11 +141,13 @@ describe("R1: a deferred position may resolve to skip", () => {
         return { kind: "skip", reason: "changed its mind" };
       };
       expect((await executeRun(tx, f.runId, [gated])).status).toBe("awaiting_approval");
-      await expect(executeRun(tx, f.runId, [gated])).rejects.toThrow(/expected a "tool" spec/);
+      expect((await executeRun(tx, f.runId, [gated])).status).toBe("failed");
       expect(effects.calls).toBe(0);
-    }).catch((error: unknown) => {
-      // The failed statement aborts the rolled-back test transaction; only the assertion above matters.
-      if (!(error instanceof Error) || !/current transaction is aborted|rollback/i.test(error.message)) throw error;
+      const [invocation] = await tx.query.invocations.findMany({ where: eq(schema.invocations.runId, f.runId) });
+      expect(invocation!.status).toBe("failed");
+      const failed = await tx.query.events.findFirst({ where: eq(schema.events.invocationId, invocation!.id), orderBy: (e, { desc }) => desc(e.sequenceNo) });
+      expect(failed).toMatchObject({ eventType: "invocation_failed", payload: expect.objectContaining({ reason: "resume_spec_mismatch" }) });
+      expect((await tx.query.runs.findFirst({ where: eq(schema.runs.id, f.runId) }))!.status).toBe("failed");
     });
   });
 

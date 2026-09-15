@@ -97,6 +97,14 @@ async function findLatestByName<T extends { version: number }>(rows: T[], label:
   return findOneByName(rows.filter((r) => r.version === latest), label);
 }
 
+/** The Keeper's Project and latest "Keeper Think" Workflow Definition (`./seed.ts` `seedKeeper`), or null when not seeded. */
+export async function findKeeperRefs(tx: DrizzleTransaction): Promise<{ projectId: string; workflowDefinitionId: string } | null> {
+  const workflows = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, "Keeper Think") });
+  const workflow = workflows.length > 0 ? await findLatestByName(workflows, "workflow_definitions named Keeper Think") : null;
+  const project = await findOneByName(await tx.query.projects.findMany({ where: eq(projects.name, "Keeper") }), "projects named Keeper");
+  return workflow && project ? { projectId: project.id, workflowDefinitionId: workflow.id } : null;
+}
+
 export async function findSeededPublishWorkflow(tx: DrizzleTransaction): Promise<SeededWorkflowRefs | null> {
   const workflowDefinition = await findLatestByName(
     await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, WORKFLOW_DEFINITION_NAME) }),

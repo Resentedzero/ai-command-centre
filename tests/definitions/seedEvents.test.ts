@@ -93,9 +93,11 @@ describe("the seed logs what it creates", () => {
 
       expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: true, seededV11: true });
       const after = await counts();
-      // V1.1: + the Reviewer agent, Agent Task, Autonomous Objective and Approval Gate task definitions, review.checkpoint with its binding and Grant; + Workflow 1.
+      // V1.1: + the Reviewer and Keeper agents; Agent Task, Autonomous Objective, Approval Gate and Keeper Answer task
+      // definitions; review.checkpoint, system.inspect and docs.retrieve with their bindings and Grants; the Keeper
+      // project; the Keeper Think workflow; + Workflow 1.
       const [agents, tasks, caps, grants, bindings, projects, goals, workflows] = before;
-      expect(after).toEqual([agents! + 1, tasks! + 3, caps! + 1, grants! + 1, bindings! + 1, projects, goals, workflows! + 1]);
+      expect(after).toEqual([agents! + 2, tasks! + 4, caps! + 3, grants! + 3, bindings! + 3, projects! + 1, goals, workflows! + 2]);
 
       const row = await tx.query.workflowDefinitions.findFirst({ where: eq(schema.workflowDefinitions.name, "Research-Report") });
       expect(row).toMatchObject({ version: 1 });

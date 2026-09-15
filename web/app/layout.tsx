@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { LiveProvider } from "../components/live";
 import { NoticeStrip } from "../components/pixel/NoticeStrip";
 import { PixelTopBar } from "../components/pixel/PixelTopBar";
+import { KeeperDock, KeeperPanel, KeeperProvider } from "../components/keeper/Keeper";
 import "./tokens.css";
 
 // D4 as amended by D19: Pixelify Sans for titles, labels and buttons; JetBrains Mono for values and long reading.
@@ -18,9 +19,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className={`${pixel.variable} ${mono.variable}`}>
       <body>
         <LiveProvider>
-          <PixelTopBar />
-          {children}
-          <NoticeStrip />
+          <KeeperProvider>
+            <PixelTopBar />
+            {children}
+            <NoticeStrip />
+            <KeeperDock />
+            <KeeperPanel />
+          </KeeperProvider>
         </LiveProvider>
       </body>
     </html>
