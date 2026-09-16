@@ -389,11 +389,24 @@ async function explainSystem(db: Reader): Promise<Explanation> {
     const newest = bindingRows.filter((b) => b.capabilityId === c.id).sort((a, b) => b.version - a.version)[0];
     return { name: c.name, evidenceClass: newest ? evidenceClassOfFunction(newest.config?.function) : undefined };
   });
+  // Which capabilities search the live web is read from the loop-action registry, not from a
+  // name written here: this module must keep naming no capability, and the answer stays true
+  // when one is added or removed.
+  const { loopActions } = await import("../capabilities/shared/loopActions.js");
+  const liveWeb = loopActions()
+    .filter((a) => (a.providerTools?.length ?? 0) > 0)
+    .map((a) => a.capabilityName)
+    .filter((name) => capabilityRows.some((c) => c.name === name));
+  const external = evidence.filter((e) => e.evidenceClass === "external").map((e) => e.name);
+
   const reasons = [
     `Capabilities: ${evidence.map((e) => (e.evidenceClass ? `${e.name} (${e.evidenceClass})` : e.name)).join(", ") || "none"}.`,
-    evidence.some((e) => e.evidenceClass === "external")
-      ? "External research is available through a capability whose binding reaches external sources."
-      : "No capability performs external web research: research here means retrieving data already held (fixture or local documents), and deliverables say so.",
+    external.length > 0
+      ? `Real external evidence is available: ${external.join(", ")} read public encyclopedic and scholarly sources, and a deliverable built on them says so.`
+      : "No capability reaches an external source: research here means retrieving data already held (fixture or local documents), and deliverables say so.",
+    liveWeb.length > 0
+      ? `${liveWeb.join(", ")} searches the live web through the runtime's own model provider. It costs model tokens to use, so it is for questions that must be current.`
+      : "Nothing here searches the live web.",
     kinds.has("agent_objective") ? "Agents can be given open-ended objectives and work autonomously within limits (12 iterations, 15 active minutes, budgets, approvals, stops)." : "Autonomous objectives are not set up (run the seed).",
     kinds.has("agent_task") ? "Custom workflows can chain agent tasks, pass outputs between steps and add approval gates." : "",
     stops.length > 0 ? `${stops.length} emergency stop(s) are engaged.` : "No emergency stop is engaged.",

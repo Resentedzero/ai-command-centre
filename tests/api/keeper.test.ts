@@ -87,8 +87,12 @@ describe("deterministic Keeper answers use no model and write nothing", () => {
     const res = await get("/keeper/explain?subject=system");
     expect(res.status).toBe(200);
     expect(res.body.headline).toBe("What the Command Keep can do right now.");
-    expect((res.body.reasons as string[]).join(" ")).toMatch(/No capability performs external web research/);
-    expect((res.body.reasons as string[]).join(" ")).toMatch(/research\.retrieve \(fixture\)/);
+    const reasons = (res.body.reasons as string[]).join(" ");
+    // R2: external sources exist now, so the honest answer names them — and still says
+    // plainly that retrieving what we already hold is not research.
+    expect(reasons).toMatch(/read public encyclopedic and scholarly sources/);
+    expect(reasons).toMatch(/searches the live web/);
+    expect(reasons).toMatch(/research\.retrieve \(fixture\)/);
     expect(await counts()).toEqual(before);
     expect(callClaudeSubscriptionModel).not.toHaveBeenCalled();
   });

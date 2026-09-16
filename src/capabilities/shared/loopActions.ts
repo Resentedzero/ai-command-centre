@@ -33,6 +33,12 @@ export type LoopAction = {
    * inside the model call. The Grant, Policy, budget, stop and event path are the same.
    */
   providerTools?: readonly string[];
+  /**
+   * The output shape such an action must return. Carried here rather than imported by the
+   * loop, so the loop stays generic: it knows an action may run as a model call, not which
+   * capability it is.
+   */
+  providerToolOutputSchema?: Record<string, unknown>;
 };
 
 const actions = new Map<string, LoopAction>();

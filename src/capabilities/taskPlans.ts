@@ -28,6 +28,8 @@ import { loadExecutionProfile } from "./shared/agentProfile.js";
 import { parseStepInputs } from "./shared/stepInputs.js";
 import { registerLoopAction } from "./shared/loopActions.js";
 import { researchRetrieveLoopAction } from "./researchRetrieve/loopAction.js";
+import { researchSearchLoopAction } from "./researchSearch/loopAction.js";
+import { researchWebLoopAction } from "./researchWeb/loopAction.js";
 import { buildAgentObjectiveInvocationSpecs, parseObjectiveParameters, validateObjectiveStep } from "./agentObjective/buildInvocationSpecs.js";
 import { excludeTaskKindFromAutomaticRetry } from "../governance/retryPolicy.js";
 import { buildKeeperAnswerInvocationSpecs } from "./keeperAnswer/buildInvocationSpecs.js";
@@ -197,6 +199,8 @@ registerTaskPlanBuilder(
 export const AGENT_OBJECTIVE_KIND = "agent_objective";
 
 registerLoopAction(researchRetrieveLoopAction);
+registerLoopAction(researchSearchLoopAction);
+registerLoopAction(researchWebLoopAction);
 // Operator decision 2026-09-15: autonomous tasks are not retried automatically.
 excludeTaskKindFromAutomaticRetry(AGENT_OBJECTIVE_KIND);
 

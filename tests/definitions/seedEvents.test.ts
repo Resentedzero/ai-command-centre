@@ -96,8 +96,10 @@ describe("the seed logs what it creates", () => {
       // V1.1: + the Reviewer and Keeper agents; Agent Task, Autonomous Objective, Approval Gate and Keeper Answer task
       // definitions; review.checkpoint, system.inspect and docs.retrieve with their bindings and Grants; the Keeper
       // project; the Keeper Think workflow; + Workflow 1.
+      // R2: + the Field Researcher agent holding both external research Capabilities. `research.search` brings a
+      // binding; `research.web` brings none, because its search runs inside a model call rather than a tool.
       const [agents, tasks, caps, grants, bindings, projects, goals, workflows] = before;
-      expect(after).toEqual([agents! + 2, tasks! + 4, caps! + 3, grants! + 3, bindings! + 3, projects! + 1, goals, workflows! + 2]);
+      expect(after).toEqual([agents! + 3, tasks! + 4, caps! + 5, grants! + 5, bindings! + 4, projects! + 1, goals, workflows! + 2]);
 
       const row = await tx.query.workflowDefinitions.findFirst({ where: eq(schema.workflowDefinitions.name, "Research-Report") });
       expect(row).toMatchObject({ version: 1 });

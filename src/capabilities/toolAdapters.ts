@@ -50,6 +50,7 @@ import {
   researchRetrieveLocalCorpus,
   researchRetrieveSynthetic,
 } from "./researchRetrieve/adapter.js";
+import { RESEARCH_SEARCH_PUBLIC_INDEXES, researchSearchPublicIndexes } from "./researchSearch/adapter.js";
 
 type ToolBindingRow = typeof toolBindings.$inferSelect;
 
@@ -114,6 +115,7 @@ export function registerInternalToolFunction(name: string, fn: InternalToolFunct
 
 registerInternalToolFunction(RESEARCH_RETRIEVE_SYNTHETIC, researchRetrieveSynthetic);
 registerInternalToolFunction(RESEARCH_RETRIEVE_LOCAL_CORPUS, researchRetrieveLocalCorpus);
+registerInternalToolFunction(RESEARCH_SEARCH_PUBLIC_INDEXES, researchSearchPublicIndexes);
 registerInternalToolFunction(PUBLISH_REPORT_FILESYSTEM, publishReportFilesystem);
 registerInternalToolFunction(REVIEW_CHECKPOINT_RECORD, reviewCheckpointRecord);
 registerInternalToolFunction(SYSTEM_INSPECT_READ, systemInspectRead);

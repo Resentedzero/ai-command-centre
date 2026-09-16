@@ -534,6 +534,32 @@ export async function buildAgentObjectiveInvocationSpecs(
           if (!(await grantFor(tx, config.agentDefinitionId, config.agentDefinitionVersion, action.capability, loopAction.permission))) {
             return refused(`the agent holds no Grant for "${action.capability}" (${loopAction.permission})`);
           }
+
+          // An action whose work happens inside the model call (native web search) runs as a
+          // governed LLM Invocation carrying exactly the tools its Grant authorized. The
+          // Executor re-resolves that Grant and evaluates Policy before dispatching, so this
+          // is a narrowing, never the authorization itself.
+          if (loopAction.providerTools && loopAction.providerTools.length > 0) {
+            const capability = await tx.query.capabilities.findFirst({ where: eq(capabilities.name, action.capability) });
+            if (!capability) return refused(`"${action.capability}" is not a registered capability`);
+            const spec: LlmInvocationSpec = {
+              ...llmCommon,
+              intent: "extract",
+              directive:
+                `Find out, using only the tool provided: ${input.input.query ?? action.instruction}. ` +
+                "Answer strictly from what the tool returns. Cite every source you used, each with its URL and title. " +
+                'If the tool returns nothing usable, say so in "answer" rather than answering from your own knowledge — ' +
+                "a claim presented as researched that was not is worse than no answer.",
+              candidateArtifactIds: [decision.art.artifactId],
+              contextBudget: actBudget,
+              expectedOutputShape: loopAction.providerToolOutputSchema ?? WORK_RESULT_SCHEMA,
+              capabilityId: capability.id,
+              permission: loopAction.permission,
+              llmTools: loopAction.providerTools,
+            };
+            return spec;
+          }
+
           return resolveToolInvocation(tx, {
             capabilityName: loopAction.capabilityName,
             permission: loopAction.permission,

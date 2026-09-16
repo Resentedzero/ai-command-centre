@@ -45,6 +45,9 @@ import type { CapabilityPermission } from "../governance/policy.js";
 import type { ContextBudget } from "../context/types.js";
 import { isLinearGraphDefinition, type LinearGraphDefinition, type LinearGraphStep } from "../workflow/graphTypes.js";
 import { RESEARCH_RETRIEVE_CAPABILITY } from "../capabilities/researchRetrieve/capability.js";
+import { RESEARCH_SEARCH_CAPABILITY } from "../capabilities/researchSearch/capability.js";
+import { RESEARCH_SEARCH_PUBLIC_INDEXES } from "../capabilities/researchSearch/adapter.js";
+import { RESEARCH_WEB_CAPABILITY } from "../capabilities/researchWeb/capability.js";
 import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capability.js";
 import { RESEARCH_RETRIEVE_SYNTHETIC } from "../capabilities/researchRetrieve/adapter.js";
 import { PUBLISH_REPORT_FILESYSTEM } from "../capabilities/publishReport/adapter.js";
@@ -492,7 +495,67 @@ export async function seedV11Definitions(tx: DrizzleTransaction): Promise<boolea
     );
     created = true;
   }
+  if (await seedResearchCapabilities(tx)) created = true;
   if (await seedKeeper(tx)) created = true;
+  return created;
+}
+
+/** The agent R2 recruits to do real research. Named for what it does, not for a provider. */
+const FIELD_RESEARCHER_AGENT_NAME = "Field Researcher";
+
+/**
+ * R2: the two external research Capabilities, and one agent holding both.
+ *
+ * They are separate Capabilities on purpose. `research.search` reads public encyclopedic
+ * and scholarly indexes over HTTP and costs nothing but a request; `research.web` searches
+ * the live web inside a model call and costs real entitlement — measured at roughly 54,000
+ * subscription tokens for a single question. An operator can therefore grant the cheap one
+ * alone, and an agent holding only it cannot reach for the expensive one.
+ *
+ * `research.web` gets no Tool Binding: there is no tool to run, because the search happens
+ * inside the model call (`../capabilities/researchWeb/loopAction.ts`).
+ */
+export async function seedResearchCapabilities(tx: DrizzleTransaction): Promise<boolean> {
+  let created = false;
+
+  // Both contracts, not one cast to the other: they differ in cost class, which is the
+  // whole point of keeping them separate.
+  const ensure = async (contract: typeof RESEARCH_SEARCH_CAPABILITY | typeof RESEARCH_WEB_CAPABILITY, fn: string | null): Promise<string> => {
+    const existing = await tx.query.capabilities.findFirst({ where: eq(capabilities.name, contract.id) });
+    if (existing) return existing.id;
+    const c = await createCapability(
+      tx,
+      { name: contract.id, description: contract.description, staticRiskTag: contract.staticRiskTag, costProfile: contract.costProfile },
+      SEED_ACTOR
+    );
+    if (fn) await createToolBinding(tx, { capabilityId: c.id, kind: "internal", config: { function: fn }, trustLevel: 2 }, SEED_ACTOR);
+    created = true;
+    return c.id;
+  };
+
+  const searchId = await ensure(RESEARCH_SEARCH_CAPABILITY, RESEARCH_SEARCH_PUBLIC_INDEXES);
+  const webId = await ensure(RESEARCH_WEB_CAPABILITY, null);
+
+  if (!(await tx.query.agentDefinitions.findFirst({ where: eq(agentDefinitions.name, FIELD_RESEARCHER_AGENT_NAME) }))) {
+    await createAgentDefinition(
+      tx,
+      {
+        name: FIELD_RESEARCHER_AGENT_NAME,
+        role: "Research analyst",
+        objective: "Gather real evidence on a question from public sources, and say plainly what the evidence does and does not show.",
+        instructions:
+          "Prefer the scholarly and encyclopedic sources; they are cheap and citable. Use the live web only when the answer must be current " +
+          "or the other sources cannot hold it. Cite every source with its URL. Never present your own knowledge as something you researched.",
+        grants: [
+          { capabilityId: searchId, permissions: ["READ" as CapabilityPermission], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED },
+          { capabilityId: webId, permissions: ["READ" as CapabilityPermission], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED },
+        ],
+      },
+      SEED_ACTOR
+    );
+    created = true;
+  }
+
   return created;
 }
 
