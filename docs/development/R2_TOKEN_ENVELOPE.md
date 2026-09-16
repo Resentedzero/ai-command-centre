@@ -1,6 +1,6 @@
 # R2 live-work token envelope
 
-**Envelope (D6):** 250,000 Claude Max subscription tokens for all R2 live work. A hard application-level limit, and not a claim about the account's actual entitlement. At exhaustion: stop. No automatic extension, no API billing, no other paid provider.
+**Envelope (D6):** 250,000 Claude Max subscription tokens for all R2 live work. **Topped up by the operator on 2026-09-16 by 40,000, to 290,000**, to cover one fresh-day Stage 5 attempt (conservative maximum ~61,200 against 66,864 then remaining). Still a hard limit; no further automatic extension. A hard application-level limit, and not a claim about the account's actual entitlement. At exhaustion: stop. No automatic extension, no API billing, no other paid provider.
 
 Every live run is recorded here before the work continues.
 
