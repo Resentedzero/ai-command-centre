@@ -78,6 +78,16 @@ const finish = () => ({
   ledgerNote: "done",
 });
 
+/** A finish that cites results as the evidence its criteria are met (R2 Stage 4). */
+const finishCiting = (evidence: string[]) => ({ ...finish(), assessment: "the criteria are met by the cited results", evidence });
+
+/** The result artifact the loop recorded for its latest completed iteration. */
+async function latestResultId(): Promise<string> {
+  const events = await testDb.query.events.findMany({ where: eq(schema.events.eventType, "agent_loop_iteration_recorded") });
+  const withResult = events.filter((e) => typeof (e.payload as { resultArtifactId?: unknown }).resultArtifactId === "string");
+  return (withResult.sort((a, b) => b.globalSeq - a.globalSeq)[0]!.payload as { resultArtifactId: string }).resultArtifactId;
+}
+
 function installModel() {
   vi.mocked(callClaudeSubscriptionModel).mockImplementation(async (_model, _ctx, shape) => {
     const props = (shape as { properties?: Record<string, unknown> }).properties ?? {};
@@ -381,6 +391,48 @@ describe("an autonomous agent works on an objective", () => {
     expect(r.loopEvents[0]!.payload).toMatchObject({ action: { type: "tool", capability: "research.web" }, outcome: { status: "refused" } });
     expect(r.loopEvents[1]!.payload).toMatchObject({ action: { type: "think", intent: "analyse" }, outcome: { status: "completed" } });
     expect(r.workflowRun.status).toBe("completed");
+  });
+
+  it("finishes deliberately on evidence it cites, and records what code verified", async () => {
+    const { workflowId } = await objectiveWorkflow({});
+    script = {
+      decisions: [tool("research.retrieve", { query: "small business admin pain points" }), finish()],
+      // The citation is decided once the result exists, exactly as a model would read its id from the ledger.
+      before: async (kind, n) => {
+        if (kind === "decide" && n === 2) script.decisions[1] = finishCiting([await latestResultId()]);
+      },
+    };
+    const started = await startGoal(workflowId);
+
+    const r = await runOf(started.workflowRunId);
+    const terminal = r.loopEvents.at(-1)!.payload as { terminal: { status: string; reason: string; evidence: { verified: unknown[]; rejected: unknown[]; claim: string } } };
+    expect(terminal.terminal).toMatchObject({ status: "complete", reason: "evidence_sufficient", evidence: { rejected: [], claim: "the criteria are met by the cited results" } });
+    expect(terminal.terminal.evidence.verified).toEqual([{ artifactId: expect.any(String), capability: "research.retrieve", iteration: 1 }]);
+    // The deliverable carries the same record, so the document says why it is finished.
+    expect(r.content.completion).toMatchObject({ status: "complete", reason: "evidence_sufficient" });
+  });
+
+  it("does not count a finish as evidence-based when what it cites cannot be verified", async () => {
+    const { workflowId } = await objectiveWorkflow({});
+    const invented = "00000000-0000-4000-8000-000000000000";
+    script = { decisions: [tool("research.retrieve", { query: "anything" }), finishCiting([invented])] };
+    const started = await startGoal(workflowId);
+
+    const r = await runOf(started.workflowRunId);
+    // Still the agent's own decision, and recorded as one — but never as evidence-based.
+    expect(r.loopEvents.at(-1)!.payload).toMatchObject({ terminal: { status: "complete", reason: "agent_finished", evidence: { verified: [], rejected: [invented] } } });
+    expect(r.content.completion.reason).not.toBe("evidence_sufficient");
+  });
+
+  it("never presents a limit as a finish, whatever the agent claimed along the way", async () => {
+    const { workflowId } = await objectiveWorkflow({ parameters: { loop: { maxIterations: 1 }, intents: ["analyse"], tools: [{ capability: "research.retrieve", maxCalls: 1 }] } });
+    script = { decisions: [tool("research.retrieve", { query: "anything" })] };
+    const started = await startGoal(workflowId);
+
+    const r = await runOf(started.workflowRunId);
+    const terminal = (r.loopEvents.at(-1)!.payload as { terminal: Record<string, unknown> }).terminal;
+    expect(terminal).toEqual({ status: "incomplete", reason: "max_iterations" });
+    expect(r.content.completion).toEqual({ status: "incomplete", reason: "max_iterations" });
   });
 
   it("stops at its iteration ceiling and says so", async () => {

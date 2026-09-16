@@ -204,6 +204,8 @@ export const OUTPUT_CAPS = {
   ledgerNote: 280,
   actionInput: 500,
   requestedArtifacts: MAX_REQUESTED_ARTIFACTS,
+  /** R2 Stage 4: how many results a finish may cite as the evidence that its criteria are met. */
+  evidenceItems: 4,
   workSummary: 400,
   workContent: 5_000,
   workKeyPoint: 240,
@@ -237,8 +239,9 @@ export function decisionSchema(allowed?: { intents: string[]; tools: string[] })
         additionalProperties: false,
       },
       ledgerNote: { type: "string", maxLength: OUTPUT_CAPS.ledgerNote },
+      evidence: { type: "array", maxItems: OUTPUT_CAPS.evidenceItems, items: { type: "string", maxLength: OUTPUT_CAPS.artifactId } },
     },
-    required: ["assessment", "done", "action", "ledgerNote"],
+    required: ["assessment", "done", "action", "ledgerNote", "evidence"],
     additionalProperties: false,
   };
 }
@@ -254,11 +257,28 @@ export const WORK_RESULT_SCHEMA = {
   additionalProperties: false,
 } as const satisfies Record<string, unknown>;
 
+/** Why a finish counts as evidence-based, or does not: the claim, what code confirmed, and what it could not. */
+export type CompletionEvidence = {
+  claim: string;
+  verified: { artifactId: string; capability: string; iteration: number }[];
+  rejected: string[];
+};
+
+/** A cited result counts only if its stored content actually holds something: search results or cited sources. */
+function holdsResults(content: unknown): boolean {
+  if (!content || typeof content !== "object") return false;
+  const c = content as Record<string, unknown>;
+  const inner = c.result && typeof c.result === "object" ? (c.result as Record<string, unknown>) : c;
+  return [inner.results, inner.sources].some((v) => Array.isArray(v) && v.length > 0);
+}
+
 export type Decision = {
   assessment: string;
   done: boolean;
   action: { type: "think" | "tool" | "gate" | "finish"; intent: string; capability: string; input: Record<string, unknown>; instruction: string; useArtifacts: string[] };
   ledgerNote: string;
+  /** R2 Stage 4: when finishing, the result ids the agent claims show its completion criteria are met. A claim, verified by code at conclude. */
+  evidence: string[];
 };
 
 export function parseDecision(value: unknown): { ok: true; decision: Decision } | { ok: false; reason: string } {
@@ -282,6 +302,7 @@ export function parseDecision(value: unknown): { ok: true; decision: Decision } 
         useArtifacts: Array.isArray(a.useArtifacts) ? a.useArtifacts.filter((x): x is string => typeof x === "string").slice(0, MAX_REQUESTED_ARTIFACTS) : [],
       },
       ledgerNote: str(d.ledgerNote).slice(0, NOTE_CHARS),
+      evidence: Array.isArray(d.evidence) ? d.evidence.filter((x): x is string => typeof x === "string").slice(0, OUTPUT_CAPS.evidenceItems) : [],
     },
   };
 }
@@ -659,7 +680,7 @@ export async function buildAgentObjectiveInvocationSpecs(
   // conclude: why the loop ended, recorded once, before the final write.
   plan.push((async (ctx) => {
     let iterations = 0;
-    let finished = false;
+    let finishing: Decision | null = null;
     for (let k = 1; k <= N; k++) {
       const d = await decisionOf(ctx, k);
       if (!d) break;
@@ -667,7 +688,25 @@ export async function buildAgentObjectiveInvocationSpecs(
       // Same rule the decide position stops on: an explicit finish, or the agent saying the
       // objective is met. Without the second clause the run stops for the right reason and
       // then reports the wrong one, because this derives the reason rather than reading it.
-      if (d.parsed.ok && (d.parsed.decision.action.type === "finish" || d.parsed.decision.done)) finished = true;
+      if (d.parsed.ok && (d.parsed.decision.action.type === "finish" || d.parsed.decision.done)) finishing = d.parsed.decision;
+    }
+
+    // R2 Stage 4: a finish is a CLAIM. It is recorded as evidence-based completion only when
+    // code can confirm what it cites: a result this Run's own ledger recorded as a completed
+    // tool action, whose stored content actually holds results. Anything cited that fails that
+    // test is kept as rejected, so the record shows what was claimed and what held up.
+    let evidence: CompletionEvidence | null = null;
+    if (finishing) {
+      const entries = (await ledgerBefore(ctx, N + 1))?.ledger.entries ?? [];
+      const results = new Map(entries.filter((e) => e.action.type === "tool" && e.outcome.status === "completed" && e.resultArtifactId).map((e) => [e.resultArtifactId!, e]));
+      const verified: CompletionEvidence["verified"] = [];
+      const rejected: string[] = [];
+      for (const id of [...new Set(finishing.evidence)]) {
+        const entry = results.get(id);
+        if (entry && holdsResults(await readJson(tx, id))) verified.push({ artifactId: id, capability: entry.action.capability ?? "", iteration: entry.iteration });
+        else rejected.push(id);
+      }
+      evidence = { claim: finishing.assessment.slice(0, SUMMARY_CHARS), verified, rejected };
     }
     const spec: DeterministicInvocationSpec = {
       kind: "deterministic",
@@ -675,8 +714,12 @@ export async function buildAgentObjectiveInvocationSpecs(
       execute: async () => {
         const now = new Date();
         const active = await activeSecondsOf(tx, runId, now);
-        const completion: Completion = finished
-          ? { status: "complete", reason: "agent_finished" }
+        // Only a verified citation makes completion evidence-based. A finish without one is still
+        // the agent's own decision, and says so; a limit is never either.
+        const completion: Completion = evidence
+          ? evidence.verified.length > 0
+            ? { status: "complete", reason: "evidence_sufficient", evidence }
+            : { status: "complete", reason: "agent_finished", evidence }
           : iterations >= N
             ? { status: "incomplete", reason: "max_iterations" }
             : active >= limits.maxActiveSeconds
@@ -794,6 +837,10 @@ function decideDirective(v: {
       : "No results exist yet."
   );
   lines.push('The ledger artifact (if present) records every earlier action and outcome; do not repeat work it shows. Set unused fields to "" or [].');
+  lines.push(
+    'When you finish, put in "evidence" the ids of the results that show the completion criteria are met, and say in "assessment" which criteria they satisfy. ' +
+      "A finish is recorded as evidence-based only if what it cites is a completed result that actually holds results; otherwise leave \"evidence\" empty."
+  );
   lines.push(`"assessment": one or two sentences on progress. "ledgerNote": what this action is for, at most ${NOTE_CHARS} characters.`);
   return lines.join("\n");
 }

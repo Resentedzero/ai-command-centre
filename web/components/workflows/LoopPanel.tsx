@@ -65,8 +65,10 @@ export function loopProgress(events: RunTrace["events"]): { iterations: LoopIter
 /** Why an autonomous loop ended, in plain words. The runtime's reason stays visible beside it. */
 export function stopReasonWords(reason: string): string {
   switch (reason) {
+    case "evidence_sufficient":
+      return "the agent finished because its completion criteria were met, citing evidence that was verified";
     case "agent_finished":
-      return "the agent judged the objective met";
+      return "the agent judged the objective met, without citing verified evidence";
     case "max_iterations":
       return "it reached its iteration limit";
     case "active_time_limit":
