@@ -131,7 +131,12 @@ export async function runTokenReport(runId: string): Promise<RunTokenReport> {
     calls,
     modelCalls: calls.length,
     totals,
-    share: { output: pct(totals.output), context: pct(totals.estimatedInput), unattributed: pct(totals.unattributed - totals.estimatedInput) },
+    // `unattributed` is counted minus the primary model's own input and output — the
+    // secondary model's share, which has no column of its own. The context figure is what
+    // the Compiler estimated it sent, and the two overlap: the secondary call re-reads the
+    // same context. So they are reported as separate views of the same total, never
+    // subtracted from one another.
+    share: { output: pct(totals.output), context: pct(totals.estimatedInput), unattributed: pct(totals.unattributed) },
     iterations,
     terminal,
     artifacts: artifactCount,

@@ -341,6 +341,10 @@ describe("an autonomous agent works on an objective", () => {
     expect(decisions).toHaveLength(1);
     expect(decisions[0]!.payload).toMatchObject({ decision: "ALLOW", toolBindingId: null });
     expect(r.loopEvents[0]!.payload).toMatchObject({ action: { type: "tool", capability: "research.web" }, outcome: { status: "completed" } });
+    // The deliverable must record that a live web search informed it. A capability whose
+    // work happens inside a model call has no tool binding, so it would otherwise be
+    // invisible to the evidence basis and the document would under-report its own evidence.
+    expect(r.content.basis).toMatchObject({ externalResearch: true, evidence: [{ capability: "research.web", evidenceClass: "external", calls: 1 }] });
   });
 
   it("refuses a live-web search once its Grant is revoked, and keeps working", async () => {

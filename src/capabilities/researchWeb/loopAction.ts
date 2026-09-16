@@ -19,6 +19,9 @@ export const researchWebLoopAction: LoopAction = {
   inputFields: { query: { maxLength: 300, description: "what to find out from the live web" } },
   toSnapshot: (input) => ({ query: input.query }),
   providerTools: [WEB_SEARCH_TOOL],
+  // Newly discovered material from outside this machine, exactly like a search over the
+  // scholarly indexes — so a deliverable that used it says external research was performed.
+  evidenceClass: "external",
   get providerToolOutputSchema() {
     return WEB_SEARCH_OUTPUT_SCHEMA as unknown as Record<string, unknown>;
   },

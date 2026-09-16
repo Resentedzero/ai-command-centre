@@ -12,6 +12,10 @@ Every live run is recorded here before the work continues.
 
 | 3 | 2026-09-16 | `research.search` against the real sources: Wikipedia, Crossref, arXiv | none — HTTP only, no model call | 3 searches | **0** | ~54,998 | ~195,002 | **Real results from all three.** Wikipedia returned the retrieval-augmented-generation article with its plain-text intro; Crossref returned DOIs, authors and dates; arXiv returned papers with full abstracts. No key, no account, no spend |
 
+| 4 | 2026-09-16 | Stage 2 runtime proof: one governed autonomous Run using both research Capabilities, ending in a deliverable | claude-haiku-4-5 (CHEAP), `claude_subscription` | 7 model calls, 4 iterations | **50,185** (measured, Run `50ca71ab`) | ~105,183 | ~144,817 | **Worked.** arXiv search → Crossref search → analysis → live web search → deliverable with six real cited sources. All four actions ALLOWed by Policy against real Grants, at propose and again pre-dispatch |
+
+**What run 4 shows:** a live web search inside a CHEAP call cost **15,098 tokens** — a quarter of the 54,000 the standalone proof cost at MID, because the model is cheaper and the search was bounded to one query. The two scholarly searches cost nothing beyond the reasoning around them. The run ended at its 4-iteration ceiling rather than by deciding it was finished.
+
 **What run 3 shows:** the scholarly and encyclopedic half of R2 research costs nothing to run and nothing to prove. That is the argument for preferring it, and for keeping live web search a separate, deliberately granted Capability.
 
 **What run 2 costs us to know:** web search charges its results as input tokens, so one question cost more than an entire autonomous Run's 50,000-token ceiling. Bounded use only.

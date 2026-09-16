@@ -17,6 +17,7 @@
  * no change.
  */
 import type { CapabilityPermission } from "../../governance/policy.js";
+import type { EvidenceClass } from "../toolAdapters.js";
 
 export type LoopAction = {
   capabilityName: string;
@@ -39,6 +40,13 @@ export type LoopAction = {
    * capability it is.
    */
   providerToolOutputSchema?: Record<string, unknown>;
+  /**
+   * What such an action's results are as evidence. A Tool Binding declares this for an
+   * ordinary action (`../toolAdapters.ts`); an action that runs inside a model call has no
+   * binding to declare it, so it says so here — otherwise a deliverable would silently
+   * under-report what informed it.
+   */
+  evidenceClass?: EvidenceClass;
 };
 
 const actions = new Map<string, LoopAction>();
