@@ -292,6 +292,19 @@ describe("an autonomous agent works on an objective", () => {
     expect(callAnthropicModel).not.toHaveBeenCalled();
   });
 
+  it("treats a decision that says the objective is met as a finish, without buying another iteration", async () => {
+    const { workflowId } = await objectiveWorkflow({});
+    // The agent marks the objective met while still naming a further action: the loop must
+    // not pay for an iteration the agent has already said it does not need (R2 Stage 1).
+    script = { decisions: [think("brainstorm"), { ...think("analyse"), done: true }, think("analyse")] };
+    const started = await startGoal(workflowId);
+
+    const r = await runOf(started.workflowRunId);
+    expect(calls.decide).toBe(2);
+    expect(r.loopEvents.at(-1)!.payload).toMatchObject({ terminal: { status: "complete", reason: "agent_finished" }, iterations: 2 });
+    expect(r.content.completion).toEqual({ status: "complete", reason: "agent_finished" });
+  });
+
   it("stops at its iteration ceiling and says so", async () => {
     const { workflowId } = await objectiveWorkflow({ parameters: { loop: { maxIterations: 2 }, intents: ["brainstorm"] } });
     script = { decisions: [think("brainstorm"), think("brainstorm"), think("brainstorm")] };

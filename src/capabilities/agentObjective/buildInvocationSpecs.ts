@@ -454,7 +454,10 @@ export async function buildAgentObjectiveInvocationSpecs(
       if (k > 1) {
         const previous = await decisionOf(ctx, k - 1);
         if (!previous) return skip("loop_ended");
-        if (previous.parsed.ok && previous.parsed.decision.action.type === "finish") return skip("agent_finished");
+        // `done` is the agent saying the objective is met. Honour it as an explicit finish:
+        // otherwise a decision that says "done" and then names another action buys a whole
+        // further iteration the agent has already told us it does not need.
+        if (previous.parsed.ok && (previous.parsed.decision.action.type === "finish" || previous.parsed.decision.done)) return skip("agent_finished");
       }
       const now = new Date();
       const active = await activeSecondsOf(tx, runId, now);
@@ -635,7 +638,10 @@ export async function buildAgentObjectiveInvocationSpecs(
       const d = await decisionOf(ctx, k);
       if (!d) break;
       iterations = k;
-      if (d.parsed.ok && d.parsed.decision.action.type === "finish") finished = true;
+      // Same rule the decide position stops on: an explicit finish, or the agent saying the
+      // objective is met. Without the second clause the run stops for the right reason and
+      // then reports the wrong one, because this derives the reason rather than reading it.
+      if (d.parsed.ok && (d.parsed.decision.action.type === "finish" || d.parsed.decision.done)) finished = true;
     }
     const spec: DeterministicInvocationSpec = {
       kind: "deterministic",
