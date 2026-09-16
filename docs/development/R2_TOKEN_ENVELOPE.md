@@ -22,6 +22,17 @@ Every live run is recorded here before the work continues.
 
 | 8 | 2026-09-16 | **Stage 5:** two-agent mission — Field Researcher v2 hands one deliverable to Evidence Analyst v1 (no Grants); scholarly/encyclopedic only | claude-haiku-4-5 (CHEAP), `claude_subscription` | 4 model calls across 2 Runs | **16,427** (measured: researcher `53cb1190` 11,842; analyst `a11d3155` 4,585) | ~223,136 | ~26,864 | **Handoff, isolation and governance proven; deliberate completion NOT demonstrated.** Both Runs stopped on `budget_headroom` — not the Task Instance ceiling, but the daily ceiling (D3, 200,000/day), which today's R2 runs plus the operator's own app use had taken to 189,828. The Budget Governor stopped both loops before they could overrun it |
 
+**Stage 5 fresh-day proof — NOT dispatched (2026-09-16, 11:30 local).** Before any live call, the like-for-like two-agent mission was sized against the envelope using the largest CHEAP calls actually recorded today per loop position (decide 5,301; analyse 7,544; write 13,563):
+
+| | Conservative maximum | Expected (observed shapes) |
+|---|---|---|
+| Researcher: 3 decisions + write | 29,466 | ~18,100 |
+| Analyst: 2 decisions + analysis + write | 31,709 | ~7,600–15,100 |
+| **Mission** | **~61,200** | **~25,700–33,200** |
+| **Envelope remaining** | 26,864 | 26,864 |
+
+It cannot fit: the expected cost reaches or exceeds the remaining envelope, and the researcher's maximum alone exceeds it. A fresh governance day restores the D3 daily ceiling (at that moment 10,172 of 200,000 remained), not this envelope, so waiting would not change the outcome. Stopped before dispatch; the envelope was not extended.
+
 **What run 8 shows:** the collaboration itself worked exactly as designed, live — the analyst's only compiled context was its own task state, its own termination record and the handed-off deliverable (hash `213f2174…`, matching the researcher's artifact). It never saw the researcher's raw results, decisions or ledger, and it held no Grant. But neither agent finished on evidence: both were stopped by the day's governance ceiling, not the R2 envelope. The analyst's single write read ~2,200 tokens of context against the Stage 4 writer's ~3,900, because it received a curated document rather than raw search results.
 
 **Operator use outside this ledger.** The runtime also recorded 14,456 subscription tokens today from five Runs created by `human:operator` through the UI (three Research-and-Publish goals, two Keeper Think questions). They are not R2 live work and are not counted against this envelope, but they do count against the same day's D3 ceiling — which is why that ceiling, not the envelope, ended run 8.
