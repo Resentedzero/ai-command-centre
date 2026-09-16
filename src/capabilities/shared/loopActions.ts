@@ -80,10 +80,18 @@ export function parseLoopActionInput(action: LoopAction, input: unknown): { ok: 
     if (value.length > spec.maxLength) return { ok: false, reason: `"${field}" is longer than ${spec.maxLength} characters` };
     out[field] = value.trim();
   }
+  // The decision schema offers ONE shared input object covering every registered action's
+  // fields, so a model choosing action A may also fill action B's field. That is a schema
+  // artefact, not an attempt to reach something it may not, and refusing the action over it
+  // wasted a whole iteration the first time two actions had different fields (seen live,
+  // 2026-09-16). Fields belonging to another registered action are ignored; anything no
+  // action declares — Policy's risk inputs above all — is still refused.
+  const otherActionFields = new Set(loopActions().flatMap((a) => (a.capabilityName === action.capabilityName ? [] : Object.keys(a.inputFields))));
   for (const [field, value] of Object.entries(given)) {
-    if (!(field in action.inputFields) && !(value === "" || value === null || value === undefined)) {
-      return { ok: false, reason: `"${field}" is not an input of ${action.capabilityName}` };
-    }
+    if (field in action.inputFields) continue;
+    if (value === "" || value === null || value === undefined) continue;
+    if (otherActionFields.has(field)) continue;
+    return { ok: false, reason: `"${field}" is not an input of ${action.capabilityName}` };
   }
   return { ok: true, input: out };
 }

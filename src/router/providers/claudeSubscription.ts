@@ -1016,7 +1016,10 @@ export async function callClaudeSubscriptionModel(
         costUnit: "subscription_tokens",
         cacheHit: reportsCacheRead(parsed),
         ...(secondaryUsage.length > 0 ? { secondaryUsage } : {}),
-        ...(toolActivity.webSearchRequests !== null || toolActivity.queries.length > 0 ? { toolActivity } : {}),
+        // Only when something actually happened: a call with no tools would otherwise write
+        // an all-zero record onto every Invocation, which reads as "a search returned
+        // nothing" rather than "no search was made".
+        ...((toolActivity.webSearchRequests ?? 0) > 0 || toolActivity.queries.length > 0 ? { toolActivity } : {}),
       },
       // Surfaced, never acted on here. This adapter takes no quota decision and
       // writes no state: it hands the reading up so a caller with a transaction
