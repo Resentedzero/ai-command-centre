@@ -422,13 +422,20 @@ export async function buildAgentObjectiveInvocationSpecs(
   const goalTitle = taskInstance ? await goalTitleOf(tx, taskInstance.workflowRunId) : null;
 
   const base = config.contextBudget;
-  const decideBudget: ContextBudget = {
-    ...base,
-    maxInputTokens: Math.floor(base.maxInputTokens * 0.6),
-    maxArtifactTokens: Math.floor(base.maxArtifactTokens * 0.6),
-    compressionThreshold: Math.floor(base.compressionThreshold * 0.6),
-    expectedOutputTokens: Math.min(base.expectedOutputTokens, 800),
-  };
+  // R2 Stage 5: a step that was explicitly HANDED evidence decides on it, so its decisions keep the
+  // step's full per-artifact allowance. At 60%, a handed-off document just over the cap arrived as a
+  // bare reference, and the downstream agent spent its iterations reading the evidence instead of
+  // judging it (seen live, 2026-09-16). Steps without inputs keep the smaller decision budget.
+  const decideBudget: ContextBudget =
+    inputs.length > 0
+      ? { ...base, expectedOutputTokens: Math.min(base.expectedOutputTokens, 800) }
+      : {
+          ...base,
+          maxInputTokens: Math.floor(base.maxInputTokens * 0.6),
+          maxArtifactTokens: Math.floor(base.maxArtifactTokens * 0.6),
+          compressionThreshold: Math.floor(base.compressionThreshold * 0.6),
+          expectedOutputTokens: Math.min(base.expectedOutputTokens, 800),
+        };
   const actBudget: ContextBudget = { ...base, maxInputTokens: Math.floor(base.maxInputTokens * 0.8), expectedOutputTokens: Math.min(base.expectedOutputTokens, 1_500) };
   const neededForAnotherIteration = reservationOf(decideBudget) + reservationOf(actBudget) + reservationOf(base);
 
@@ -508,7 +515,9 @@ export async function buildAgentObjectiveInvocationSpecs(
       const known = prior?.ledger.artifacts ?? inputLabels;
       const lastDecision = k > 1 ? await decisionOf(ctx, k - 1) : null;
       const requested = lastDecision?.parsed.ok ? allowedRequests(lastDecision.parsed.decision.action.useArtifacts, known) : [];
-      const candidates = [...(prior ? [prior.id] : inputs.slice(0, MAX_REQUESTED_ARTIFACTS).map((i) => i.artifactId)), ...requested];
+      // The explicitly handed inputs are offered at EVERY decision, not only the first: they are what
+      // this step exists to judge. The Compiler dedups by hash, so a repeat request adds nothing.
+      const candidates = [...new Set([...(prior ? [prior.id] : []), ...inputs.slice(0, MAX_REQUESTED_ARTIFACTS).map((i) => i.artifactId), ...requested])];
       const callsUsed = await toolCallsBefore(tx, runId, positions.decide(k));
 
       const spec: LlmInvocationSpec = {

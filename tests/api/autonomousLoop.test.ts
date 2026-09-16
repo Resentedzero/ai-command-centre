@@ -52,6 +52,8 @@ type Script = {
   usage?: (kind: Kind, n: number) => number;
   before?: (kind: Kind, n: number) => Promise<void>;
   fail?: (kind: Kind, n: number) => boolean;
+  /** The body the n-th deliverable write returns, when a test needs a document of a particular size. */
+  deliverableBody?: (n: number) => string;
 };
 let script: Script = { decisions: [] };
 let calls: { decide: number; work: number; deliverable: number; web: number } = { decide: 0, work: 0, deliverable: 0, web: 0 };
@@ -119,7 +121,7 @@ function installModel() {
     }
     if (kind === "work") return { result: { summary: `result ${n}`, content: `## Result ${n}\n\n- point`, keyPoints: ["point"] }, usage };
     return {
-      result: { title: "AI automation opportunities", summary: "Three candidates.", body: "## Candidates\n\n| Idea | Fit |\n| --- | --- |\n| Invoicing | high |", findings: ["f"], recommendations: ["r"], sources: [] },
+      result: { title: "AI automation opportunities", summary: "Three candidates.", body: script.deliverableBody?.(n) ?? "## Candidates\n\n| Idea | Fit |\n| --- | --- |\n| Invoicing | high |", findings: ["f"], recommendations: ["r"], sources: [] },
       usage,
     };
   });
@@ -807,6 +809,31 @@ describe("an autonomous agent works on an objective", () => {
       expect(carriesRecordedEvidence({ type: "deliverable" }, { ...verified, completion: { status: "incomplete", reason: "max_iterations" } })).toBe(false);
       expect(carriesRecordedEvidence({ type: "deliverable" }, { ...verified, completion: { status: "complete", reason: "agent_finished" } })).toBe(false);
       expect(carriesRecordedEvidence({ type: "deliverable" }, { ...verified, basis: { evidence: [] } })).toBe(false);
+    });
+
+    it("a handed document too large for the old decision budget reaches every downstream decision as content, not a bare reference", async () => {
+      const m = await mission();
+      let handoff = "";
+      script = {
+        decisions: [tool("research.retrieve", { query: "x" }), finish(), think("analyse"), finish()],
+        before: async (kind, n) => {
+          if (kind === "decide" && n === 2) script.decisions[1] = finishCiting([await latestResultId()]);
+          if (kind === "decide" && n === 3) handoff = await latestDeliverableId();
+          if (kind === "decide" && n === 4) script.decisions[3] = finishCiting([handoff]);
+        },
+        // ~2,300 tokens: over a decision's old 1,800-token artifact cap, within the step's 3,000.
+        deliverableBody: (n) => (n === 1 ? `## Evidence\n\n${"The cited sources define the topic and describe its uses. ".repeat(160)}` : "## Answer"),
+      };
+      const started = await startGoal(m.workflowId);
+      const { analysis } = await stepsOf(started.workflowRunId);
+
+      const decides = analysis!.events.filter((e) => e.eventType === "context_compiled" && (e.payload as { intent: string }).intent === "decide");
+      expect(decides).toHaveLength(2);
+      for (const d of decides) {
+        const entry = (d.payload as { included: { id?: string; kind: string }[] }).included.find((x) => x.id === handoff);
+        expect(entry?.kind).toBe("artifact_content");
+      }
+      expect(analysis!.terminal).toMatchObject({ status: "complete", reason: "evidence_sufficient" });
     });
 
     it("a downstream limit is still incomplete, never a finish", async () => {
