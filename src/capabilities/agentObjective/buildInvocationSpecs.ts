@@ -771,7 +771,7 @@ export async function buildAgentObjectiveInvocationSpecs(
         const termination = (await readJson(tx, conclusion.artifactId)) as Completion | null;
         if (!output || !termination) throw new Error("agent_objective: unreadable final output (fail closed).");
         const basis = await evidenceBasisFor(tx, [runId], inputs.map((i) => i.artifactId));
-        await persistDeliverableArtifact(tx, written.invocationId, output, { basis, completion: { status: termination.status, reason: termination.reason } });
+        await persistDeliverableArtifact(tx, written.invocationId, output, { basis, completion: { status: termination.status, reason: termination.reason, ...(termination.evidence ? { evidence: termination.evidence } : {}) } });
         return {};
       },
     };

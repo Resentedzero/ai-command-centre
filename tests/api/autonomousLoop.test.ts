@@ -331,7 +331,7 @@ describe("an autonomous agent works on an objective", () => {
     const r = await runOf(started.workflowRunId);
     expect(calls.decide).toBe(2);
     expect(r.loopEvents.at(-1)!.payload).toMatchObject({ terminal: { status: "complete", reason: "agent_finished" }, iterations: 2 });
-    expect(r.content.completion).toEqual({ status: "complete", reason: "agent_finished" });
+    expect(r.content.completion).toMatchObject({ status: "complete", reason: "agent_finished", evidence: { verified: [] } });
   });
 
   it("searches the live web as a governed model call, carrying only the tool its Grant authorized", async () => {
@@ -409,7 +409,7 @@ describe("an autonomous agent works on an objective", () => {
     expect(terminal.terminal).toMatchObject({ status: "complete", reason: "evidence_sufficient", evidence: { rejected: [], claim: "the criteria are met by the cited results" } });
     expect(terminal.terminal.evidence.verified).toEqual([{ artifactId: expect.any(String), capability: "research.retrieve", iteration: 1 }]);
     // The deliverable carries the same record, so the document says why it is finished.
-    expect(r.content.completion).toMatchObject({ status: "complete", reason: "evidence_sufficient" });
+    expect(r.content.completion).toEqual({ status: "complete", reason: "evidence_sufficient", evidence: terminal.terminal.evidence });
   });
 
   it("does not count a finish as evidence-based when what it cites cannot be verified", async () => {
@@ -492,7 +492,7 @@ describe("an autonomous agent works on an objective", () => {
     expect(approved.json()).toMatchObject({ approvalStatus: "approved", workflowStatus: "completed" });
     const r = await runOf(started.workflowRunId);
     expect(calls.decide).toBe(2);
-    expect(r.content.completion).toEqual({ status: "complete", reason: "agent_finished" });
+    expect(r.content.completion).toMatchObject({ status: "complete", reason: "agent_finished", evidence: { verified: [] } });
   });
 
   it("the agent can ask the operator through an approval gate; a rejection ends the run", async () => {
