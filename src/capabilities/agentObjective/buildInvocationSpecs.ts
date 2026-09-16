@@ -60,7 +60,7 @@ import { resolveToolInvocation } from "../toolAdapters.js";
 import { findRunByTaskInstanceId } from "../shared/runProvisioning.js";
 import { parseStepInputs, resolveStepInputArtifacts, validateStepInputs, type StepInput } from "../shared/stepInputs.js";
 import { loopActionFor, loopInputFieldNames, parseLoopActionInput } from "../shared/loopActions.js";
-import { DELIVERABLE_DIRECTIVE, DELIVERABLE_OUTPUT_SCHEMA, evidenceBasisFor, persistDeliverableArtifact, type Completion } from "../shared/deliverable.js";
+import { DELIVERABLE_DIRECTIVE, DELIVERABLE_FORMAT, DELIVERABLE_OUTPUT_SCHEMA, evidenceBasisFor, persistDeliverableArtifact, type Completion } from "../shared/deliverable.js";
 import { gateGrantProblem } from "../reviewCheckpoint/buildInvocationSpecs.js";
 import { REVIEW_CHECKPOINT_CAPABILITY, REVIEW_CHECKPOINT_PERMISSION } from "../reviewCheckpoint/capability.js";
 
@@ -260,9 +260,26 @@ export const WORK_RESULT_SCHEMA = {
 /** Why a finish counts as evidence-based, or does not: the claim, what code confirmed, and what it could not. */
 export type CompletionEvidence = {
   claim: string;
-  verified: { artifactId: string; capability: string; iteration: number }[];
+  /** `runId` is the Run that produced the artifact; `fromStep` is set when it was an explicit handoff from an earlier step. */
+  verified: { artifactId: string; hash: string; capability: string; iteration: number; runId: string; fromStep?: string }[];
   rejected: string[];
 };
+
+/**
+ * A handed-off artifact counts as evidence only when ALL of these hold, each written by code rather than by a model:
+ * - it is a `deliverable` row: a `report` stores its model's JSON as given, so a `format` or `basis` key inside it
+ *   could be forged by injected content (independent review, Stage 5);
+ * - its upstream step itself finished `evidence_sufficient`: evidence gathered but never verified — an iteration
+ *   limit, a finish citing nothing — must not become verified downstream just by being handed on;
+ * - its recorded basis names at least one evidence-bearing capability.
+ */
+export function carriesRecordedEvidence(row: { type: string }, content: Record<string, unknown> | null): boolean {
+  if (row.type !== "deliverable" || content?.format !== DELIVERABLE_FORMAT) return false;
+  const completion = content.completion && typeof content.completion === "object" ? (content.completion as { reason?: unknown }) : null;
+  if (completion?.reason !== "evidence_sufficient") return false;
+  const basis = content.basis && typeof content.basis === "object" ? (content.basis as { evidence?: unknown }) : null;
+  return Array.isArray(basis?.evidence) && basis.evidence.length > 0;
+}
 
 /** A cited result counts only if its stored content actually holds something: search results or cited sources. */
 function holdsResults(content: unknown): boolean {
@@ -699,12 +716,25 @@ export async function buildAgentObjectiveInvocationSpecs(
     if (finishing) {
       const entries = (await ledgerBefore(ctx, N + 1))?.ledger.entries ?? [];
       const results = new Map(entries.filter((e) => e.action.type === "tool" && e.outcome.status === "completed" && e.resultArtifactId).map((e) => [e.resultArtifactId!, e]));
+      // R2 Stage 5: a downstream agent may also cite what it was explicitly HANDED — a step
+      // input resolved by reference from an earlier step's completed Run — but only when that
+      // artifact's code-recorded evidence basis shows evidence was actually gathered upstream.
+      // Nothing else another agent produced is citable: it was never in this agent's context.
+      const handed = new Map(inputs.map((i) => [i.artifactId, i]));
       const verified: CompletionEvidence["verified"] = [];
       const rejected: string[] = [];
       for (const id of [...new Set(finishing.evidence)]) {
+        const row = await tx.query.artifacts.findFirst({ where: eq(artifacts.id, id) });
+        const content = row ? parseJsonObject(row.inlineContent) : null;
         const entry = results.get(id);
-        if (entry && holdsResults(await readJson(tx, id))) verified.push({ artifactId: id, capability: entry.action.capability ?? "", iteration: entry.iteration });
-        else rejected.push(id);
+        const input = handed.get(id);
+        if (row && entry && holdsResults(content)) {
+          verified.push({ artifactId: id, hash: row.hash, capability: entry.action.capability ?? "", iteration: entry.iteration, runId });
+        } else if (row && input && carriesRecordedEvidence(row, content)) {
+          verified.push({ artifactId: id, hash: row.hash, capability: "handoff", iteration: 0, runId: input.runId, fromStep: input.stepId });
+        } else {
+          rejected.push(id);
+        }
       }
       evidence = { claim: finishing.assessment.slice(0, SUMMARY_CHARS), verified, rejected };
     }
@@ -838,8 +868,8 @@ function decideDirective(v: {
   );
   lines.push('The ledger artifact (if present) records every earlier action and outcome; do not repeat work it shows. Set unused fields to "" or [].');
   lines.push(
-    'When you finish, put in "evidence" the ids of the results that show the completion criteria are met, and say in "assessment" which criteria they satisfy. ' +
-      "A finish is recorded as evidence-based only if what it cites is a completed result that actually holds results; otherwise leave \"evidence\" empty."
+    'When you finish, put in "evidence" the ids of the results, or of inputs from earlier steps, that show the completion criteria are met, and say in "assessment" which criteria they satisfy. ' +
+      "A finish is recorded as evidence-based only if what it cites is a completed result that holds results, or an input whose recorded evidence basis shows evidence was gathered; otherwise leave \"evidence\" empty."
   );
   lines.push(`"assessment": one or two sentences on progress. "ledgerNote": what this action is for, at most ${NOTE_CHARS} characters.`);
   return lines.join("\n");

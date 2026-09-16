@@ -27,6 +27,7 @@ import { buildServer } from "../../src/api/server.js";
 import { engageStop } from "../../src/governance/executionStop.js";
 import {
   computeActiveSeconds,
+  carriesRecordedEvidence,
   decisionSchema,
   effectiveLimits,
   parseDecision,
@@ -34,6 +35,8 @@ import {
   positions,
 } from "../../src/capabilities/agentObjective/buildInvocationSpecs.js";
 import { loopActionFor, parseLoopActionInput } from "../../src/capabilities/shared/loopActions.js";
+import { refreshAgentPerformance } from "../../src/projections/agentPerformance.js";
+import { createHash } from "node:crypto";
 
 let app: FastifyInstance;
 let seed: SeedPublishWorkflowResult;
@@ -407,7 +410,7 @@ describe("an autonomous agent works on an objective", () => {
     const r = await runOf(started.workflowRunId);
     const terminal = r.loopEvents.at(-1)!.payload as { terminal: { status: string; reason: string; evidence: { verified: unknown[]; rejected: unknown[]; claim: string } } };
     expect(terminal.terminal).toMatchObject({ status: "complete", reason: "evidence_sufficient", evidence: { rejected: [], claim: "the criteria are met by the cited results" } });
-    expect(terminal.terminal.evidence.verified).toEqual([{ artifactId: expect.any(String), capability: "research.retrieve", iteration: 1 }]);
+    expect(terminal.terminal.evidence.verified).toEqual([{ artifactId: expect.any(String), hash: expect.stringMatching(/^[0-9a-f]{64}$/), capability: "research.retrieve", iteration: 1, runId: r.run.id }]);
     // The deliverable carries the same record, so the document says why it is finished.
     expect(r.content.completion).toEqual({ status: "complete", reason: "evidence_sufficient", evidence: terminal.terminal.evidence });
   });
@@ -576,6 +579,266 @@ describe("an autonomous agent works on an objective", () => {
     expect((await post("/workflow-definitions", step({ intents: ["plan"], tools: [{ capability: "research.retrieve", maxCalls: 2 }] }))).body.error).toMatch(/holds no Grant/);
     expect((await post("/workflow-definitions", step({ intents: ["plan"], tools: [{ capability: "publish.report", maxCalls: 1 }] }))).body.error).toMatch(/no loop action/);
     expect((await post("/workflow-definitions", step({ intents: ["plan"], loop: { maxIterations: 50 } }))).body.error).toMatch(/1 to 12/);
+  });
+
+  // -------------------------------------------------------------------------
+  // R2 Stage 5: two agents, collaborating only through explicit runtime objects
+  // -------------------------------------------------------------------------
+  describe("two agents collaborate through an explicit artifact handoff, and nothing else", () => {
+    const researchGrant = () => ({ capabilityId: ids.researchCapability, permissions: ["READ"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: 1 });
+
+    async function agent(name: string, grants: Record<string, unknown>[] = []): Promise<string> {
+      // Each agent's instructions carry a marker, so a leak of one agent's prompt into the other's context is detectable.
+      const res = await post("/agent-definitions", { name: `${name}-${++seq}`, role: name, objective: "o", instructions: `Work as ${name}. MARKER-${name}`, grants });
+      expect(res.status).toBe(201);
+      return res.body.id as string;
+    }
+
+    /** Researcher (holds research.retrieve) -> Analyst (holds nothing), handing over exactly one deliverable by reference. */
+    async function mission(options: { analyst?: Record<string, unknown>; analystGrants?: Record<string, unknown>[] } = {}) {
+      const researcher = await agent("Researcher", [researchGrant()]);
+      const analyst = await agent("Analyst", options.analystGrants ?? []);
+      const res = await post("/workflow-definitions", {
+        name: `Mission-${++seq}`,
+        graphDefinition: {
+          kind: "linear",
+          steps: [
+            {
+              stepId: "research",
+              label: "Research",
+              taskDefinitionId: ids.objectiveTask,
+              taskDefinitionVersion: 1,
+              agentDefinitionId: researcher,
+              agentDefinitionVersion: 1,
+              parameters: { tools: [{ capability: "research.retrieve", maxCalls: 1 }] },
+            },
+            {
+              stepId: "analysis",
+              label: "Analysis",
+              taskDefinitionId: ids.objectiveTask,
+              taskDefinitionVersion: 1,
+              agentDefinitionId: analyst,
+              agentDefinitionVersion: 1,
+              parameters: { intents: ["analyse"], inputs: [{ fromStepId: "research", artifactType: "deliverable" }], ...(options.analyst ?? {}) },
+            },
+          ],
+        },
+      });
+      return { researcher, analyst, status: res.status, error: res.body.error as string | undefined, workflowId: res.body.id as string };
+    }
+
+    async function stepsOf(workflowRunId: string) {
+      const wr = await testDb.query.workflowRuns.findFirst({ where: eq(schema.workflowRuns.id, workflowRunId) });
+      const slots = (wr!.variables as { stepTaskInstanceIds: (string | null)[] }).stepTaskInstanceIds;
+      const steps = await Promise.all(
+        slots.map(async (taskInstanceId) => {
+          if (!taskInstanceId) return null;
+          const taskInstance = (await testDb.query.taskInstances.findFirst({ where: eq(schema.taskInstances.id, taskInstanceId) }))!;
+          const run = (await testDb.query.runs.findMany({ where: eq(schema.runs.taskInstanceId, taskInstanceId) }))[0]!;
+          const invocations = await testDb.query.invocations.findMany({ where: eq(schema.invocations.runId, run.id) });
+          const events = await testDb.query.events.findMany({ where: eq(schema.events.runId, run.id), orderBy: asc(schema.events.sequenceNo) });
+          const produced = await testDb
+            .select({ artifact: schema.artifacts })
+            .from(schema.artifacts)
+            .innerJoin(schema.invocations, eq(schema.artifacts.producingInvocationId, schema.invocations.id))
+            .where(eq(schema.invocations.runId, run.id));
+          const deliverable = produced.map((p) => p.artifact).find((a) => a.type === "deliverable");
+          const loop = events.filter((e) => e.eventType === "agent_loop_iteration_recorded");
+          return {
+            taskInstance,
+            run,
+            invocations,
+            events,
+            loop,
+            produced: produced.map((p) => p.artifact.id),
+            deliverable,
+            content: deliverable ? JSON.parse(deliverable.inlineContent!) : null,
+            terminal: (loop.at(-1)?.payload as { terminal?: Record<string, unknown> } | undefined)?.terminal,
+            tokens: events.filter((e) => e.eventType === "invocation_completed" && e.costAmount !== null).reduce((t, e) => t + Number(e.costAmount), 0),
+          };
+        })
+      );
+      return { workflowRun: wr!, research: steps[0]!, analysis: steps[1] };
+    }
+
+    async function latestDeliverableId(): Promise<string> {
+      const rows = await testDb.query.artifacts.findMany({ where: eq(schema.artifacts.type, "deliverable") });
+      return rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]!.id;
+    }
+
+    it("hands over one hashed artifact by reference; the analyst sees only it, finishes on it, and each agent is charged for its own work", async () => {
+      const m = await mission();
+      expect(m.status).toBe(201);
+      let handoff = "";
+      script = {
+        decisions: [tool("research.retrieve", { query: "invoicing pain points" }), finish(), finish(), finish()],
+        before: async (kind, n) => {
+          if (kind === "decide" && n === 2) script.decisions[1] = finishCiting([await latestResultId()]);
+          if (kind === "decide" && n === 3) {
+            handoff = await latestDeliverableId();
+            // Asking for the same artifact twice must not put it into context twice.
+            const analyse = think("analyse");
+            script.decisions[2] = { ...analyse, action: { ...analyse.action, useArtifacts: [handoff, handoff] } };
+          }
+          if (kind === "decide" && n === 4) script.decisions[3] = finishCiting([handoff]);
+        },
+        usage: (kind, n) => (kind === "decide" ? (n <= 2 ? 1_000 : 500) : kind === "deliverable" ? (n === 1 ? 3_000 : 2_000) : 700),
+      };
+      vi.mocked(callClaudeSubscriptionModel).mockClear();
+      const started = await startGoal(m.workflowId);
+      expect(started.status).toBe("completed");
+      const { research, analysis } = await stepsOf(started.workflowRunId);
+
+      // Two distinct persistent identities, each Run attributed to its own Agent Definition version.
+      expect(research.run).toMatchObject({ agentDefinitionId: m.researcher, agentDefinitionVersion: 1, status: "completed" });
+      expect(analysis!.run).toMatchObject({ agentDefinitionId: m.analyst, agentDefinitionVersion: 1, status: "completed" });
+
+      // (3) The handoff is the researcher's deliverable: immutable, content-hashed, produced by the researcher's Run.
+      const handed = (await testDb.query.artifacts.findFirst({ where: eq(schema.artifacts.id, handoff) }))!;
+      expect(research.deliverable!.id).toBe(handoff);
+      expect(handed.hash).toBe(createHash("sha256").update(handed.inlineContent!).digest("hex"));
+
+      // (1, 4) What the analyst's contexts contained: the handoff and its own records — nothing else the researcher made.
+      const includedIds = analysis!.events
+        .filter((e) => e.eventType === "context_compiled")
+        .map((e) => (e.payload as { included: { id?: string; kind: string }[] }).included.filter((x) => x.kind !== "task_state" && x.id).map((x) => x.id!));
+      const allIncluded = new Set(includedIds.flat());
+      expect(allIncluded.has(handoff)).toBe(true);
+      for (const id of research.produced.filter((id) => id !== handoff)) expect(allIncluded.has(id)).toBe(false);
+      for (const id of allIncluded) expect([handoff, ...analysis!.produced]).toContain(id);
+      // Unrelated deliverables from earlier missions in this suite exist — and are never included.
+      const unrelated = (await testDb.query.artifacts.findMany({ where: eq(schema.artifacts.type, "deliverable") })).filter(
+        (a) => a.id !== handoff && a.id !== analysis!.deliverable!.id
+      );
+      expect(unrelated.length).toBeGreaterThan(0);
+      for (const a of unrelated) expect(allIncluded.has(a.id)).toBe(false);
+      // (10) No compiled context carries the same artifact twice, however often it was requested.
+      for (const list of includedIds) expect(new Set(list).size).toBe(list.length);
+
+      // No hidden shared context: no call made for the analyst carried the researcher's prompt or its raw results.
+      const analystCalls = vi
+        .mocked(callClaudeSubscriptionModel)
+        .mock.calls.map((c) => JSON.stringify(c[1]))
+        .filter((ctx) => ctx.includes("MARKER-Analyst"));
+      expect(analystCalls.length).toBe(4); // two decisions, one analysis, one write
+      for (const ctx of analystCalls) {
+        expect(ctx).not.toContain("MARKER-Researcher");
+        // The researcher's raw search results and its decisions never arrive. Their ids may: the handed-off
+        // document records its own provenance (which results its author cited) — a reference, not the content.
+        expect(ctx).not.toContain("A synthesized summary of information relevant to");
+        expect(ctx).not.toContain("use research.retrieve");
+      }
+      // Control: those same strings DID reach the researcher, so their absence above is isolation, not a vacuous check.
+      const researcherCalls = vi
+        .mocked(callClaudeSubscriptionModel)
+        .mock.calls.map((c) => JSON.stringify(c[1]))
+        .filter((ctx) => ctx.includes("MARKER-Researcher"));
+      expect(researcherCalls.some((ctx) => ctx.includes("A synthesized summary of information relevant to"))).toBe(true);
+      expect(researcherCalls.some((ctx) => ctx.includes("use research.retrieve"))).toBe(true);
+
+      // (5) The analyst finished deliberately, on the evidence it was handed — with hash and producer lineage.
+      expect(analysis!.terminal).toMatchObject({ status: "complete", reason: "evidence_sufficient" });
+      expect((analysis!.terminal!.evidence as { verified: unknown[] }).verified).toEqual([
+        { artifactId: handoff, hash: handed.hash, capability: "handoff", iteration: 0, runId: research.run.id, fromStep: "research" },
+      ]);
+      // The upstream evidence basis carries through: the analyst's document says research was done, and by what.
+      expect(analysis!.content.basis.evidence).toEqual([{ capability: "research.retrieve", evidenceClass: "fixture", calls: 1 }]);
+
+      // (9) Tokens land on the Run — and so the agent — that spent them.
+      expect(research.tokens).toBe(1_000 + 1_000 + 3_000);
+      expect(analysis!.tokens).toBe(500 + 700 + 500 + 2_000);
+    });
+
+    it("one agent's Grant never becomes another's: refused at save time, and refused at run time", async () => {
+      // The researcher in the same workflow holds research.retrieve; the analyst does not, and cannot borrow it.
+      const saved = await mission({ analyst: { tools: [{ capability: "research.retrieve", maxCalls: 1 }] } });
+      expect(saved.status).toBe(400);
+      expect(saved.error).toMatch(/holds no Grant for "research\.retrieve"/);
+
+      const m = await mission();
+      script = { decisions: [tool("research.retrieve", { query: "x" }), finish(), tool("research.retrieve", { query: "borrowed" }), finish()] };
+      const started = await startGoal(m.workflowId);
+      const { research, analysis } = await stepsOf(started.workflowRunId);
+
+      expect(research.invocations.filter((i) => i.kind === "tool")).toHaveLength(1);
+      // (7) The refusal is visible, in the analyst's lineage — no tool call, no Policy evaluation, nothing borrowed.
+      expect(analysis!.loop[0]!.payload).toMatchObject({ action: { type: "tool", capability: "research.retrieve" }, outcome: { status: "refused" } });
+      expect(analysis!.invocations.filter((i) => i.kind === "tool")).toHaveLength(0);
+      expect(analysis!.events.filter((e) => e.eventType === "policy_evaluated")).toHaveLength(0);
+    });
+
+    it("cites only what was explicitly handed AND verified upstream: everything else is rejected, never laundered", async () => {
+      // The researcher gathers a result but finishes WITHOUT verified evidence (it cites nothing).
+      const m = await mission();
+      let handoff = "";
+      let upstreamResult = "";
+      let unrelated = "";
+      script = {
+        decisions: [tool("research.retrieve", { query: "x" }), finish(), finish()],
+        before: async (kind, n) => {
+          if (kind === "decide" && n === 2) upstreamResult = await latestResultId();
+          if (kind === "decide" && n === 3) {
+            handoff = await latestDeliverableId();
+            const others = (await testDb.query.artifacts.findMany({ where: eq(schema.artifacts.type, "deliverable") })).filter((a) => a.id !== handoff);
+            // Another mission's document when one exists; otherwise a well-formed id this workflow never produced.
+            unrelated = others[0]?.id ?? "00000000-0000-4000-8000-000000000001";
+            // The analyst cites the handoff, an upstream search result it learned of from provenance, and a stranger's document.
+            script.decisions[2] = finishCiting([handoff, upstreamResult, unrelated]);
+          }
+        },
+      };
+      const started = await startGoal(m.workflowId);
+      const { research, analysis } = await stepsOf(started.workflowRunId);
+
+      expect(research.terminal).toMatchObject({ reason: "agent_finished" }); // gathered, but never verified upstream
+      // (8) Nothing becomes evidence-based downstream: an unverified handoff, an unhanded upstream result, an unrelated document.
+      expect(analysis!.terminal).toMatchObject({ status: "complete", reason: "agent_finished" });
+      const evidence = analysis!.terminal!.evidence as { verified: unknown[]; rejected: string[] };
+      expect(evidence.verified).toEqual([]);
+      expect([...evidence.rejected].sort()).toEqual([handoff, upstreamResult, unrelated].sort());
+    });
+
+    it("never accepts a forged basis: only a code-written deliverable that finished on verified evidence counts", () => {
+      const verified = { format: "deliverable/v1", completion: { status: "complete", reason: "evidence_sufficient" }, basis: { evidence: [{ capability: "research.search", evidenceClass: "external", calls: 1 }] } };
+      expect(carriesRecordedEvidence({ type: "deliverable" }, verified)).toBe(true);
+      // A report stores model JSON as given: the same keys, injected, must not count.
+      expect(carriesRecordedEvidence({ type: "report" }, verified)).toBe(false);
+      // Evidence gathered but the upstream step stopped at a limit, or finished citing nothing.
+      expect(carriesRecordedEvidence({ type: "deliverable" }, { ...verified, completion: { status: "incomplete", reason: "max_iterations" } })).toBe(false);
+      expect(carriesRecordedEvidence({ type: "deliverable" }, { ...verified, completion: { status: "complete", reason: "agent_finished" } })).toBe(false);
+      expect(carriesRecordedEvidence({ type: "deliverable" }, { ...verified, basis: { evidence: [] } })).toBe(false);
+    });
+
+    it("a downstream limit is still incomplete, never a finish", async () => {
+      const m = await mission({ analyst: { loop: { maxIterations: 1 } } });
+      script = { decisions: [tool("research.retrieve", { query: "x" }), finish(), think("analyse")] };
+      const started = await startGoal(m.workflowId);
+      const { analysis } = await stepsOf(started.workflowRunId);
+      expect(analysis!.terminal).toEqual({ status: "incomplete", reason: "max_iterations" });
+      expect(analysis!.content.completion).toEqual({ status: "incomplete", reason: "max_iterations" });
+    });
+
+    it("a downstream failure is not hidden by upstream success, in the lineage or in performance", async () => {
+      const m = await mission();
+      script = { decisions: [tool("research.retrieve", { query: "x" }), finish()], fail: (kind, n) => kind === "decide" && n === 3 };
+      const started = await startGoal(m.workflowId);
+      expect(started.status).toBe("failed");
+      const { workflowRun, research, analysis } = await stepsOf(started.workflowRunId);
+
+      expect(workflowRun.status).toBe("failed");
+      expect(research.run.status).toBe("completed");
+      expect(analysis!.run.status).toBe("failed");
+      expect(analysis!.taskInstance.status).toBe("failed");
+      expect(analysis!.events.some((e) => e.eventType === "invocation_failed")).toBe(true);
+      expect(analysis!.deliverable).toBeUndefined();
+
+      // Performance is per agent: the researcher's success does not lift the analyst, whose failure counts against it.
+      await testDb.transaction((tx) => refreshAgentPerformance(tx));
+      const rows = await testDb.query.agentPerformance.findMany();
+      const of = (agentId: string) => rows.filter((row) => row.agentDefinitionId === agentId);
+      expect(of(m.researcher).map((row) => [row.sampleCount, Number(row.successRate)])).toEqual([[1, 1]]);
+      expect(of(m.analyst).map((row) => [row.sampleCount, Number(row.successRate)])).toEqual([[1, 0]]);
+    });
   });
 
   it("Policy stays authoritative: a binding below the Grant's trust bar denies the tool and fails closed", async () => {
