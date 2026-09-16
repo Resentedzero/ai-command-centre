@@ -67,6 +67,16 @@ export type ProviderUsage = {
   costUnit: ResourceUnit;
   /** Non-primary model usage the provider reported; already included in `costAmount`. */
   secondaryUsage?: Array<{ modelId: string; tokensIn: number; tokensOut: number }>;
+  /**
+   * R2: provider-side tool activity this call performed, for the Event log. Absent when
+   * the provider reported nothing usable — which is recorded as unavailable, never as
+   * zero: a search that happened but was not counted must not read as "no search".
+   */
+  toolActivity?: {
+    webSearchRequests: number | null;
+    queries: string[];
+    sources: Array<{ url: string; title: string }>;
+  };
   /** The provider reported reading input from its prompt cache (§5.11). Diagnostic: never changes `costAmount`. */
   cacheHit?: boolean;
 };
@@ -143,7 +153,15 @@ export type ProviderAdapter = (
   modelId: string,
   compiledContext: CompiledContext,
   expectedOutputShape: Record<string, unknown>,
-  accounting: TierAccounting
+  accounting: TierAccounting,
+  /**
+   * R2: provider-side tools this call may use, named by the Capability Grant that
+   * authorized them and by nothing else — never by configuration, the compiled context,
+   * model output or retrieved content. Absent or empty means the V1 posture: no tools at
+   * all. An adapter that cannot honour a non-empty list must refuse the call rather than
+   * silently run without the tools it was asked for.
+   */
+  options?: { tools?: readonly string[] }
 ) => Promise<ProviderCallResult>;
 
 export type RouteRequest = {
@@ -180,6 +198,12 @@ export type RouteRequest = {
    * left the route is refused, never served by another provider.
    */
   requiredProvider?: ProviderName;
+  /**
+   * R2: provider-side tools this invocation is authorized to use (a Capability Grant's,
+   * resolved by the Executor). Absent means none. Carried through to the route so the
+   * adapter receives exactly what was authorized.
+   */
+  tools?: readonly string[];
 };
 
 export type RouteResult = {
@@ -194,6 +218,8 @@ export type RouteResult = {
    */
   provider: ProviderName;
   accounting: TierAccounting;
+  /** R2: the authorized provider-side tools, carried from the request to the adapter. */
+  tools?: readonly string[];
   /** The routed model's context window (spec §5.17). */
   contextWindowTokens: number;
   /**

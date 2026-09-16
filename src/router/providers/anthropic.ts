@@ -116,8 +116,20 @@ export async function callAnthropicModel(
   compiledContext: CompiledContext,
   // The shape reaches the model through the Compiler's invocation-instruction layer.
   _expectedOutputShape: Record<string, unknown>,
-  accounting: TierAccounting
+  accounting: TierAccounting,
+  options?: { tools?: readonly string[] }
 ): Promise<ProviderCallResult> {
+  // R2: this adapter implements no provider-side tools. Running the call without the tools
+  // it was authorized to use would silently answer from model knowledge alone — the exact
+  // dishonesty the evidence basis exists to prevent. Refuse instead.
+  if (options?.tools && options.tools.length > 0) {
+    throw Object.assign(
+      new Error(
+        `callAnthropicModel: asked for provider-side tools (${options.tools.join(", ")}), which this adapter does not implement. Refusing rather than answering without them.`
+      ),
+      { consumption: "none" as const }
+    );
+  }
   const pricing = assertUsdAccounting(accounting, modelId);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;

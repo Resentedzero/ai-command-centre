@@ -75,6 +75,17 @@ export type LlmInvocationSpec = {
    *  capability-driven `computeRiskTier` formula does not apply; this is never computed via Policy. */
   riskTier: RiskTier;
   expectedOutputShape: Record<string, unknown>;
+  /**
+   * R2: a provider-side tool this call may use (native web search), and the Capability
+   * it runs under. All three are set together or not at all: the tool list is derived
+   * from the Grant the Executor resolves for `capabilityId`/`permission`, so an LLM call
+   * that reaches a third party is governed exactly like a Tool Invocation — Grant,
+   * Policy, budget and stops — rather than being an invisible side effect inside a model
+   * call. Absent means the V1 posture: no tools.
+   */
+  capabilityId?: string;
+  permission?: CapabilityPermission;
+  llmTools?: readonly string[];
 };
 
 export type DeterministicInvocationSpec = {

@@ -59,8 +59,19 @@ export async function callOpenAiModel(
   compiledContext: CompiledContext,
   // The shape reaches the model through the Compiler's invocation-instruction layer.
   _expectedOutputShape: Record<string, unknown>,
-  accounting: TierAccounting
+  accounting: TierAccounting,
+  options?: { tools?: readonly string[] }
 ): Promise<ProviderCallResult> {
+  // R2: see `callAnthropicModel` — no provider-side tools here, so refuse rather than
+  // quietly serve a call that was authorized to use them.
+  if (options?.tools && options.tools.length > 0) {
+    throw Object.assign(
+      new Error(
+        `callOpenAiModel: asked for provider-side tools (${options.tools.join(", ")}), which this adapter does not implement. Refusing rather than answering without them.`
+      ),
+      { consumption: "none" as const }
+    );
+  }
   const pricing = assertUsdAccounting(accounting, modelId);
 
   const apiKey = process.env.OPENAI_API_KEY;

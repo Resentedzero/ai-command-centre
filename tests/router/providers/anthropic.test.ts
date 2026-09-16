@@ -351,8 +351,19 @@ describe("no tool access is ever granted to the model", () => {
     expect(JSON.stringify(requestBody())).not.toContain("TOOL_SCHEMA_LEAK_CANARY");
   });
 
-  it("names no tool-use API surface at all (structural)", () => {
-    expect(providerCode).not.toMatch(/\btools\b|\btool_choice\b|\bmcp\b|\bcontainer\b|\ballowed_callers\b/i);
+  it("names no tool-use API surface, and refuses a call authorized to use tools rather than answering without them", async () => {
+    expect(providerCode).not.toMatch(/\btool_choice\b|\bmcp\b|\bcontainer\b|\ballowed_callers\b/i);
+    // `tools` appears in this adapter only on the refusal path (R2): it implements no
+    // provider-side tool, so a call that was granted one must fail closed. Answering from
+    // model knowledge while a Grant said "search the web" is the dishonest outcome.
+    await expect(callAnthropicModel("model-x", buildCompiledContext(), {}, CHEAP_PRICING, { tools: ["WebSearch"] })).rejects.toThrow(
+      /does not implement/
+    );
+    expect(messagesCreate).not.toHaveBeenCalled();
+    // The request payload itself still carries no tool key of any kind.
+    messagesCreate.mockResolvedValueOnce(buildProviderResponse());
+    await callAnthropicModel("model-x", buildCompiledContext(), {}, CHEAP_PRICING);
+    expect(Object.keys(requestBody())).not.toContain("tools");
   });
 });
 
@@ -386,9 +397,11 @@ describe("context boundary", () => {
 
   it("cannot independently query memory/artifacts/tools/history: it takes no transaction and imports no data access (structural)", () => {
     // The strongest form of this guarantee is the signature itself —
-    // (modelId, compiledContext, expectedOutputShape, pricing). There is
-    // no `tx`/db handle to query anything WITH.
-    expect(callAnthropicModel.length).toBe(4);
+    // (modelId, compiledContext, expectedOutputShape, pricing, options). There is
+    // no `tx`/db handle to query anything WITH. The fifth parameter (R2) carries the
+    // provider-side tools a Grant authorized, which this adapter implements none of
+    // and therefore refuses; it is not a data-access route either.
+    expect(callAnthropicModel.length).toBe(5);
     expect(providerCode).not.toMatch(/DrizzleTransaction|drizzle-orm|db\/schema|db\/client|compileContext|context\/compiler/);
   });
 

@@ -65,7 +65,9 @@ export type SubscriptionFailureCode =
   /** The stream parsed, but ended without the terminal `result` event (Phase 7B). */
   | "no_result"
   | "schema_validation"
-  | "usage_missing";
+  | "usage_missing"
+  /** R2: the child reported a tool or MCP surface other than exactly what was authorized. */
+  | "isolation_breach";
 
 export class ClaudeSubscriptionError extends Error {
   /**
@@ -289,8 +291,18 @@ export function buildSanitizedEnv(parentEnv: NodeJS.ProcessEnv = process.env): N
   for (const key of FORBIDDEN_CHILD_ENV_VARS) {
     delete childEnv[key];
   }
+  // R2: a hard ceiling on provider-side searches, set on EVERY call whether or not this
+  // one may search. One web search charges its results as input tokens, and one tool call
+  // may issue several backend searches, so an unbounded session can outspend a whole Task
+  // Instance ceiling. The cap cannot be disabled, only set — so setting it low is the
+  // control. Belt and braces alongside the tool list: a call with no tools cannot search
+  // at all.
+  childEnv.CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION = String(MAX_WEB_SEARCHES_PER_CALL);
   return childEnv;
 }
+
+/** R2: the most provider-side searches one Invocation may make. Deliberately small — see `buildSanitizedEnv`. */
+export const MAX_WEB_SEARCHES_PER_CALL = 3;
 
 /**
  * The exact, verified isolation flag set. Every entry is load-bearing:
@@ -326,11 +338,15 @@ export function buildSanitizedEnv(parentEnv: NodeJS.ProcessEnv = process.env): N
  *                           --fallback-model, so the model recorded on the
  *                           Event is the model that served the request.
  */
-export function buildClaudeArgs(modelId: string, expectedOutputShape: Record<string, unknown>): string[] {
+export function buildClaudeArgs(modelId: string, expectedOutputShape: Record<string, unknown>, tools: readonly string[] = []): string[] {
+  // R2: a non-empty list comes from a Capability Grant the Executor resolved, never from
+  // configuration, context or model output. `--allowedTools` is not optional alongside it:
+  // web search requires approval, and under `--permission-mode manual` an unlisted tool is
+  // denied silently — the model then answers from memory as if it had searched.
+  const toolFlags = tools.length > 0 ? ["--tools", ...tools, "--allowedTools", ...tools] : ["--tools", ""];
   return [
     "-p",
-    "--tools",
-    "",
+    ...toolFlags,
     "--strict-mcp-config",
     "--setting-sources",
     "",
@@ -488,7 +504,7 @@ function assertReportedTokenCount(value: unknown, field: string): number {
   return value;
 }
 
-type ModelUsageEntry = { modelId: string; tokensIn: number; tokensOut: number };
+type ModelUsageEntry = { modelId: string; tokensIn: number; tokensOut: number; webSearchRequests?: number };
 
 /**
  * Extracts EVERY model's usage from the CLI's `modelUsage` map.
@@ -547,6 +563,11 @@ export function extractModelUsage(parsed: Record<string, unknown>): {
         entry.outputTokens ?? entry.output_tokens,
         `modelUsage["${modelId}"].outputTokens`
       ),
+      // Advisory, so NOT fail-closed: it never affects the counted amount, and an older
+      // CLI that omits it must not fail a call that otherwise reported usage correctly.
+      ...(typeof (entry.webSearchRequests ?? entry.web_search_requests) === "number"
+        ? { webSearchRequests: Number(entry.webSearchRequests ?? entry.web_search_requests) }
+        : {}),
     });
   }
 
@@ -640,7 +661,18 @@ export type ClaudeStreamParse = {
   rateLimitReadings: number;
   /** Lines that were not parseable JSON objects (ignored, but counted). */
   unparsableLines: number;
+  /**
+   * R2: provider-side web search the child performed, read from the tool exchange itself
+   * rather than from a counter — the queries it asked and the sources it was shown. This
+   * is what makes a search visible to the Event log instead of an invisible side effect
+   * inside a model call. Bounded: a runaway session cannot write an unbounded event.
+   */
+  webSearch: { queries: string[]; sources: Array<{ url: string; title: string }> };
 };
+
+/** Bounds on recorded search provenance — enough to audit a search, never the page text. */
+const MAX_RECORDED_QUERIES = 8;
+const MAX_RECORDED_SOURCES = 20;
 
 /**
  * Parses the CLI's NDJSON stream: one JSON object per line, dispatched by
@@ -680,6 +712,8 @@ export function parseClaudeStream(
   let lastRateLimit: { event: Record<string, unknown>; receivedAt: Date } | null = null;
   let rateLimitReadings = 0;
   let unparsableLines = 0;
+  const queries: string[] = [];
+  const sources = new Map<string, { url: string; title: string }>();
 
   for (const { text, receivedAt } of lines) {
     const trimmed = text.trim();
@@ -705,6 +739,8 @@ export function parseClaudeStream(
     } else if (event.type === "result") {
       // Last result wins; a well-formed stream emits exactly one.
       result = event;
+    } else if (event.type === "assistant" || event.type === "user") {
+      collectWebSearch(event, queries, sources);
     }
   }
 
@@ -716,7 +752,87 @@ export function parseClaudeStream(
       : null,
     rateLimitReadings,
     unparsableLines,
+    webSearch: { queries, sources: [...sources.values()] },
   };
+}
+
+/**
+ * Pulls one stream line's search activity into `queries`/`sources`.
+ *
+ * An `assistant` line carries the tool call (its query); the following `user` line carries
+ * the result, whose text embeds a `Links: [...]` array of titles and URLs. Deliberately
+ * tolerant: a shape this cannot read records nothing rather than throwing, because a
+ * provenance reader must never fail a call that otherwise succeeded. What it must not do
+ * is invent — an unreadable result leaves the counter to say what happened.
+ */
+function collectWebSearch(event: Record<string, unknown>, queries: string[], sources: Map<string, { url: string; title: string }>): void {
+  const message = event.message;
+  const content = isRecord(message) ? message.content : undefined;
+  if (!Array.isArray(content)) return;
+
+  for (const block of content) {
+    if (!isRecord(block)) continue;
+
+    if (block.type === "tool_use" && block.name === "WebSearch" && queries.length < MAX_RECORDED_QUERIES) {
+      const query = isRecord(block.input) ? block.input.query : undefined;
+      if (typeof query === "string" && query.trim() !== "") queries.push(query.slice(0, 300));
+      continue;
+    }
+
+    if (block.type !== "tool_result") continue;
+    const text = typeof block.content === "string" ? block.content : JSON.stringify(block.content ?? "");
+    const links = /Links:\s*(\[[\s\S]*?\])/.exec(text)?.[1];
+    if (!links) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(links);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(parsed)) continue;
+    for (const link of parsed) {
+      if (sources.size >= MAX_RECORDED_SOURCES) return;
+      if (!isRecord(link)) continue;
+      const url = link.url;
+      const title = link.title;
+      if (typeof url === "string" && url.trim() !== "" && !sources.has(url)) {
+        sources.set(url, { url: url.slice(0, 500), title: typeof title === "string" ? title.slice(0, 300) : "" });
+      }
+    }
+  }
+}
+
+/**
+ * Fails the call unless the child's reported surface is EXACTLY what was authorized.
+ *
+ * The V1 isolation posture was "no tools at all", verified across 85 invocations. R2 widens
+ * it to a named list from a Capability Grant, so the assertion replaces the assumption: an
+ * extra tool, a missing one (the model would answer from memory as if it had searched), or
+ * any MCP server is a breach and the call fails rather than proceeding.
+ */
+export function assertIsolationSurface(initSurface: ClaudeStreamParse["initSurface"], grantedTools: readonly string[]): void {
+  if (initSurface === null) {
+    // Nothing to verify and nothing was authorized: the V1 posture, unchanged.
+    if (grantedTools.length === 0) return;
+    throw new ClaudeSubscriptionError(
+      "isolation_breach",
+      "callClaudeSubscriptionModel: the CLI reported no tool surface, so the authorized tool list could not be verified."
+    );
+  }
+
+  const expected = new Set(["StructuredOutput", ...grantedTools]);
+  const actual = Array.isArray(initSurface.tools) ? initSurface.tools.map((t) => String(t)) : null;
+  const mcpServers = Array.isArray(initSurface.mcpServers) ? initSurface.mcpServers : null;
+  const unexpected = actual?.filter((t) => !expected.has(t)) ?? [];
+  const missing = [...expected].filter((t) => !(actual ?? []).includes(t));
+
+  if (actual === null || mcpServers === null || mcpServers.length > 0 || unexpected.length > 0 || missing.length > 0) {
+    throw new ClaudeSubscriptionError(
+      "isolation_breach",
+      `callClaudeSubscriptionModel: the child's surface was not what was authorized (expected exactly [${[...expected].join(", ")}] and no MCP servers; ` +
+        `got tools ${JSON.stringify(initSurface.tools)} and mcp ${JSON.stringify(initSurface.mcpServers)}). Refusing the result.`
+    );
+  }
 }
 
 /**
@@ -763,7 +879,7 @@ export async function callClaudeSubscriptionModel(
   compiledContext: CompiledContext,
   expectedOutputShape: Record<string, unknown>,
   accounting: TierAccounting,
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; tools?: readonly string[] } = {}
 ): Promise<ProviderCallResult> {
   if (accounting.unit !== "subscription_tokens") {
     throw new ClaudeSubscriptionError(
@@ -787,7 +903,8 @@ export async function callClaudeSubscriptionModel(
   // Resolved BEFORE the temp directory is created, so a missing/misconfigured
   // CLI fails fast and leaves nothing behind.
   const executable = resolveClaudeExecutable();
-  const args = buildClaudeArgs(modelId, expectedOutputShape);
+  const grantedTools = options.tools ?? [];
+  const args = buildClaudeArgs(modelId, expectedOutputShape, grantedTools);
   const env = buildSanitizedEnv();
 
   // A fresh empty directory OUTSIDE the repository, per invocation. Defence in
@@ -872,9 +989,20 @@ export async function callClaudeSubscriptionModel(
       );
     }
 
+    assertIsolationSurface(stream.initSurface, grantedTools);
+
     const { entries, totalTokens } = extractModelUsage(parsed);
     const primary = entries.find((e) => e.modelId === modelId) ?? entries[0]!;
     const secondaryUsage = entries.filter((e) => e !== primary);
+    // Counted per model entry, never from the top-level `server_tool_use`, which reported
+    // 0 while five searches really ran (verified 2026-09-16). No entry reporting it at all
+    // is recorded as unavailable rather than as zero.
+    const counted = entries.filter((e) => typeof e.webSearchRequests === "number");
+    const toolActivity = {
+      webSearchRequests: counted.length > 0 ? counted.reduce((sum, e) => sum + (e.webSearchRequests ?? 0), 0) : null,
+      queries: stream.webSearch.queries,
+      sources: stream.webSearch.sources,
+    };
 
     return {
       result: structured,
@@ -888,6 +1016,7 @@ export async function callClaudeSubscriptionModel(
         costUnit: "subscription_tokens",
         cacheHit: reportsCacheRead(parsed),
         ...(secondaryUsage.length > 0 ? { secondaryUsage } : {}),
+        ...(toolActivity.webSearchRequests !== null || toolActivity.queries.length > 0 ? { toolActivity } : {}),
       },
       // Surfaced, never acted on here. This adapter takes no quota decision and
       // writes no state: it hands the reading up so a caller with a transaction

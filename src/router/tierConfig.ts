@@ -58,7 +58,15 @@ export type ProviderName = "anthropic" | "openai" | "claude_subscription";
  * value here has to be true of a real adapter, and an unrecognized requirement
  * would silently match nothing.
  */
-export type CandidateCapability = "structured_output";
+export type CandidateCapability =
+  | "structured_output"
+  /**
+   * R2: the candidate can search the live web on the provider's side. Declaring it here is
+   * what keeps the capability provider-neutral: an agent asks for current information, and
+   * the Router excludes candidates that cannot serve it — no capability module names a
+   * provider, and a future candidate that can search is added by listing it here.
+   */
+  | "web_search";
 
 /**
  * One declaratively configured routing candidate.
@@ -132,7 +140,9 @@ export const providerCandidates: ProviderCandidate[] = [
     modelId: "claude-haiku-4-5-20251001",
     tiers: ["CHEAP"],
     accounting: { unit: "subscription_tokens" },
-    capabilities: ["structured_output"],
+    // Web search proven live on this runtime 2026-09-16 (no API key, no API billing):
+    // `docs/superpowers/research/2026-09-16-claude-native-web-search-investigation.md`.
+    capabilities: ["structured_output", "web_search"],
     contextWindowTokens: 200_000,
     enabled: true,
   },
@@ -141,7 +151,7 @@ export const providerCandidates: ProviderCandidate[] = [
     modelId: "claude-sonnet-5",
     tiers: ["MID"],
     accounting: { unit: "subscription_tokens" },
-    capabilities: ["structured_output"],
+    capabilities: ["structured_output", "web_search"],
     contextWindowTokens: 1_000_000,
     enabled: true,
   },
@@ -150,7 +160,7 @@ export const providerCandidates: ProviderCandidate[] = [
     modelId: "claude-opus-5",
     tiers: ["STRONG"],
     accounting: { unit: "subscription_tokens" },
-    capabilities: ["structured_output"],
+    capabilities: ["structured_output", "web_search"],
     contextWindowTokens: 1_000_000,
     enabled: true,
   },

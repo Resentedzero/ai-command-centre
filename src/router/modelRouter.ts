@@ -640,6 +640,8 @@ export async function authorizeRoute(
     effectiveMaxInputTokens,
     contextBudget,
     budgetOutcome,
+    // R2: exactly the tools the caller was authorized to use, carried to the adapter.
+    ...(req.tools && req.tools.length > 0 ? { tools: req.tools } : {}),
     reservationId: reservation.reservationId,
     invocationId: req.invocationId,
     runId: req.runId,
@@ -684,7 +686,8 @@ export async function dispatchModelCall(
       route.modelId,
       compiledContext,
       expectedOutputShape,
-      route.accounting
+      route.accounting,
+      route.tools && route.tools.length > 0 ? { tools: route.tools } : undefined
     );
     return { ok: true, providerResult };
   } catch (error) {

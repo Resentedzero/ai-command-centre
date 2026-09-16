@@ -350,7 +350,9 @@ describe("tier->model mapping is read from configuration, not hard-coded", () =>
           "custom-swapped-model-id",
           expect.anything(),
           expect.anything(),
-          original.accounting
+          original.accounting,
+          // R2: no provider-side tools were authorized for this route, so none are passed.
+          undefined
         );
         expect(callAnthropicModel).not.toHaveBeenCalled();
       });
