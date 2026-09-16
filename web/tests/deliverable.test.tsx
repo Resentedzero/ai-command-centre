@@ -134,6 +134,30 @@ describe("Deliverable views", () => {
     expect(doc).toHaveTextContent("complete · agent_finished");
   });
 
+  it("renders a long document whole: fenced code, a wide table and nested lists, none of it truncated", async () => {
+    const paragraphs = Array.from({ length: 40 }, (_, i) => `Paragraph ${i + 1}. ${"Small firms lose hours to manual admin work. ".repeat(4)}`).join("\n\n");
+    const columns = Array.from({ length: 9 }, (_, i) => `Col ${i + 1}`);
+    const table = [`| ${columns.join(" | ")} |`, `| ${columns.map(() => "---").join(" | ")} |`, `| ${columns.map((_, i) => `v${i + 1}`).join(" | ")} |`].join("\n");
+    const body = [
+      "## Long body",
+      paragraphs,
+      "```ts\nconst governed = await policy.evaluate(action);\n```",
+      table,
+      "- outer\n  - inner one\n  - inner two",
+      "The last line survives.",
+    ].join("\n\n");
+    expect(body.length).toBeGreaterThan(2000); // past the API's preview cap: the view must read full content
+    api.getArtifact.mockResolvedValue(detail(JSON.stringify({ format: "deliverable/v1", title: "Long deliverable", summary: "s", body, findings: [], recommendations: [], sources: [] })));
+    await open();
+
+    const doc = await screen.findByTestId("deliverable-document");
+    expect(doc.querySelector("pre code")).toHaveTextContent("policy.evaluate(action)");
+    expect(within(doc).getAllByRole("columnheader")).toHaveLength(9);
+    expect(doc.querySelector("ul ul li")).toHaveTextContent("inner one");
+    expect(doc).toHaveTextContent("Paragraph 40.");
+    expect(doc).toHaveTextContent("The last line survives.");
+  });
+
   it("renders a V1 report's markdown instead of escaped JSON", async () => {
     api.getArtifact.mockResolvedValue(detail(JSON.stringify({ report: "### Executive Summary\n\n- one\n- two" }), "report"));
     await open();
