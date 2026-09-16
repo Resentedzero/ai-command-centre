@@ -194,3 +194,88 @@ describe("agent_performance", () => {
     expect(Number(performance[0]!.avgCost.usd)).toBe(0.03);
   });
 });
+
+describe("agent_performance credits only work that actually succeeded (R2, 2026-09-16)", () => {
+  /** A fresh agent per case, so each outcome is read in isolation. */
+  async function agentWith(label: string, runsOf: (agentId: string, tx: DrizzleTransaction) => Promise<unknown>): Promise<string> {
+    return await testDb.transaction(async (tx) => {
+      const [agent] = await tx.insert(schema.agentDefinitions).values({ name: `R2-${label}-${randomUUID()}`, version: 1, role: "r", objective: "o", instructions: "i" }).returning();
+      await runsOf(agent!.id, tx);
+      return agent!.id;
+    });
+  }
+  const loopEnded = (status: string, reason: string): [string, Record<string, unknown>] => ["agent_loop_iteration_recorded", { iteration: null, terminal: { status, reason } }];
+  async function sampleOf(agentId: string): Promise<{ samples: number; successRate: number } | null> {
+    await testDb.transaction((tx) => refreshAgentPerformance(tx));
+    const found = (await testDb.select().from(schema.agentPerformance)).filter((r) => r.agentDefinitionId === agentId);
+    if (found.length === 0) return null;
+    return { samples: found.reduce((t, r) => t + r.sampleCount, 0), successRate: Number(found[0]!.successRate) };
+  }
+
+  it("(1) a loop stopped at its iteration limit is a sample, and not a success", async () => {
+    const agent = await agentWith("iterations", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), loopEnded("incomplete", "max_iterations"), ["run_completed"]]));
+    expect(await sampleOf(agent)).toEqual({ samples: 1, successRate: 0 });
+  });
+
+  it("(2) a loop stopped at its active-time limit is a sample, and not a success", async () => {
+    const agent = await agentWith("time", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), loopEnded("incomplete", "active_time_limit"), ["run_completed"]]));
+    expect(await sampleOf(agent)).toEqual({ samples: 1, successRate: 0 });
+  });
+
+  it("(3) a Run refused by the budget is not a sample at all, so never a success", async () => {
+    const agent = await agentWith("budget", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), ["invocation_failed", { reason: "insufficient_budget" }], ["run_failed"]]));
+    expect(await sampleOf(agent)).toBeNull();
+  });
+
+  it("(4) a loop stopped by the budget headroom check is not a sample — governance stopped it — and never a success", async () => {
+    const agent = await agentWith("headroom", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), loopEnded("incomplete", "budget_headroom"), ["run_completed"]]));
+    expect(await sampleOf(agent)).toBeNull();
+  });
+
+  it("(5) a Policy-denied Run is not a sample, so never a success", async () => {
+    const agent = await agentWith("policy", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), ["invocation_failed", { reason: "policy_denied" }], ["run_failed"]]));
+    expect(await sampleOf(agent)).toBeNull();
+  });
+
+  it("(6) an emergency-stopped Run is not a sample, so never a success", async () => {
+    const agent = await agentWith("stopped", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), ["run_halted"], ["run_completed"]]));
+    expect(await sampleOf(agent)).toBeNull();
+  });
+
+  it("(7) a failed Run is a sample, and not a success", async () => {
+    const agent = await agentWith("failed", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), ["invocation_failed", { reason: "provider returned malformed output" }], ["run_failed"]]));
+    expect(await sampleOf(agent)).toEqual({ samples: 1, successRate: 0 });
+  });
+
+  it("(8) a loop that finished on verified evidence is a success; a deliberate finish keeps its existing credit", async () => {
+    const evidence = await agentWith("evidence", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), loopEnded("complete", "evidence_sufficient"), ["run_completed"]]));
+    expect(await sampleOf(evidence)).toEqual({ samples: 1, successRate: 1 });
+    const finished = await agentWith("finished", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), loopEnded("complete", "agent_finished"), ["run_completed"]]));
+    expect(await sampleOf(finished)).toEqual({ samples: 1, successRate: 1 });
+    // A Run with no loop at all keeps the original rule.
+    const plain = await agentWith("plain", async (id, tx) => run(tx, await taskInstance(tx), id, [tier("CHEAP"), ["run_completed"]]));
+    expect(await sampleOf(plain)).toEqual({ samples: 1, successRate: 1 });
+  });
+
+  it("(9, 10) downstream success is the downstream agent's; the upstream agent's incomplete work stays visible as its own failure", async () => {
+    let downstream = "";
+    const upstream = await agentWith("upstream", async (id, tx) => {
+      await run(tx, await taskInstance(tx), id, [tier("CHEAP"), loopEnded("incomplete", "max_iterations"), ["run_completed"]]);
+      const [other] = await tx.insert(schema.agentDefinitions).values({ name: `R2-downstream-${randomUUID()}`, version: 1, role: "r", objective: "o", instructions: "i" }).returning();
+      downstream = other!.id;
+      await run(tx, await taskInstance(tx), downstream, [tier("CHEAP"), loopEnded("complete", "evidence_sufficient"), ["run_completed"]]);
+    });
+    expect(await sampleOf(downstream)).toEqual({ samples: 1, successRate: 1 });
+    expect(await sampleOf(upstream)).toEqual({ samples: 1, successRate: 0 });
+  });
+
+  it("(11) the existing exclusions still hold alongside the new rule", async () => {
+    const agent = await agentWith("mixed", async (id, tx) => {
+      for (const reason of ["policy_denied", "insufficient_budget", "execution_stopped", "approval_expired"]) {
+        await run(tx, await taskInstance(tx), id, [tier("CHEAP"), ["invocation_failed", { reason }], ["run_failed"]]);
+      }
+      await run(tx, await taskInstance(tx), id, [tier("CHEAP"), loopEnded("complete", "evidence_sufficient"), ["run_completed"]]);
+    });
+    expect(await sampleOf(agent)).toEqual({ samples: 1, successRate: 1 });
+  });
+});

@@ -24,7 +24,15 @@
  * - Group: (Agent Definition id, version, Task Definition id, model tier).
  * - Model tier: `resultingTier` of the Run's last model `invocation_started`
  *   (the Model Router's own record); "none" for a Run that made no model call.
- * - success_rate: completed samples / samples.
+ * - Autonomous loops (R2, operator decision 2026-09-16): a Run that completed is a
+ *   SUCCESS only if its loop, when it has one, concluded `complete`
+ *   (`agent_loop_iteration_recorded` terminal status: `evidence_sufficient`, or
+ *   `agent_finished`). A loop that concluded `incomplete` at its iteration or
+ *   active-time limit is a sample and a FAILURE: the agent did not finish within its
+ *   bounds, however cleanly the Run itself ended. A loop stopped by the Budget
+ *   Governor's headroom check (LOOP_STOPS_NOT_AGENT) is not a sample, exactly as
+ *   `insufficient_budget` is not. Runs with no loop keep the rule above.
+ * - success_rate: successful samples / samples.
  * - avg_retries: (samples - distinct Task Instances) / distinct Task Instances — the
  *   extra Runs per Task Instance. Always 0 until retries exist.
  * - avg_cost: per resource unit, the sum of the samples' `budget_consumed` amounts
@@ -69,6 +77,10 @@ const NOT_AGENT_OUTCOMES = [
   "resume_spec_mismatch",
   "interrupted_outcome_unknown",
 ];
+/** Loop conclusions that are governance stopping the work, not the agent failing it. Not samples. */
+const LOOP_STOPS_NOT_AGENT = ["budget_headroom"];
+const LOOP_STOPS_NOT_AGENT_SQL = sql.raw(LOOP_STOPS_NOT_AGENT.map((reason) => `'${reason}'`).join(", "));
+
 const NOT_AGENT_OUTCOMES_SQL = sql.raw(NOT_AGENT_OUTCOMES.map((reason) => `'${reason}'`).join(", "));
 
 /**
@@ -109,6 +121,12 @@ export async function refreshAgentPerformance(tx: DrizzleTransaction): Promise<v
       WHERE run_id IS NOT NULL AND event_type IN ('run_completed', 'run_failed')
       ORDER BY run_id, sequence_no DESC
     ),
+    loop_terminal AS (
+      SELECT DISTINCT ON (run_id) run_id, payload->'terminal'->>'status' AS status, payload->'terminal'->>'reason' AS reason
+      FROM events
+      WHERE run_id IS NOT NULL AND event_type = 'agent_loop_iteration_recorded' AND payload ? 'terminal'
+      ORDER BY run_id, sequence_no DESC
+    ),
     samples AS (
       SELECT
         r.id AS run_id,
@@ -116,7 +134,7 @@ export async function refreshAgentPerformance(tx: DrizzleTransaction): Promise<v
         r.agent_definition_version,
         ti.task_definition_id,
         ti.id AS task_instance_id,
-        t.event_type = 'run_completed' AS succeeded,
+        t.event_type = 'run_completed' AND (lt.run_id IS NULL OR lt.status = 'complete') AS succeeded,
         COALESCE(
           (SELECT s.payload->>'resultingTier' FROM events s
            WHERE s.run_id = r.id AND s.event_type = 'invocation_started' AND s.payload ? 'resultingTier'
@@ -126,7 +144,9 @@ export async function refreshAgentPerformance(tx: DrizzleTransaction): Promise<v
       FROM terminal t
       JOIN runs r ON r.id = t.run_id
       JOIN task_instances ti ON ti.id = r.task_instance_id
-      WHERE NOT EXISTS (SELECT 1 FROM events h WHERE h.run_id = r.id AND h.event_type = 'run_halted')
+      LEFT JOIN loop_terminal lt ON lt.run_id = r.id
+      WHERE NOT (lt.reason IS NOT NULL AND lt.reason IN (${LOOP_STOPS_NOT_AGENT_SQL}))
+        AND NOT EXISTS (SELECT 1 FROM events h WHERE h.run_id = r.id AND h.event_type = 'run_halted')
         AND NOT (
           t.event_type = 'run_failed'
           AND (

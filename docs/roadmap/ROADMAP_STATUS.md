@@ -92,7 +92,7 @@ Surfaced by the 2026-09-14 roadmap reconciliation:
 - **No `policies` table** (spec Phase 12; roadmap Appendix A #1): Policy is code. A Registry Policies editor needs this decided.
 
 Surfaced by the agent performance projection:
-- ~~The minimum sample criterion's form~~ **decided 2026-09-14**: `sample_count >= N` per (Agent Definition version, Task Definition, tier). ~~The value of N~~ **decided 2026-09-15: N = 10** (`MIN_PERFORMANCE_SAMPLES`), and the operator confirmed that `sample_count` as the projector defines it is what counts (C1). Tier preference is live.
+- ~~The minimum sample criterion's form~~ **decided 2026-09-14**: `sample_count >= N` per (Agent Definition version, Task Definition, tier). ~~The value of N~~ **decided 2026-09-15: N = 10** (`MIN_PERFORMANCE_SAMPLES`), and the operator confirmed that `sample_count` as the projector defines it is what counts (C1). Tier preference is live. **Amended 2026-09-16 (operator, R2 Stage 5):** a completed Run counts as a success only if its autonomous loop, when it has one, concluded `complete`; a loop stopped at its iteration or time limit is a failed sample, and one stopped by budget headroom is not a sample (`architecture/AGENT_PERFORMANCE.md` §2).
 - **XP rules** (spec §16.1): the XP amounts and the quality signal they need. Gamification design, shared with the UI workstream.
 - **The external search provider for `research.retrieve`**: provider, credentials and spend authorization.
 - **NSSM service wrapping** (V1.1): installing a Windows service is a deployment action.
