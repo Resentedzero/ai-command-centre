@@ -16,7 +16,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:backfill-goal-status": "tsx src/db/backfillGoalStatus.ts",
     "seed": "tsx src/definitions/runSeed.ts",
-    "dev:api": "tsx src/api/start.ts"
+    "dev:api": "tsx src/api/start.ts",
+    "r2:tokens": "tsx src/observability/reportTokens.ts"
   },
   "repository": {
     "type": "git",
