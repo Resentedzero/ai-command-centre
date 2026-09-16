@@ -264,7 +264,13 @@ export async function authorizeInvocation(
     proposedActionSnapshot: Record<string, unknown>;
     trustLevel: PolicyTrustLevel;
     bindingTrustLevel: number;
-    audit: { runId: string; invocationId: string; capabilityId: string; toolBindingId: string; checkpoint: PolicyCheckpoint };
+    /**
+     * `toolBindingId` is null for an R2 provider-side tool (native web search): the tool
+     * runs inside the model call, so there is no `tool_bindings` row to name. Everything
+     * else — Grant, permission, Policy, the recorded decision — is identical, which is the
+     * point: one permission model, not two.
+     */
+    audit: { runId: string; invocationId: string; capabilityId: string; toolBindingId: string | null; checkpoint: PolicyCheckpoint };
   }
 ): Promise<Awaited<ReturnType<typeof evaluatePolicy>>> {
   const { audit, ...policyInput } = params;

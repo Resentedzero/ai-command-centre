@@ -633,9 +633,21 @@ function toStructuredOutput(value: unknown): Record<string, unknown> {
   return { value };
 }
 
+/**
+ * The trust level a provider-side tool runs at: the same first-party runtime that is
+ * already trusted to serve the model call (`mapTrustLevel`: >= 2 is first party). There is
+ * no third-party binding row in this path, so nothing weaker would be truthful either.
+ */
+const FIRST_PARTY_BINDING_TRUST_LEVEL = 2;
+
 async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: number, spec: LlmInvocationSpec): Promise<RunOutcome> {
   const runId = runRow.id;
   const taskInstanceId = runRow.taskInstanceId;
+
+  // R2: a model call may be authorized to use a provider-side tool (native web search).
+  // The tool runs inside the call, so nothing downstream can govern it — which is why it
+  // is governed HERE, by the same chain a Tool Invocation goes through.
+  const grantedTools = spec.llmTools ?? [];
 
   // Step 1: propose, but do NOT emit invocation_started ourselves — authorizeRoute does (Ruling 3/5).
   const { invocationId } = await proposeInvocation(tx, {
@@ -644,11 +656,50 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
     kind: "llm",
     costClass: "llm",
     taskInstanceId,
-    capabilityId: null,
-    permission: null,
-    proposedActionSnapshot: null,
+    capabilityId: spec.capabilityId ?? null,
+    permission: spec.permission ?? null,
+    proposedActionSnapshot: grantedTools.length > 0 ? { tools: [...grantedTools] } : null,
     emitStarted: false,
   });
+
+  // Step 1b: Grant, grant-scoped stop and Policy for the authorized tools.
+  if (grantedTools.length > 0) {
+    if (!spec.capabilityId || !spec.permission) {
+      // Fail closed: tools without a Capability to authorize them would be exactly the
+      // invisible side effect this path exists to prevent.
+      throw new Error("processLlmSpec: provider-side tools require a capabilityId and permission.");
+    }
+    const grant = await resolveCapabilityGrant(tx, { runId, capabilityId: spec.capabilityId, permission: spec.permission });
+    if (grant?.id) await assertNotStopped(tx, { capabilityGrantId: grant.id });
+
+    const { decision } = await authorizeInvocation(tx, {
+      grant,
+      permission: spec.permission,
+      // The only model-reachable input here is which of the ALREADY-AUTHORIZED tools is
+      // used; Policy's risk inputs are absent, so a decision cannot lower its own risk.
+      proposedActionSnapshot: { tools: [...grantedTools] },
+      // The provider is the same first-party runtime already trusted to serve the model
+      // call itself — there is no third-party binding in this path to classify.
+      trustLevel: "first_party",
+      bindingTrustLevel: FIRST_PARTY_BINDING_TRUST_LEVEL,
+      audit: { runId, invocationId, capabilityId: spec.capabilityId, toolBindingId: null, checkpoint: "propose" },
+    });
+
+    if (decision !== "ALLOW") {
+      // An approval halt for a provider-side tool is not built: the autonomous loop
+      // checks the Grant before proposing and records a refusal instead, so reaching
+      // here means the call must not be made.
+      await failInvocation(tx, {
+        invocationId,
+        runId,
+        taskInstanceId,
+        reason: decision === "DENY" ? "policy_denied" : "provider_tool_requires_approval",
+        details: { capabilityId: spec.capabilityId, permission: spec.permission, tools: [...grantedTools] },
+      });
+      await failRun(tx, runId);
+      return { status: "failed", runId };
+    }
+  }
 
   // Step 2: authorizeRoute (Unit 5).
   const route = await authorizeRoute(tx, {
@@ -659,6 +710,9 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
     taskInstanceId,
     invocationId,
     ...(spec.requiredProvider !== undefined ? { requiredProvider: spec.requiredProvider } : {}),
+    // Only a candidate that can actually serve the tool may be routed to — the capability
+    // module never names a provider, so this is where provider neutrality is kept.
+    ...(grantedTools.length > 0 ? { tools: grantedTools, requiredCapabilities: ["web_search" as const] } : {}),
   });
 
   if ("authorized" in route) {

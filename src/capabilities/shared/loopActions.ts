@@ -26,6 +26,13 @@ export type LoopAction = {
   /** The string fields a decision may set for this action; all required, each bounded. */
   inputFields: Record<string, { maxLength: number; description: string }>;
   toSnapshot(input: Record<string, string>): Record<string, unknown>;
+  /**
+   * R2: provider-side tools this action needs (native web search). An action that declares
+   * them is carried out by a governed LLM Invocation holding exactly these tools, rather
+   * than by a Tool Invocation — there is no tool binding to run, because the tool runs
+   * inside the model call. The Grant, Policy, budget, stop and event path are the same.
+   */
+  providerTools?: readonly string[];
 };
 
 const actions = new Map<string, LoopAction>();
