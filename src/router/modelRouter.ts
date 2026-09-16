@@ -775,6 +775,10 @@ export async function emitModelInvocationCompleted(
       tier: route.tier,
       modelId: route.modelId,
       ...(artifactReferences ? { artifactReferences } : {}),
+      // R2: what a provider-side tool actually did — the queries asked and the sources
+      // returned, bounded. Without this a web search inside a model call leaves no trace
+      // anywhere, and "the agent searched the web" is invisible to governance.
+      ...(providerResult.usage.toolActivity ? { toolActivity: providerResult.usage.toolActivity } : {}),
     },
     usage: {
       tokensIn: providerResult.usage.tokensIn,

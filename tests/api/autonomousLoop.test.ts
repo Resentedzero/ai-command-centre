@@ -97,7 +97,11 @@ function installModel() {
           findings: ["published earlier today"],
           sources: [{ url: "https://example.org/releases", title: "Release notes" }],
         },
-        usage,
+        // What the provider reports about the search it performed, as the real adapter does.
+        usage: {
+          ...usage,
+          toolActivity: { webSearchRequests: 2, queries: ["current release version"], sources: [{ url: "https://example.org/releases", title: "Release notes" }] },
+        },
       };
     }
     if (kind === "work") return { result: { summary: `result ${n}`, content: `## Result ${n}\n\n- point`, keyPoints: ["point"] }, usage };
@@ -345,6 +349,13 @@ describe("an autonomous agent works on an objective", () => {
     // work happens inside a model call has no tool binding, so it would otherwise be
     // invisible to the evidence basis and the document would under-report its own evidence.
     expect(r.content.basis).toMatchObject({ externalResearch: true, evidence: [{ capability: "research.web", evidenceClass: "external", calls: 1 }] });
+
+    // The search itself is visible in the event log: which Invocation searched, what it
+    // asked, and which sources came back. Without this the search leaves no trace at all.
+    const completed = r.events.find((e) => e.eventType === "invocation_completed" && e.invocationId === act.id)!;
+    expect(completed.payload).toMatchObject({
+      toolActivity: { webSearchRequests: 2, queries: ["current release version"], sources: [{ url: "https://example.org/releases", title: "Release notes" }] },
+    });
   });
 
   it("refuses a live-web search once its Grant is revoked, and keeps working", async () => {
