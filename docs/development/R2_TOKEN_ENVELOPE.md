@@ -10,6 +10,10 @@ Every live run is recorded here before the work continues.
 
 | 2 | 2026-09-16 | Live proof of Claude's native web search on the subscription runtime (D1 gate) | claude-sonnet-5 + claude-haiku-4-5 (its search worker), `claude_subscription` | 1 call, 8 turns, 5 searches | **53,998** (measured from `modelUsage`) | ~54,998 | ~195,002 | **Proven.** Correct current answer (npm 2.1.273, verified independently), five real searches with source URLs, no API key, `overageStatus: rejected`, quota five-hour 0.57 → 0.58 |
 
+| 3 | 2026-09-16 | `research.search` against the real sources: Wikipedia, Crossref, arXiv | none — HTTP only, no model call | 3 searches | **0** | ~54,998 | ~195,002 | **Real results from all three.** Wikipedia returned the retrieval-augmented-generation article with its plain-text intro; Crossref returned DOIs, authors and dates; arXiv returned papers with full abstracts. No key, no account, no spend |
+
+**What run 3 shows:** the scholarly and encyclopedic half of R2 research costs nothing to run and nothing to prove. That is the argument for preferring it, and for keeping live web search a separate, deliberately granted Capability.
+
 **What run 2 costs us to know:** web search charges its results as input tokens, so one question cost more than an entire autonomous Run's 50,000-token ceiling. Bounded use only.
 
 **Note on estimates.** A direct adapter or CLI call touches no budget counter, exactly as in V1.1, so its cost is estimated from the prompt and reply. Runs that go through the runtime carry exact `subscription_tokens` from their Run's budget counter, and are recorded as measured rather than estimated.

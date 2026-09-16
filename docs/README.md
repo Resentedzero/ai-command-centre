@@ -36,7 +36,6 @@ Module-level contracts live in the header comment of each source file. The root 
 - [`development/POST_PHASE9_CLOSURE.md`](development/POST_PHASE9_CLOSURE.md): Phase 9 durable execution and the hardening that followed. Lists the commits, decisions made, review dispositions, residuals, and decisions still required.
 - [`development/EXECUTION_RECOVERY_CLOSURE.md`](development/EXECUTION_RECOVERY_CLOSURE.md): the milestone after Phase 9 — step failure settlement, crash-safe tool side effects, and the recovery/concurrency review.
 - [`development/CONTEXT_COMPILER_CLOSURE.md`](development/CONTEXT_COMPILER_CLOSURE.md): Context Compiler hardening — grant-scoped minimal tool schemas, hash dedup, provenance, the budgeted invocation instruction layer.
-
 - [`development/CAPABILITY_PLATFORM_CLOSURE.md`](development/CAPABILITY_PLATFORM_CLOSURE.md): the Capability Platform — Tool Adapter registry, local-corpus binding, definition-driven planning (spec §18.3 met), Registry API, adversarial review dispositions.
 - [`development/REGISTRY_WRITES_CLOSURE.md`](development/REGISTRY_WRITES_CLOSURE.md): Registry writes — versioned, audited creation of Definitions, Tool Bindings and Capability Grants through the API; review dispositions.
 - [`development/AGENT_PERFORMANCE_CLOSURE.md`](development/AGENT_PERFORMANCE_CLOSURE.md): the V2 agent performance projection — rules, rebuild loop, firewall, review dispositions.
@@ -47,9 +46,10 @@ Module-level contracts live in the header comment of each source file. The root 
 - [`development/ROUTING_RECORD_CLOSURE.md`](development/ROUTING_RECORD_CLOSURE.md): the complete routing decision record (including refusals), provider cache hits recorded, the immutable event log, the seed through the Registry; the withdrawn output cap and audit residuals.
 - [`development/AUDIT_ROUND3_CLOSURE.md`](development/AUDIT_ROUND3_CLOSURE.md): the third audit round — tests that could not fail strengthened (mutation-checked), key redaction widened, backup procedure, CI and Phase 6 "Class 4" recorded as decisions.
 - [`development/BUDGET_CONTAINMENT_CLOSURE.md`](development/BUDGET_CONTAINMENT_CLOSURE.md): the operator's D3/D20 ceilings (local-day and Task Instance counters), pause/resume and Goal status events, immutable Artifacts (migration 0019), D34 and the Phase-9 behaviours confirmed.
+
 ## 4. Planning and research (advisory, authorizes nothing)
-- [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
 - [`roadmap/ROADMAP_STATUS.md`](roadmap/ROADMAP_STATUS.md): **where the implementation actually is**, by roadmap stage (V1–V6); what the phase labels mean; current milestone; open governance decisions. Status only, not an authorization.
+- [`roadmap/NEXT_PHASE_PLAN.md`](roadmap/NEXT_PHASE_PLAN.md): the V1 → V6 roadmap, expanded.
 - [`superpowers/plans/2026-09-12-ai-command-centre-mvp.md`](superpowers/plans/2026-09-12-ai-command-centre-mvp.md): the original MVP implementation plan.
 - `research/`: the subscription provider research, runtime spike and benchmark notes.
 - `gamification/`: the tile pack inventory.

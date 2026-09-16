@@ -1741,6 +1741,12 @@ exists in the schema (Phase 12) and the write path is designed (Phase 7), but no
 memory write is implemented until a real workflow actually needs one — memory
 infrastructure is not built merely to satisfy architectural completeness.
 
+> **Implementation note (2026-09-14): correction.** The `memory_items` table does
+> **not** exist in the implemented schema (`src/db/schema.ts` header). The memory
+> seam is the Context Compiler's always-empty `memory` layer. The table and write
+> path arrive together, against a concrete gap (V3). Status by roadmap stage:
+> `docs/roadmap/ROADMAP_STATUS.md`.
+
 ### 18.2 The concrete MVP: two workflows
 
 1. **Standalone Task: "`research.retrieve` → Report."** One Task Instance, one Agent
@@ -1749,12 +1755,6 @@ infrastructure is not built merely to satisfy architectural completeness.
    producing a Report Artifact. The Capability is defined by its contract (retrieve
    information relevant to a query), not by a named external provider — its concrete
    Tool Binding (direct API, or a deterministic/local implementation where
-> **Implementation note (2026-09-14): correction.** The `memory_items` table does
-> **not** exist in the implemented schema (`src/db/schema.ts` header). The memory
-> seam is the Context Compiler's always-empty `memory` layer. The table and write
-> path arrive together, against a concrete gap (V3). Status by roadmap stage:
-> `docs/roadmap/ROADMAP_STATUS.md`.
-
    practical) is chosen at implementation time per the Phase 6 decision framework,
    and the capability boundary must survive replacing that binding entirely. Proves:
    task receipt, capability selection, tool call, structured tool output, artifact
@@ -1801,14 +1801,6 @@ Definition, its Tool Binding(s), its Workflow composition (if any), and its test
 If a third addition forces a change to any of those four, that's a signal the
 architecture, not the addition, needs revisiting.
 
----
-
-## Phase 19 — Roadmap
-
-Staged by **evidence, not calendar time** — each stage advances when a concrete need
-or enough real data exists, not on a schedule. This mirrors the YAGNI discipline
-running through the whole document.
-
 > **Implementation note (2026-09-14): criterion met.** Authoritative write-up:
 > `docs/architecture/CAPABILITY_PLATFORM.md`.
 > - A Tool Binding row selects the code that runs (Tool Adapter registry, §3c). The
@@ -1820,6 +1812,14 @@ running through the whole document.
 >   the HTTP API with no core change.
 > - `research.retrieve` gained a second, local-corpus binding, replacing the stub by
 >   data alone (§18.2).
+
+---
+
+## Phase 19 — Roadmap
+
+Staged by **evidence, not calendar time** — each stage advances when a concrete need
+or enough real data exists, not on a schedule. This mirrors the YAGNI discipline
+running through the whole document.
 
 - **V1 (Phase 18's MVP)**: two workflows, full governance chain proven once, manual
   process start, minimal UI (Overview/Activity/Approvals).

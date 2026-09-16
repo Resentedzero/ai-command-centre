@@ -37,13 +37,13 @@ import { loopActionFor, parseLoopActionInput } from "../../src/capabilities/shar
 
 let app: FastifyInstance;
 let seed: SeedPublishWorkflowResult;
-let ids: { objectiveTask: string; researchCapability: string; publishCapability: string; checkpointCapability: string };
+let ids: { objectiveTask: string; researchCapability: string; publishCapability: string; checkpointCapability: string; webCapability: string };
 
 // ---------------------------------------------------------------------------
 // Scripted model
 // ---------------------------------------------------------------------------
 
-type Kind = "decide" | "work" | "deliverable";
+type Kind = "decide" | "work" | "deliverable" | "web";
 type Script = {
   decisions: Record<string, unknown>[];
   usage?: (kind: Kind, n: number) => number;
@@ -51,7 +51,7 @@ type Script = {
   fail?: (kind: Kind, n: number) => boolean;
 };
 let script: Script = { decisions: [] };
-let calls: { decide: number; work: number; deliverable: number } = { decide: 0, work: 0, deliverable: 0 };
+let calls: { decide: number; work: number; deliverable: number; web: number } = { decide: 0, work: 0, deliverable: 0, web: 0 };
 
 const think = (intent: string, instruction = "work on it") => ({
   assessment: "progressing",
@@ -81,13 +81,25 @@ const finish = () => ({
 function installModel() {
   vi.mocked(callClaudeSubscriptionModel).mockImplementation(async (_model, _ctx, shape) => {
     const props = (shape as { properties?: Record<string, unknown> }).properties ?? {};
-    const kind: Kind = "action" in props ? "decide" : "keyPoints" in props ? "work" : "deliverable";
+    // A live-web search asks for its own shape (an answer, when it was true, and sources).
+    const kind: Kind = "action" in props ? "decide" : "asOfDate" in props ? "web" : "keyPoints" in props ? "work" : "deliverable";
     const n = ++calls[kind];
     await script.before?.(kind, n);
     if (script.fail?.(kind, n)) throw Object.assign(new Error("provider timed out"), { code: "timeout" });
     const amount = script.usage?.(kind, n) ?? 400;
     const usage = { tokensIn: amount - 100, tokensOut: 100, costAmount: amount, costUnit: "subscription_tokens" as const };
     if (kind === "decide") return { result: script.decisions[n - 1] ?? finish(), usage };
+    if (kind === "web") {
+      return {
+        result: {
+          answer: "The current release is 2.1.273.",
+          asOfDate: "2026-09-16",
+          findings: ["published earlier today"],
+          sources: [{ url: "https://example.org/releases", title: "Release notes" }],
+        },
+        usage,
+      };
+    }
     if (kind === "work") return { result: { summary: `result ${n}`, content: `## Result ${n}\n\n- point`, keyPoints: ["point"] }, usage };
     return {
       result: { title: "AI automation opportunities", summary: "Three candidates.", body: "## Candidates\n\n| Idea | Fit |\n| --- | --- |\n| Invoicing | high |", findings: ["f"], recommendations: ["r"], sources: [] },
@@ -112,11 +124,13 @@ async function objectiveWorkflow(options: {
   profile?: Record<string, unknown>;
   withCheckpoint?: boolean;
   withResearchGrant?: boolean;
+  withWebGrant?: boolean;
 }) {
   const name = `Architect-${++seq}`;
   const grants = [
     ...(options.withResearchGrant === false ? [] : [{ capabilityId: ids.researchCapability, permissions: ["READ"], autonomyState: options.autonomy ?? "AUTONOMOUS", maxTrustLevelRequired: 1 }]),
     ...(options.withCheckpoint ? [{ capabilityId: ids.checkpointCapability, permissions: ["EXECUTE"], autonomyState: "ALWAYS_APPROVE", maxTrustLevelRequired: 1 }] : []),
+    ...(options.withWebGrant ? [{ capabilityId: ids.webCapability, permissions: ["READ"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: 1 }] : []),
   ];
   const agent = await post("/agent-definitions", {
     name,
@@ -182,6 +196,7 @@ beforeAll(async () => {
     researchCapability: await cap("research.retrieve"),
     publishCapability: await cap("publish.report"),
     checkpointCapability: await cap("review.checkpoint"),
+    webCapability: await cap("research.web"),
   };
   app = buildServer({ db: testDb });
   await app.ready();
@@ -190,7 +205,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   script = { decisions: [] };
-  calls = { decide: 0, work: 0, deliverable: 0 };
+  calls = { decide: 0, work: 0, deliverable: 0, web: 0 };
   vi.useRealTimers();
 });
 
@@ -262,7 +277,7 @@ describe("an autonomous agent works on an objective", () => {
     for (let s = positions.decide(5); s <= positions.record(N); s++) expect(bySeq.has(s)).toBe(false);
     expect([positions.conclude(N), positions.write(N), positions.persist(N)].map((s) => bySeq.get(s)?.kind)).toEqual(["deterministic", "llm", "deterministic"]);
     expect(r.invocations.every((i) => i.status === "completed")).toBe(true);
-    expect(calls).toEqual({ decide: 4, work: 2, deliverable: 1 });
+    expect(calls).toEqual({ decide: 4, work: 2, deliverable: 1, web: 0 });
 
     // The tool went through the governance chain with a snapshot holding only the declared field.
     const toolInvocation = bySeq.get(5)!;
@@ -303,6 +318,54 @@ describe("an autonomous agent works on an objective", () => {
     expect(calls.decide).toBe(2);
     expect(r.loopEvents.at(-1)!.payload).toMatchObject({ terminal: { status: "complete", reason: "agent_finished" }, iterations: 2 });
     expect(r.content.completion).toEqual({ status: "complete", reason: "agent_finished" });
+  });
+
+  it("searches the live web as a governed model call, carrying only the tool its Grant authorized", async () => {
+    const { workflowId } = await objectiveWorkflow({
+      withWebGrant: true,
+      parameters: { intents: ["analyse"], tools: [{ capability: "research.web", maxCalls: 1 }] },
+    });
+    script = { decisions: [tool("research.web", { query: "what is the current release" }), finish()] };
+    const started = await startGoal(workflowId);
+
+    const r = await runOf(started.workflowRunId);
+    // The work ran as an LLM Invocation, not a Tool Invocation: there is no binding to run,
+    // because the search happens inside the model call. It still names the Capability.
+    const act = r.invocations.find((i) => i.seqNo === positions.act(1))!;
+    expect(act.kind).toBe("llm");
+    expect(act.capabilityId).toBe(ids.webCapability);
+    expect(calls.web).toBe(1);
+
+    // Governed exactly like a tool use: one Policy decision, recorded against the Capability.
+    const decisions = r.events.filter((e) => e.eventType === "policy_evaluated" && (e.payload as { capabilityId?: string }).capabilityId === ids.webCapability);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]!.payload).toMatchObject({ decision: "ALLOW", toolBindingId: null });
+    expect(r.loopEvents[0]!.payload).toMatchObject({ action: { type: "tool", capability: "research.web" }, outcome: { status: "completed" } });
+  });
+
+  it("refuses a live-web search once its Grant is revoked, and keeps working", async () => {
+    // Saving the workflow already requires the Grant (R3), so the Grant is revoked after the
+    // save: the loop must refuse the search at run time rather than reaching the provider.
+    const { workflowId, agentId } = await objectiveWorkflow({
+      withWebGrant: true,
+      withResearchGrant: false,
+      parameters: { intents: ["analyse"], tools: [{ capability: "research.web", maxCalls: 1 }] },
+    });
+    const grant = await testDb.query.capabilityGrants.findFirst({ where: eq(schema.capabilityGrants.agentDefinitionId, agentId) });
+    script = {
+      decisions: [tool("research.web", { query: "what is the current release" }), think("analyse"), finish()],
+      before: async (kind, n) => {
+        if (kind === "decide" && n === 1) await app.inject({ method: "POST", url: `/capability-grants/${grant!.id}/revoke` });
+      },
+    };
+    const started = await startGoal(workflowId);
+
+    const r = await runOf(started.workflowRunId);
+    // No model call was made for the search, and the loop carried on to its next action.
+    expect(calls.web).toBe(0);
+    expect(r.loopEvents[0]!.payload).toMatchObject({ action: { type: "tool", capability: "research.web" }, outcome: { status: "refused" } });
+    expect(r.loopEvents[1]!.payload).toMatchObject({ action: { type: "think", intent: "analyse" }, outcome: { status: "completed" } });
+    expect(r.workflowRun.status).toBe("completed");
   });
 
   it("stops at its iteration ceiling and says so", async () => {
