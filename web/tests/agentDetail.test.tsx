@@ -9,6 +9,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { AgentDetail, RegistryData } from "../lib/api";
 
 const api = vi.hoisted(() => ({
+  getAgentProgression: vi.fn(),
   getAgentDetail: vi.fn(),
   engageAgentStop: vi.fn(),
   liftAgentStop: vi.fn(),
@@ -96,6 +97,7 @@ async function renderPage(id = "agent-1") {
 
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
+  api.getAgentProgression.mockResolvedValue({ name: "x", level: 1, xp: 0, levelStartXp: 0, nextLevelXp: 500, awards: [], achievements: [], specialisation: null, domains: {}, specialisationMinRuns: 3, reputation: { verdicts: { POOR: 0, ACCEPTABLE: 0, GOOD: 0, EXCELLENT: 0 }, verdictCount: 0, enoughVerdicts: false, minVerdicts: 3, independentEndorsers: [], mutualEndorsements: 0, unverifiedEndorsements: 0 }, endorsementsGiven: 0 });
   api.getRegistry.mockResolvedValue(registry);
   api.listActiveAgents.mockResolvedValue([
     { agentDefinitionId: "agent-1", agentName: "Publisher", runId: "run-1", taskInstanceId: "ti-1", taskStatus: "awaiting_approval", taskDefinitionName: null, goalTitle: null, latestActivitySummary: null },

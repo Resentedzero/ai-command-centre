@@ -50,6 +50,13 @@ export type AgentCardData = {
   /** Null for a standalone Task Instance (no Workflow Run to reach a Goal through). */
   goalTitle: string | null;
   latestActivitySummary: string | null;
+  /** The Run's Workflow Run and Goal, so a stop at those scopes can be matched. Absent from older API builds. */
+  workflowRunId?: string | null;
+  /** The Workflow Run's own status (`paused` holds a step whose Task Instance still reads active). Absent from older API builds. */
+  workflowRunStatus?: string | null;
+  goalId?: string | null;
+  /** What the Run is doing now (its latest non-bookkeeping Invocation). Absent from older API builds; null before its first. */
+  activity?: { invocationKind: string; invocationStatus: string; capability: string | null; intent: string | null; taskKind?: string | null } | null;
 };
 
 /**
@@ -364,8 +371,9 @@ export type WorkflowRunDetail = {
   stepsUnavailableReason: string | null;
 };
 
-export async function listWorkflowRuns(): Promise<WorkflowRunSummary[]> {
-  const data = await apiFetch<{ workflowRuns: WorkflowRunSummary[] }>("/workflow-runs");
+/** `withinHours`: only current work — unfinished, or finished within that many hours. Absent: every unarchived run. */
+export async function listWorkflowRuns(withinHours?: number): Promise<WorkflowRunSummary[]> {
+  const data = await apiFetch<{ workflowRuns: WorkflowRunSummary[] }>(`/workflow-runs${withinHours === undefined ? "" : `?within=${withinHours}`}`);
   return data.workflowRuns;
 }
 
@@ -395,7 +403,9 @@ export type ProjectGoals = { id: string; name: string; description: string | nul
 // ---------------------------------------------------------------------------
 
 export type AgentDetail = {
-  agent: { id: string; name: string; version: number; role: string; objective: string; executionProfile?: ExecutionProfile };
+  agent: { id: string; name: string; version: number; role: string; objective: string; executionProfile?: ExecutionProfile; appearance?: Appearance | null; look?: Appearance };
+  /** Measured outcomes summed over every version of this agent's name (display only). Absent from older API builds. */
+  performanceAcrossVersions?: { samples: number; successes: number; versions: number };
   activeStop: { id: string; scope: string; scopeRefId: string; reason: string | null; engagedAt: string } | null;
   grants: {
     id: string;
@@ -578,6 +588,23 @@ export type BuilderOptions = {
   /** Capabilities an autonomous loop can use (each still needs the agent's Grant). Absent from older API builds. */
   loopActions?: { capability: string; permission: string; describe: string }[];
   autonomyLimits: { maxIterations: number; maxActiveSeconds: number; minActiveSeconds: number; taskInstanceBudgetCeilings: Record<string, string> };
+  /** The character kit's parts (presentation only). Absent from older API builds. */
+  appearance?: AppearanceOptions;
+};
+
+/** How a persistent agent looks: one catalogue option per part (`src/definitions/appearanceCatalogue.json`). Presentation only. */
+export type Appearance = Record<string, string>;
+
+export type AppearanceOptions = {
+  version: number;
+  poses: string[];
+  /** Absent from older API builds. */
+  facings?: string[];
+  frameSize: number;
+  frames: Record<string, number>;
+  /** Ready-made looks the builder offers (each a valid appearance). Absent from older API builds. */
+  presets?: { id: string; name: string; appearance: Appearance }[];
+  parts: Record<string, { label: string; default: string; options: string[] }>;
 };
 
 export type RegistryData = {
@@ -590,6 +617,10 @@ export type RegistryData = {
     instructions: string;
     createdAt: string;
     executionProfile?: ExecutionProfile;
+    /** Keyed on the agent's name, so every version shares it; null = the default character. Absent from older API builds. */
+    appearance?: Appearance | null;
+    /** How it is drawn: the chosen appearance, else the look derived from its name (never stored). Absent from older API builds. */
+    look?: Appearance;
   }[];
   /** Absent from older API builds. */
   builder?: BuilderOptions;
@@ -667,6 +698,166 @@ export async function createAgentDefinition(input: AgentDefinitionInput): Promis
 }
 
 // ---------------------------------------------------------------------------
+// Agent progression (R2): an interpretation of real work, keyed on the agent's name. Grants nothing.
+// ---------------------------------------------------------------------------
+
+export type QualityVerdict = "POOR" | "ACCEPTABLE" | "GOOD" | "EXCELLENT";
+
+export type AgentProgression = {
+  name: string;
+  level: number;
+  xp: number;
+  levelStartXp: number;
+  nextLevelXp: number;
+  awards: {
+    rule: string;
+    xp: number;
+    awardKey: string;
+    runId: string | null;
+    workflowRunId: string | null;
+    goalId: string | null;
+    artifactId: string | null;
+    evidence: Record<string, unknown>;
+    earnedAt: string;
+  }[];
+  achievements: { achievement: string; label: string; domain: string | null; earnedAt: string; evidence: Record<string, unknown> }[];
+  specialisation: { domain: string; runs: number } | null;
+  domains: Record<string, number>;
+  specialisationMinRuns: number;
+  reputation: {
+    verdicts: Record<QualityVerdict, number>;
+    verdictCount: number;
+    enoughVerdicts: boolean;
+    minVerdicts: number;
+    independentEndorsers: string[];
+    mutualEndorsements: number;
+    unverifiedEndorsements: number;
+  };
+  endorsementsGiven: number;
+};
+
+export async function getAgentProgression(name: string): Promise<AgentProgression> {
+  return apiFetch(`/agent-progression/${encodeURIComponent(name)}`);
+}
+
+export type QualityVerdictRecord = {
+  eventId: string;
+  actor: string;
+  occurredAt: string;
+  verdict: QualityVerdict;
+  rationale: string | null;
+  agentName: string | null;
+  previousVerdict: QualityVerdict | null;
+};
+
+export async function getQualityVerdicts(artifactId: string): Promise<{ verdicts: QualityVerdictRecord[] }> {
+  return apiFetch(`/artifacts/${artifactId}/quality-verdicts`);
+}
+
+/** The operator's judgement of an artifact's quality. Not an approval; only the latest verdict counts. */
+export async function recordQualityVerdict(input: { artifactId: string; verdict: QualityVerdict; rationale?: string }): Promise<{ verdict: QualityVerdict; agentName: string | null; xp: number; note: string | null }> {
+  return apiFetch("/quality-verdicts", { method: "POST", body: JSON.stringify(input) });
+}
+
+// ---------------------------------------------------------------------------
+// Living workplace: the workspace configuration (space only, never authority) and work history
+// ---------------------------------------------------------------------------
+
+export type WorldBuilding = { id: string; name: string; x: number; y: number; w: number; h: number; active: boolean };
+export type WorldAreaRow = { id: string; buildingId: string; name: string; purpose: string; x: number; y: number; w: number; h: number; active: boolean };
+export type WorldWorkstationRow = { id: string; areaId: string; name: string; activity: string; x: number; y: number; active: boolean; facing?: string };
+export type WorldData = {
+  workspace: { id: string; name: string; width: number; height: number; template?: string | null } | null;
+  buildings: WorldBuilding[];
+  areas: WorldAreaRow[];
+  workstations: WorldWorkstationRow[];
+  purposes: string[];
+  activities: string[];
+  /** Absent from older API builds. */
+  facings?: string[];
+  /** Ready-made worlds; applying one retires the current world (kept, not deleted). Absent from older API builds. */
+  templates?: { id: string; name: string; description: string }[];
+  /** When no world was created yet: the current keep as it would be created (not saved). */
+  preview?: { buildings: WorldBuilding[]; areas: WorldAreaRow[]; workstations: WorldWorkstationRow[] };
+};
+
+export async function getWorld(): Promise<WorldData> {
+  return apiFetch("/world");
+}
+
+/** Make a new current world from a template; the previous one is retired, not deleted. */
+export async function applyWorldTemplate(id: string): Promise<{ world: WorldData }> {
+  return apiFetch(`/world/templates/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({}) });
+}
+
+export async function createWorld(): Promise<{ world: WorldData }> {
+  return apiFetch("/world", { method: "POST", body: JSON.stringify({}) });
+}
+
+export type WorldKind = "buildings" | "areas" | "workstations";
+
+/** Creates (no id) or updates a building, area or workstation. `active: false` deactivates it. Validated by the API. */
+export async function saveWorldItem(kind: WorldKind, id: string | null, fields: Record<string, unknown>): Promise<{ saved: Record<string, unknown> }> {
+  return apiFetch(id ? `/world/${kind}/${id}` : `/world/${kind}`, { method: "POST", body: JSON.stringify(fields) });
+}
+
+export async function renameWorkspace(name: string): Promise<unknown> {
+  return apiFetch("/world/workspace", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export type HistoryGoal = {
+  id: string;
+  title: string;
+  project: string;
+  status: string;
+  lifecycle: string;
+  createdAt: string;
+  archivedAt: string | null;
+  archivedBy: string | null;
+  agents: string[];
+  workflowRuns: { id: string; status: string; createdAt: string; completedAt: string | null; workflow: string | null }[];
+};
+
+export type HistoryData = { goals: HistoryGoal[]; capped: boolean; limit: number; filters: { lifecycles: string[]; agents: string[]; workflows: string[] } };
+
+export type HistoryWorkflowRun = {
+  id: string;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  goal: { id: string; title: string; archivedAt: string | null };
+  workflow: string | null;
+};
+
+export async function getHistoryWorkflowRuns(filters: Record<string, string>): Promise<{ workflowRuns: HistoryWorkflowRun[]; capped: boolean; limit: number }> {
+  const q = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== ""));
+  return apiFetch(`/history/workflow-runs${q.size > 0 ? `?${q.toString()}` : ""}`);
+}
+
+/** Archive every finished goal idle for `finishedBeforeHours`. A dry run counts; the real call must repeat that count. */
+export async function archiveFinished(finishedBeforeHours: number, expectedCount?: number): Promise<{ dryRun: boolean; count: number }> {
+  return apiFetch("/history/archive", {
+    method: "POST",
+    body: JSON.stringify(expectedCount === undefined ? { finishedBeforeHours, dryRun: true } : { finishedBeforeHours, dryRun: false, expectedCount }),
+  });
+}
+
+export async function getHistory(filters: Record<string, string>): Promise<HistoryData> {
+  const q = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== ""));
+  return apiFetch(`/history${q.size > 0 ? `?${q.toString()}` : ""}`);
+}
+
+/** Archiving moves a finished Goal out of current work. Nothing is deleted. */
+export async function setGoalArchived(goalId: string, archived: boolean): Promise<{ id: string; archivedAt: string | null }> {
+  return apiFetch(`/goals/${goalId}/${archived ? "archive" : "unarchive"}`, { method: "POST", body: JSON.stringify({}) });
+}
+
+/** Sets how a persistent agent looks. Writes no Definition version, Grant or event: presentation only. */
+export async function setAgentAppearance(name: string, appearance: Appearance): Promise<{ name: string; appearance: Appearance }> {
+  return apiFetch(`/agent-appearances/${encodeURIComponent(name)}`, { method: "POST", body: JSON.stringify({ appearance }) });
+}
+
+// ---------------------------------------------------------------------------
 // Keeper (V1.1): explain and guide use no model; Think starts a governed Goal
 // ---------------------------------------------------------------------------
 
@@ -689,6 +880,132 @@ export async function keeperExplain(subject: string): Promise<KeeperExplanation>
 /** The guide cards matching a question. Deterministic; no model. */
 export async function keeperGuide(q: string): Promise<KeeperGuideCard[]> {
   return (await apiFetch<{ cards: KeeperGuideCard[] }>(`/keeper/guide?q=${encodeURIComponent(q)}`)).cards;
+}
+
+/** R2 Stage 6: one intent answer, deterministic, from the authoritative records. FACT / DERIVED / UNKNOWN. */
+export type KeeperLine = { text: string; source: string; links: { label: string; href: string }[] };
+export type KeeperAnswer = {
+  intent: string | null;
+  intentLabel: string | null;
+  subject: { type: string; id: string | null; name: string | null };
+  question: string | null;
+  headline: string;
+  facts: KeeperLine[];
+  derived: KeeperLine[];
+  unknown: string[];
+  sources: string[];
+  canExplain: { intent: string; label: string }[];
+  size: { characters: number; estimatedTokens: number };
+};
+
+export async function keeperExplanation(subject: string, ask: { question?: string; intent?: string }): Promise<KeeperAnswer> {
+  const q = new URLSearchParams({ subject, ...(ask.question ? { question: ask.question } : {}), ...(ask.intent ? { intent: ask.intent } : {}) });
+  return apiFetch(`/keeper/explanations?${q.toString()}`);
+}
+
+export type KeeperIdentity = {
+  agentDefinitionId: string;
+  name: string;
+  version: number;
+  appearance: Appearance | null;
+  /** The chosen appearance, else the look derived from its name. Absent from older API builds. */
+  look?: Appearance;
+  intents: { id: string; label: string; subjects: string[] }[];
+};
+
+/** The Keeper's persistent agent, its appearance (presentation), and the questions it can explain. */
+export async function keeperIdentity(): Promise<KeeperIdentity> {
+  return apiFetch("/keeper/identity");
+}
+
+/**
+ * Talk to an agent (R2 character interaction): request work from one persistent agent. Only the message
+ * is sent; the API chooses the agent's latest version and everything that governs it. 409 when the agent
+ * is stopped, awaiting approval, paused or already working (nothing is started).
+ */
+export async function talkToAgent(
+  agentDefinitionId: string,
+  message: string
+): Promise<{ goalId: string; workflowRunId: string; agent: { id: string; name: string; version: number }; /** True when the agent was the Manager: the message became a mission. */ mission?: boolean }> {
+  return apiFetch(`/agents/${encodeURIComponent(agentDefinitionId)}/talk`, { method: "POST", body: JSON.stringify({ message }) });
+}
+
+// ---------------------------------------------------------------------------
+// Command: missions for the Manager (R2 management layer)
+// ---------------------------------------------------------------------------
+
+export type MissionStatus = "planning" | "working" | "awaiting_approval" | "paused" | "completed" | "escalated" | "failed" | "stopped" | "finished_without_report";
+
+export type MissionTask = { stepId: string; agentName: string; brief: string; expectedOutput: string; completionCriteria: string; dependsOn: string[]; intents: string[]; tools: string[] };
+
+export type MissionStep = {
+  taskInstanceId: string;
+  kind: string | null;
+  taskStatus: string;
+  agentName: string | null;
+  runId: string | null;
+  runStatus: string | null;
+  failure: string | null;
+  /** The deterministic reason the step's run failed (e.g. worker_timed_out). Absent from older API builds. */
+  failureCode?: string | null;
+  deliverableArtifactId: string | null;
+  completion: { status?: string; reason?: string } | null;
+};
+
+export type MissionDetail = {
+  goal: {
+    id: string;
+    title: string;
+    objective: string | null;
+    status: string;
+    createdAt: string;
+    /** The operator's deadline, when one was set. Nothing estimates or promises a finish time. */
+    dueAt: string | null;
+    /** Derived from the clock by the server, like a meeting's status. Late is not failed. */
+    overdue: boolean;
+  };
+  status: MissionStatus;
+  /** One governed recovery round after delegated work failed, when the runtime started one. */
+  recovery: { round: number; failures: string[]; action: string | null } | null;
+  /** The meeting decision this mission answers, when it answers one. */
+  fromDecision: { meetingId: string; text: string } | null;
+  /** The first authoritative reason code for a blocked, escalated, stopped or failed mission; null otherwise. */
+  reason: string | null;
+  /** Every reason, from code and runtime facts; `detail` may quote the model. */
+  reasons: { code: string; detail: string; runId?: string }[];
+  /** The mission's recorded facts in order: Manager decisions, policy, budget, approvals, stops, outcomes. */
+  trace: { seq: number; type: string; at: string; runId: string | null; actor: string; summary: string }[];
+  plan: {
+    status: "delegated" | "plan_rejected" | "escalated" | "scheduled" | "rescheduled" | "cancelled";
+    /** Workplace: the meeting code decided and applied (time, room and participants chosen by code). */
+    meeting?: { action: string; meetingId: string; title: string; participants: string[]; startsAt: string | null; endsAt: string | null; roomName: string | null; previous: { startsAt: string; endsAt: string; roomName: string } | null } | null;
+    tasks: MissionTask[]; errors: string[]; blockers?: { code: string; detail: string }[]; delegatedWorkflowRunId: string | null; artifactId: string; summary: string | null } | null;
+  report: {
+    status: "completed" | "follow_up_started" | "escalated";
+    artifactId: string;
+    body: string | null;
+    work: { stepId: string; agentName: string; artifactId: string; verified: boolean; problems: string[]; runId: string; workerLoop?: { status: string; reason: string } }[];
+    assessments: { stepId: string; sufficient: boolean; reason: string }[];
+    /** Coded findings written by the review's code; `detail` may quote the model. */
+    blockers: { code: string; detail: string }[];
+    followUpWorkflowRunId: string | null;
+  } | null;
+  workflowRuns: { id: string; status: string; workflow: string | null; createdAt: string; completedAt: string | null; steps: MissionStep[] }[];
+  pendingApprovals: string[];
+  blockers: string[];
+};
+
+/** Give the Manager an objective. Only the objective is sent; 409 when the Manager is stopped or already running a mission. */
+export async function startMission(objective: string): Promise<{ goalId: string; workflowRunId: string; agent: { id: string; name: string; version: number } }> {
+  return apiFetch("/manager/missions", { method: "POST", body: JSON.stringify({ objective }) });
+}
+
+export async function listMissions(): Promise<{ missions: { goal: MissionDetail["goal"]; status: MissionStatus; blockers: number }[]; manager: { id: string; name: string; version: number } | null }> {
+  return apiFetch("/manager/missions");
+}
+
+export async function getMission(goalId: string): Promise<MissionDetail> {
+  return apiFetch(`/manager/missions/${encodeURIComponent(goalId)}`);
 }
 
 /** Keeper Think: an explicit, governed Goal in the Keeper project (CHEAP tier, READ-only). Uses subscription quota. */
@@ -721,6 +1038,11 @@ export type CostsData = {
   countersTruncated: boolean;
   /** Summed per (scope, unit) by the API. Never add across units or scopes. */
   totals: { scope: string; resourceUnit: string; consumed: string; reserved: string; counters: number }[];
+  /**
+   * Per unit, how much recorded consumption came from the provider's OWN report and how much was
+   * charged at a client-side estimate. An estimate is not spend and must never be labelled as such.
+   */
+  consumedBasis: Record<string, { reported: string; estimate: string }>;
   costVsSuccess: ({
     agentDefinitionId: string;
     agentName: string;
@@ -778,8 +1100,9 @@ export async function getRunTrace(runId: string): Promise<RunTrace> {
   return apiFetch<RunTrace>(`/runs/${encodeURIComponent(runId)}/trace`);
 }
 
-export async function listGoals(): Promise<ProjectGoals[]> {
-  const data = await apiFetch<{ projects: ProjectGoals[] }>("/goals");
+/** `withinHours`: only current work — unfinished, or active within that many hours. Absent: every unarchived goal. */
+export async function listGoals(withinHours?: number): Promise<ProjectGoals[]> {
+  const data = await apiFetch<{ projects: ProjectGoals[] }>(`/goals${withinHours === undefined ? "" : `?within=${withinHours}`}`);
   return data.projects;
 }
 
@@ -940,3 +1263,121 @@ export function subscribeToActivity(
     currentSource?.close();
   };
 }
+
+// ---------------------------------------------------------------------------
+// Workplace: calendar, meetings, rooms, internal notifications (`src/api/routes/workplace.ts`).
+// Every rule is the backend's; these are observability and operator controls only.
+// ---------------------------------------------------------------------------
+
+export type WorkplaceSettings = {
+  timezone: string;
+  workStartMinute: number;
+  workEndMinute: number;
+  workingDays: number[];
+  outsideWorkingHours: "forbid" | "allow";
+  /** Whether WORK may START outside an agent's hours. Distinct from booking a meeting then. */
+  workOutsideHours: "forbid" | "allow";
+  defaultMeetingMinutes: number;
+  reminderMinutes: number;
+  gatherMinutes: number;
+  notifyInvitations: boolean;
+  notifyReminders: boolean;
+  notifyAnnouncements: boolean;
+};
+export type WorkplaceRoom = { id: string; name: string; purpose: string; capacity: number; locationAreaName: string | null; active: boolean };
+export type WorkplaceEntry = { text: string; actor: string; at: string };
+/** `starting`: inside the gather window, when participants leave for the room; it has not begun. */
+export type MeetingStatus = "scheduled" | "starting" | "in_progress" | "completed" | "cancelled";
+export type Meeting = {
+  id: string;
+  title: string;
+  agenda: string;
+  organiser: string;
+  room: { id: string; name: string; purpose: string; capacity: number; locationAreaName: string | null };
+  startsAt: string;
+  endsAt: string;
+  status: MeetingStatus;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  participants: { agentName: string; role: string }[];
+  notes: WorkplaceEntry[];
+  decisions: WorkplaceEntry[];
+  actions: (WorkplaceEntry & { goalId: string })[];
+  goalId: string | null;
+  runId: string | null;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+};
+export type CalendarEntry = { id: string; agentName: string | null; kind: string; title: string; startsAt: string; endsAt: string; createdBy: string };
+export type CalendarData = { now: string; settings: WorkplaceSettings; rooms: WorkplaceRoom[]; meetings: Meeting[]; entries: CalendarEntry[] };
+/**
+ * What one agent is doing now, decided by the server (`GET /agents/state`). One vocabulary for the whole
+ * browser: the world, the agent views and the Keeper all render this rather than each deriving its own.
+ */
+export type AgentStateName = "stopped" | "awaiting_approval" | "in_meeting" | "working" | "waiting_dependency" | "on_break" | "outside_hours" | "unavailable" | "available";
+export type AgentState = {
+  agentName: string;
+  state: AgentStateName;
+  detail: string;
+  until: string | null;
+  work: { runId: string | null; goalId: string | null; goalTitle: string | null; taskKind: string | null } | null;
+  nextMeeting: { meetingId: string; title: string; roomName: string; startsAt: string } | null;
+};
+
+export type MeetingPresence = { agentName: string; meetingId: string; title: string; roomName: string; locationAreaName: string | null; phase: "gathering" | "in_meeting"; startsAt: string; endsAt: string };
+export type AgentSchedule = {
+  now: string;
+  timezone: string;
+  current: MeetingPresence | null;
+  meetings: { id: string; title: string; startsAt: string; endsAt: string; status: MeetingStatus; roomName: string }[];
+  entries: CalendarEntry[];
+  next: { id: string; title: string; startsAt: string; endsAt: string; roomName: string } | null;
+};
+export type WorkplaceNotification = { id: string; recipient: string; kind: string; title: string; body: string; sender: string; meetingId: string | null; goalId: string | null; channel: string; deliverAt: string; readAt: string | null };
+export type WorkplaceSettingsData = {
+  settings: WorkplaceSettings;
+  rooms: WorkplaceRoom[];
+  agentHours: { agentName: string; workStartMinute: number | null; workEndMinute: number | null; workingDays: number[] | null }[];
+  allowed: { roomPurposes: string[]; calendarKinds: string[]; notificationKinds: string[]; timingWindows: string[] };
+};
+export type Timing = { window: string; at?: string };
+
+function postJson<T>(path: string, body: unknown): Promise<T> {
+  return apiFetch<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) });
+}
+
+export const getWorkplaceSettings = () => apiFetch<WorkplaceSettingsData>("/workplace/settings");
+export const saveWorkplaceSettings = (changes: Partial<WorkplaceSettings>) => postJson<{ settings: WorkplaceSettings }>("/workplace/settings", changes);
+export const saveAgentHours = (name: string, hours: { workStartMinute: number | null; workEndMinute: number | null; workingDays: number[] | null }) => postJson<unknown>(`/workplace/agent-hours/${encodeURIComponent(name)}`, hours);
+export const createRoom = (room: Omit<WorkplaceRoom, "id">) => postJson<{ room: WorkplaceRoom }>("/workplace/rooms", room);
+export const updateRoom = (id: string, changes: Partial<Omit<WorkplaceRoom, "id">>) => postJson<{ room: WorkplaceRoom }>(`/workplace/rooms/${id}`, changes);
+export function getCalendar(from: Date, to: Date, filter: { agent?: string; room?: string } = {}): Promise<CalendarData> {
+  const q = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), ...(filter.agent ? { agent: filter.agent } : {}), ...(filter.room ? { room: filter.room } : {}) });
+  return apiFetch(`/workplace/calendar?${q.toString()}`);
+}
+export const getMeeting = (id: string) => apiFetch<{ meeting: Meeting; settings: WorkplaceSettings }>(`/workplace/meetings/${id}`);
+export const scheduleMeeting = (body: { title: string; agenda?: string; participants: string[]; durationMinutes?: number; timing?: Timing; roomName?: string }) => postJson<{ meetingId: string; meeting: Meeting }>("/workplace/meetings", body);
+export const rescheduleMeeting = (id: string, body: { timing: Timing; durationMinutes?: number; roomName?: string }) => postJson<{ meeting: Meeting }>(`/workplace/meetings/${id}/reschedule`, body);
+export const cancelMeeting = (id: string, reason: string) => postJson<unknown>(`/workplace/meetings/${id}/cancel`, { reason });
+export const recordMeetingOutcome = (id: string, body: { notes?: string[]; decisions?: string[] }) => postJson<unknown>(`/workplace/meetings/${id}/outcome`, body);
+export const startWorkFromDecision = (id: string, decision: number) => postJson<{ goalId: string }>(`/workplace/meetings/${id}/actions`, { decision });
+export const getAgentSchedule = (name: string) => apiFetch<AgentSchedule>(`/workplace/agents/${encodeURIComponent(name)}/schedule`);
+export const getMeetingPresence = () => apiFetch<{ now: string; presence: MeetingPresence[] }>("/workplace/presence");
+export const getAgentStates = () => apiFetch<{ agents: AgentState[]; states: AgentStateName[] }>("/agents/state");
+export const listNotifications = (recipient?: string) => apiFetch<{ notifications: WorkplaceNotification[] }>(`/workplace/notifications${recipient ? `?recipient=${encodeURIComponent(recipient)}` : ""}`);
+export const markNotificationRead = (id: string) => postJson<unknown>(`/workplace/notifications/${id}/read`, {});
+export const sendWorkplaceMessage = (body: { kind: "message" | "announcement"; recipients?: string[]; title: string; body?: string }) => postJson<{ count: number }>("/workplace/messages", body);
+export const createCalendarEntry = (body: { agentName: string | null; kind: string; title: string; startsAt: string; endsAt?: string }) => postJson<{ id: string }>("/workplace/calendar-entries", body);
+export const cancelCalendarEntry = (id: string) => postJson<unknown>(`/workplace/calendar-entries/${id}/cancel`, {});
+
+// ---------------------------------------------------------------------------
+// Role icons (`src/api/routes/roleIcons.ts`): identity beside a name, never authority.
+// ---------------------------------------------------------------------------
+
+export type RoleIconDefinition = { id: string; name: string; colorToken: string; description: string; pixels: string[] };
+export type RoleIconCatalogue = { version: number; size: number; icons: RoleIconDefinition[] };
+export type RoleIconEntry = { name: string; iconId: string; chosen: boolean };
+
+export const getRoleIcons = () => apiFetch<{ catalogue: RoleIconCatalogue; agents: RoleIconEntry[] }>("/role-icons");
+export const setAgentRoleIcon = (name: string, iconId: string) => apiFetch<{ agentName: string; iconId: string }>(`/agent-role-icons/${encodeURIComponent(name)}`, { method: "POST", body: JSON.stringify({ iconId }) });

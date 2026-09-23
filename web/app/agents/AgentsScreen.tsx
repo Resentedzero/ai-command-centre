@@ -11,6 +11,8 @@ import { WorkshopCloseup, type WorkshopState } from "../../components/world/Work
 import { agentState, eligibilityWord, errorText, formatAmount, formatTime, stateWord } from "../../lib/keep";
 import a from "./agents.module.css";
 import { DelegateObjective } from "../../components/agents/DelegateObjective";
+import { Progression } from "../../components/agents/Progression";
+import { AgentLabel } from "../../components/agents/RoleIcon";
 
 /**
  * Agents (spec 15.1 screen 2; Figma "Agents v2 — pixel"): what is this agent
@@ -123,7 +125,7 @@ export function AgentsScreen({ id: routeId }: { id?: string }) {
         state={roomState}
         label={detail ? `${detail.agent.name}'s workshop` : "Workshop"}
         keys={grants.map((g, i) => ({ n: i + 1, revoked: g.revoked }))}
-        definitionIds={registry?.agentDefinitions.map((d) => d.id)}
+        definitions={registry?.agentDefinitions}
       />
       <section className={cx(px.board, a.board)} aria-label="Agent detail">
         {!detail && loadError ? (
@@ -223,12 +225,15 @@ function AgentBoard({
     <>
       <header className={a.header}>
         <h1 className={px.heading}>
-          {agent.name} v{agent.version}
+          <AgentLabel name={agent.name} size={18} suffix={<>v{agent.version}</>} />
         </h1>
         <StopControl agentId={agent.id} name={agent.name} version={agent.version} stop={shownStop} onChanged={onChanged} />
         <nav className={a.builderLinks} aria-label="Agent builder">
           <Link href={`/agents/new?from=${agent.id}`} className={a.link}>
             New version
+          </Link>
+          <Link href={`/agents/${agent.id}/appearance`} className={a.link}>
+            Change appearance
           </Link>
           <Link href="/agents/new" className={a.link}>
             Recruit an agent
@@ -277,6 +282,8 @@ function AgentBoard({
             : "runtime defaults"}
         </div>
       </div>
+
+      <Progression agent={agent} performance={detail.performanceAcrossVersions} />
 
       <section className={a.section} aria-label="Objective">
         <span className={px.tab}>Give an objective</span>

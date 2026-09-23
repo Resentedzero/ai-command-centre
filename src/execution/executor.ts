@@ -736,6 +736,7 @@ async function processLlmSpec(tx: DrizzleTransaction, runRow: RunRow, seqNo: num
     compiledContext = await compileContext(tx, {
       intent: spec.intent,
       ...(spec.directive !== undefined ? { directive: spec.directive } : {}),
+      ...(spec.untrustedDirective !== undefined ? { untrustedDirective: spec.untrustedDirective } : {}),
       expectedOutputShape: spec.expectedOutputShape,
       taskInstanceId,
       runId,

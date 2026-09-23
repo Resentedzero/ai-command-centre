@@ -9,7 +9,12 @@
  * ids go to the Context Compiler as candidates, which decides reference vs content;
  * a failed attempt's outputs are never used. Deterministic: Artifacts and finished
  * Runs are immutable, so a resume resolves the same ids.
+ *
+ * Provenance AND integrity: resolution proves the artifact was produced by the named
+ * earlier step's one completed Run, and that its stored content still hashes to the
+ * hash recorded with it. Either check failing fails the step closed.
  */
+import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { artifacts, invocations, runs, taskInstances, workflowRuns } from "../../db/schema.js";
 import type { DrizzleTransaction } from "../../events/emit.js";
@@ -61,7 +66,16 @@ export function validateStepInputs(value: unknown, graph: LinearGraphDefinition,
 }
 
 /** Run-time resolution of a step's declared inputs to Artifacts. Fails closed on anything but exactly one match each. */
-export async function resolveStepInputArtifacts(tx: DrizzleTransaction, taskInstanceId: string, inputs: StepInput[]): Promise<ResolvedStepInput[]> {
+export async function resolveStepInputArtifacts(
+  tx: DrizzleTransaction,
+  taskInstanceId: string,
+  inputs: StepInput[],
+  options: { verifyIntegrity?: boolean } = {}
+): Promise<ResolvedStepInput[]> {
+  // A step that CONSUMES evidence must never be handed a corrupted artifact. The Manager's review exists to
+  // JUDGE that evidence and reports a hash mismatch itself as `verification_failed`, so it — and only it —
+  // resolves without this check; failing it closed here would replace a reasoned verdict with a crash.
+  const { verifyIntegrity = true } = options;
   if (inputs.length === 0) return [];
   const fail = (why: string): never => {
     throw new Error(`resolveStepInputArtifacts: task_instance "${taskInstanceId}" ${why} (fail closed).`);
@@ -86,11 +100,18 @@ export async function resolveStepInputArtifacts(tx: DrizzleTransaction, taskInst
     });
     if (completed.length !== 1) fail(`input "${input.fromStepId}" has ${completed.length} completed runs`);
     const rows = await tx
-      .select({ id: artifacts.id, hash: artifacts.hash, type: artifacts.type })
+      .select({ id: artifacts.id, hash: artifacts.hash, type: artifacts.type, inlineContent: artifacts.inlineContent })
       .from(artifacts)
       .innerJoin(invocations, eq(artifacts.producingInvocationId, invocations.id))
       .where(and(eq(invocations.runId, completed[0]!.id), eq(artifacts.type, input.artifactType)));
     if (rows.length !== 1) fail(`input "${input.fromStepId}" produced ${rows.length} "${input.artifactType}" artifacts`);
+    // Provenance says the evidence came from the right run; this says it is still what that run wrote.
+    // Artifacts are immutable by trigger, so a mismatch means the row was changed around the runtime —
+    // one agent must never build on it, and must never be told it was fine.
+    const { inlineContent, hash } = rows[0]!;
+    if (verifyIntegrity && inlineContent !== null && createHash("sha256").update(inlineContent).digest("hex") !== hash) {
+      fail(`input "${input.fromStepId}" has an artifact whose content no longer matches its recorded hash`);
+    }
     resolved.push({ stepId: input.fromStepId, artifactId: rows[0]!.id, hash: rows[0]!.hash, type: rows[0]!.type, runId: completed[0]!.id });
   }
   return resolved;

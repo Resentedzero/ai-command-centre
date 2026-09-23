@@ -26,6 +26,19 @@ If a lower tier disagrees with a higher one, the higher tier wins. The spec's da
   - the Claude Max (`claude -p`) provider adapter;
   - quota state and telemetry, and the disabled quota guardrail;
   - the tier ladder and candidate routing. (Phases 6–7H)
+- [`architecture/WORKPLACE.md`](architecture/WORKPLACE.md) covers:
+  - the internal workplace: calendar, meetings, rooms, availability and internal notifications;
+  - derived meeting status, code-decided scheduling, event-verified presence in the world;
+  - the Manager's governed `workplace.*` capabilities and what is not built (external calendars, recurrence).
+- [`architecture/TRUST_BOUNDARIES.md`](architecture/TRUST_BOUNDARIES.md) covers:
+  - what is authoritative, what is a code-written record, what is model-generated and what is presentation;
+  - every trust boundary's check, and what happens when it fails (all fail closed);
+  - progression integrity and token accounting's five separate categories;
+  - known limitations and what is explicitly not built. (R2 Stages 14–16)
+- [`architecture/ORGANISATIONAL_MEMORY.md`](architecture/ORGANISATIONAL_MEMORY.md) covers:
+  - the bounded, provenance-linked history read model (no table, no retrieval, no embeddings);
+  - recorded vs calculated facts, and the Manager's bounded read;
+  - operational notices derived from real events, and the two derived from the clock. (R2 Stages 9–11)
 - UI design language: the project skill [`.claude/skills/designing-command-centre-ui/`](../.claude/skills/designing-command-centre-ui/SKILL.md) covers the art direction (spec §15.4 note), runtime-to-visual mapping, Tile Pack state treatments, per-screen compositions and the Figma workflow. It is authoritative for visuals only. What the UI shows is set by the spec and API.
 
 Module-level contracts live in the header comment of each source file. The root `CLAUDE.md` is the orientation summary. Spec §17.2 anticipates per-module `CLAUDE.md` files, but none exist yet.

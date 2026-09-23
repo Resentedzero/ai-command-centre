@@ -6,6 +6,7 @@ import { getRegistry, listActiveAgents, listActiveStops, type ActiveStop, type A
 import { agentState, errorText } from "../../lib/keep";
 import { useRefetchOnEvents } from "../live";
 import { PixelButton, RefreshNotice, Skeleton, StateNotice, StatusMark, cx, px } from "../pixel/Pixel";
+import { AgentLabel } from "./RoleIcon";
 import s from "./roster.module.css";
 
 export type RosterEntry = {
@@ -103,7 +104,7 @@ export function AgentRoster({ roster, selectedId, hrefFor }: { roster: Roster; s
                 aria-current={e.id === selectedId ? "page" : undefined}
               >
                 <span className={s.name}>
-                  {e.name} <span className={px.dim}>v{e.version}</span>
+                  <AgentLabel name={e.name} suffix={<span className={px.dim}>v{e.version}</span>} />
                 </span>
                 {!activeLoaded ? (
                   <StatusMark state={null} />

@@ -779,18 +779,32 @@ export async function emitModelInvocationCompleted(
       // returned, bounded. Without this a web search inside a model call leaves no trace
       // anywhere, and "the agent searched the web" is invisible to governance.
       ...(providerResult.usage.toolActivity ? { toolActivity: providerResult.usage.toolActivity } : {}),
+      // R2 Task 42: what the provider actually measured, category by category, and — in
+      // `usageAccounting.unknown` — every category it never mentioned. It lives in the PAYLOAD rather
+      // than the six usage columns deliberately: the columns are what the budget is reconciled
+      // against and their meaning must not shift, while this is telemetry that explains them. A
+      // reader comparing `tokensIn` against `usageAccounting.cache.read` can finally see why an input
+      // count of 2 is not a prompt size. Nothing downstream charges, routes or scores on it.
+      ...(providerResult.usage.accounting ? { usageAccounting: providerResult.usage.accounting } : {}),
     },
     usage: {
       tokensIn: providerResult.usage.tokensIn,
       tokensOut: providerResult.usage.tokensOut,
       // The adapter's own report (§5.11); false when it reported none.
+      // KNOWN LIMITATION (R2 Stage 16): an adapter that reports NOTHING is recorded here as "no cache
+      // read", which is a different fact. `events.cache_hit` is nullable and could carry the
+      // distinction, but the usage envelope this feeds — and the read API built on it — type it as a
+      // plain boolean, so widening it is an API change rather than a one-line fix. Latent only: all
+      // three adapters always set it. Do not read `cacheHit: false` as "the provider said no".
       cacheHit: providerResult.usage.cacheHit === true,
       costAmount: providerResult.usage.costAmount,
       // The provider's OWN declared unit, never re-derived here: the adapter
       // is the only thing that knows what it actually consumed.
       costUnit: providerResult.usage.costUnit,
       modelId: route.modelId,
-      ...(providerResult.usage.secondaryUsage ? { secondaryUsage: providerResult.usage.secondaryUsage } : {}),
+      // `secondaryUsage` is deliberately NOT passed any more. `emitEvent` writes six usage columns and
+      // dropped it without writing, so passing it only made the envelope promise a record that was
+      // never kept. The split is persisted in the payload above, under `usageAccounting.secondary`.
     },
   });
 }

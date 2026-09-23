@@ -48,6 +48,7 @@ import type { CompiledContext } from "../../context/types.js";
 // writes no state. It has no database handle and takes no quota decision.
 import type { QuotaObservation, QuotaWindow } from "../../governance/subscriptionQuotaState.js";
 import type { ProviderCallResult, TierAccounting } from "../types.js";
+import { buildUsageAccounting, reported } from "../usageAccounting.js";
 import { buildSystemPrompt, buildUserMessage } from "./promptBuilder.js";
 
 /** Distinguishable failure classes (Step-3 requirement 17). */
@@ -504,7 +505,22 @@ function assertReportedTokenCount(value: unknown, field: string): number {
   return value;
 }
 
-type ModelUsageEntry = { modelId: string; tokensIn: number; tokensOut: number; webSearchRequests?: number };
+type ModelUsageEntry = {
+  modelId: string;
+  tokensIn: number;
+  tokensOut: number;
+  webSearchRequests?: number;
+  /**
+   * Advisory per-entry counts (R2 Task 42). NOT fail-closed and NOT counted: they never change
+   * `costAmount`, so an older CLI that omits them must not fail a call whose in/out were reported
+   * correctly. `null` means the CLI said nothing — never zero. `cacheRead` in particular is the field
+   * that explains a 2-token `inputTokens`: this CLI reports cached input SEPARATELY from
+   * `inputTokens`, so the counted figure has never included it.
+   */
+  cacheRead: number | null;
+  cacheCreation: number | null;
+  thinking: number | null;
+};
 
 /**
  * Extracts EVERY model's usage from the CLI's `modelUsage` map.
@@ -514,7 +530,15 @@ type ModelUsageEntry = { modelId: string; tokensIn: number; tokensOut: number; w
  * disables. Counting only the primary would under-report actual entitlement
  * consumption — a governance gap of exactly the kind the resource-unit work
  * exists to close — so all entries are summed and the non-primary ones are
- * additionally recorded on the Event.
+ * additionally recorded on the Event, in the payload's `usageAccounting.secondary`.
+ * (Until R2 Task 42 that last clause was false: they were handed up on the usage
+ * envelope's `secondaryUsage`, which `emitEvent` discarded without writing.)
+ *
+ * A SEPARATE ENTRY IS NOT GUARANTEED. When the internal call runs on the SAME
+ * model as the request, the CLI merges both into one entry — recorded captures
+ * show an entry of 1170/981 beside a top-level primary-only view of 10/967. The
+ * sum stays correct either way; what varies is whether the split is visible at
+ * all, which `usageAccounting.primary.mergedWithSecondary` records.
  *
  * Defensive by design: the CLI's JSON is NOT a published contract, so a
  * missing/renamed/malformed field fails closed rather than silently producing
@@ -568,6 +592,10 @@ export function extractModelUsage(parsed: Record<string, unknown>): {
       ...(typeof (entry.webSearchRequests ?? entry.web_search_requests) === "number"
         ? { webSearchRequests: Number(entry.webSearchRequests ?? entry.web_search_requests) }
         : {}),
+      // Recorded as reported, or null. No fallback to 0: see `ModelUsageEntry`.
+      cacheRead: reported(entry.cacheReadInputTokens ?? entry.cache_read_input_tokens),
+      cacheCreation: reported(entry.cacheCreationInputTokens ?? entry.cache_creation_input_tokens),
+      thinking: reported(entry.thinkingTokens ?? entry.thinking_tokens),
     });
   }
 
@@ -992,8 +1020,37 @@ export async function callClaudeSubscriptionModel(
     assertIsolationSurface(stream.initSurface, grantedTools);
 
     const { entries, totalTokens } = extractModelUsage(parsed);
-    const primary = entries.find((e) => e.modelId === modelId) ?? entries[0]!;
+    const matched = entries.find((e) => e.modelId === modelId);
+    const primary = matched ?? entries[0]!;
     const secondaryUsage = entries.filter((e) => e !== primary);
+    // How we know which entry answered the request. The CLI does not say, so when the model we routed
+    // to is not among the entries this is an assumption, and it is recorded as one.
+    const identified = matched ? (entries.length === 1 ? "sole_reported" : "matched") : entries.length === 1 ? "assumed_only_entry" : "assumed_first";
+    // Summed only across entries that reported the field at all, so "nobody reported it" stays null
+    // rather than becoming a zero total.
+    const sumReported = (pick: (e: ModelUsageEntry) => number | null): number | null => {
+      const present = entries.map(pick).filter((v): v is number => v !== null);
+      return present.length > 0 ? present.reduce((a, b) => a + b, 0) : null;
+    };
+
+    /**
+     * The CLI's top-level `usage` object — the ONLY primary-only view it offers.
+     *
+     * `modelUsage` credits a model, not a call, so when the internal classifier runs on the SAME model
+     * as the request the CLI merges both into one entry: capture 1 shows an entry of 1170/981 beside a
+     * top-level 10/967, the difference being the classifier. Reading only the entry therefore reports
+     * the primary as having consumed work it did not do, and nothing in the entry reveals that.
+     *
+     * Recorded ALONGSIDE the entry, never instead of it, and never folded into `costAmount`: this view
+     * was primary-only in all 16 recorded captures, but the CLI publishes no guarantee that it always
+     * is, and the counted total must keep including the classifier's real consumption.
+     */
+    const topLevel = parsed.usage;
+    const top = typeof topLevel === "object" && topLevel !== null ? (topLevel as Record<string, unknown>) : null;
+    const providerPrimaryOnly = top ? { input: reported(top.input_tokens), output: reported(top.output_tokens) } : null;
+    // A disagreement is a measurement; agreement, or no second view, claims nothing.
+    const mergedWithSecondary =
+      providerPrimaryOnly === null || providerPrimaryOnly.input === null ? null : providerPrimaryOnly.input !== primary.tokensIn || providerPrimaryOnly.output !== primary.tokensOut;
     // Counted per model entry, never from the top-level `server_tool_use`, which reported
     // 0 while five searches really ran (verified 2026-09-16). No entry reporting it at all
     // is recorded as unavailable rather than as zero.
@@ -1015,7 +1072,30 @@ export async function callClaudeSubscriptionModel(
         costAmount: totalTokens,
         costUnit: "subscription_tokens",
         cacheHit: reportsCacheRead(parsed),
-        ...(secondaryUsage.length > 0 ? { secondaryUsage } : {}),
+        ...(secondaryUsage.length > 0 ? { secondaryUsage: secondaryUsage.map((e) => ({ modelId: e.modelId, tokensIn: e.tokensIn, tokensOut: e.tokensOut })) } : {}),
+        accounting: buildUsageAccounting({
+          primary: { modelId: primary.modelId, identified, input: primary.tokensIn, output: primary.tokensOut, providerPrimaryOnly, mergedWithSecondary },
+          // The CLI always gives a per-model map, so an absence of other models is a measured `[]`,
+          // not an unknown.
+          secondary: secondaryUsage.map((e) => ({ modelId: e.modelId, input: e.tokensIn, output: e.tokensOut })),
+          cache: {
+            read: sumReported((e) => e.cacheRead),
+            creation: sumReported((e) => e.cacheCreation),
+            // Evidence: an entry reporting `inputTokens: 2` alongside `cacheReadInputTokens: 5000`
+            // cannot have the cached tokens inside the input count.
+            cacheReadIncludedInInput: false,
+          },
+          thinking: sumReported((e) => e.thinking),
+          // Evidenced, not assumed: the CLI's own footprint figure sums input + output + cache and
+          // never adds thinking, and the top-level view reports 566 thinking tokens inside an
+          // `output_tokens` of 967. Adding thinking to output would double-count it.
+          thinkingIncludedInOutput: true,
+          counted: {
+            amount: totalTokens,
+            unit: "subscription_tokens",
+            rule: "sum of inputTokens + outputTokens over every reported model entry; cache and thinking tokens are NOT included",
+          },
+        }),
         // Only when something actually happened: a call with no tools would otherwise write
         // an all-zero record onto every Invocation, which reads as "a search returned
         // nothing" rather than "no search was made".

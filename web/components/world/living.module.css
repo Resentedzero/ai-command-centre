@@ -1,0 +1,193 @@
+/* The living workplace: characters are buttons positioned at their feet; the renderer glides them between waypoints. */
+.agent {
+  position: absolute;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.agent:focus-visible {
+  outline: none;
+}
+.agent:focus-visible > .tag,
+.agent[aria-pressed="true"] > .tag {
+  border-color: var(--pixel-label);
+}
+/* A name tag for real work only (and the selected agent): idle life carries no label to read as work. */
+.tag {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font: 12px/14px var(--font-mono), monospace;
+  color: var(--pixel-label);
+  background: var(--pixel-wood-dark);
+  border: 2px solid var(--pixel-wood-edge);
+  padding: 1px 4px;
+  pointer-events: none;
+}
+.tag[data-real="false"] {
+  opacity: 0.85;
+}
+.lightFloor {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* R2 character interaction: a small board beside the character, above every character and plaque. */
+.panelAnchor {
+  position: absolute;
+  width: 0;
+  height: 0;
+  z-index: 3000;
+}
+.panelSchedule {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  margin: 6px 0;
+}
+.panelScheduleHead {
+  font-weight: 700;
+}
+.panelScheduleList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.panelScheduleList li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel {
+  position: absolute;
+  left: 0;
+  bottom: 76px;
+  transform: translateX(-50%);
+  width: 300px;
+  max-height: 420px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  font: 13px/17px var(--font-mono), monospace;
+  color: var(--pixel-label);
+  cursor: auto;
+}
+.panelAnchor[data-below="true"] .panel {
+  bottom: auto;
+  /* Clear of the character's own name tag, which sits just under its feet. */
+  top: 30px;
+}
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.panelName {
+  flex: 1;
+  font: 16px/20px var(--font-pixel), monospace;
+}
+.panelLevel {
+  font: 13px/16px var(--font-pixel), monospace;
+  padding: 0 6px;
+  border: 2px solid var(--identity-violet);
+}
+.panelClose {
+  background: none;
+  border: 2px solid var(--pixel-wood-edge);
+  color: var(--pixel-label);
+  font: 14px/14px var(--font-mono), monospace;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+}
+.panelClose:focus-visible {
+  outline: 2px solid var(--pixel-label);
+}
+.panelXp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.panelBar {
+  display: inline-flex;
+  gap: 2px;
+}
+.panelSeg {
+  width: 8px;
+  height: 8px;
+  background: var(--pixel-wood-dark);
+  border: 1px solid var(--pixel-wood-edge);
+}
+.panelSegOn {
+  background: var(--identity-violet);
+}
+.panelStatus {
+  display: flex;
+}
+.panelActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.panelLink {
+  color: var(--pixel-label);
+  text-decoration: underline;
+}
+.panelForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.panelForm textarea {
+  resize: vertical;
+  font: 13px/17px var(--font-mono), monospace;
+}
+.panelWork,
+.panelReply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.panelQuote {
+  max-height: 200px;
+  overflow: auto;
+  padding: var(--space-xs) var(--space-sm);
+  border-left: 3px solid var(--identity-violet);
+  background: var(--pixel-wood-dark);
+}
+.panelQuote p {
+  margin: 0 0 6px;
+}
+.panelError {
+  margin: 0;
+  color: var(--pixel-label);
+  border-left: 3px solid var(--state-fail);
+  padding-left: var(--space-xs);
+}
+
+/* A room hosting a real meeting says so, from the same records that put the agents in it. */
+.roomMarker {
+  position: absolute;
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  background: var(--pixel-wood);
+  border: 2px solid var(--pixel-wood-edge);
+  color: var(--pixel-label);
+  font: 11px/15px var(--font-mono), monospace;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}

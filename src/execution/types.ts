@@ -64,6 +64,8 @@ export type LlmInvocationSpec = {
   intent: InvocationIntent;
   /** V1.1: a trusted directive for the Compiler's invocation-instruction layer (`CompileContextInput.directive`). Never model output. */
   directive?: string;
+  /** R2: model-written directive text, fenced by the Compiler (`CompileContextInput.untrustedDirective`). */
+  untrustedDirective?: string;
   /** V1.1: the Agent's provider restriction, passed to the Router (`RouteRequest.requiredProvider`). */
   requiredProvider?: ProviderName;
   candidateArtifactIds: string[];

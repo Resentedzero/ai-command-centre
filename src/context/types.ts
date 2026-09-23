@@ -100,10 +100,18 @@ export type CompileContextInput = {
   /**
    * V1.1: a trusted directive for this Invocation, rendered in the invocation-instruction
    * layer and counted in the budget. Only plan code and operator-authored Definitions
-   * (a workflow step's instruction) supply it; model output never does (that stays
-   * fenced as untrusted artifact data).
+   * (a workflow step's instruction) supply it; model output never does — it goes in
+   * `untrustedDirective` below, which is fenced.
    */
   directive?: string;
+  /**
+   * R2 Stage 14: text for the invocation-instruction layer that a MODEL wrote — today the Manager's
+   * delegated `brief` and `completionCriteria`. It is rendered inside the same unguessable fence as an
+   * untrusted artifact and brings `untrustedDataPolicy` into `layers.constraints` with it, so model
+   * prose can describe the work without being read as the runtime's own instruction. Anything a model
+   * produced belongs here, never in `directive`.
+   */
+  untrustedDirective?: string;
   taskInstanceId: string;
   /**
    * The Run this compilation serves (added 2026-09-14). Its bound Agent

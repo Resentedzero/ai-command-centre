@@ -105,6 +105,35 @@ export async function findKeeperRefs(tx: DrizzleTransaction): Promise<{ projectI
   return workflow && project ? { projectId: project.id, workflowDefinitionId: workflow.id } : null;
 }
 
+/** Talk's Project and latest "Agent Talk" Task Definition (`./seed.ts` `seedTalk`), or null when not seeded. */
+export async function findTalkRefs(tx: DrizzleTransaction): Promise<{ projectId: string; taskDefinitionId: string; taskDefinitionVersion: number } | null> {
+  const tasks = await tx.query.taskDefinitions.findMany({ where: eq(taskDefinitions.name, "Agent Talk") });
+  const task = tasks.length > 0 ? await findLatestByName(tasks, "task_definitions named Agent Talk") : null;
+  const project = await findOneByName(await tx.query.projects.findMany({ where: eq(projects.name, "Direct requests") }), "projects named Direct requests");
+  return task && project ? { projectId: project.id, taskDefinitionId: task.id, taskDefinitionVersion: task.version } : null;
+}
+
+/** The Manager's latest Agent Definition, the "Missions" Project and the latest "Manager Plan" Workflow (`./seed.ts` `seedManager`), or null when not seeded. */
+export async function findManagerRefs(
+  tx: DrizzleTransaction
+): Promise<{ agent: { id: string; name: string; version: number }; agentVersionIds: string[]; projectId: string; planWorkflowDefinitionId: string } | null> {
+  const defs = await tx.query.agentDefinitions.findMany({ where: eq(agentDefinitions.name, "Manager") });
+  const latest = [...defs].sort((x, y) => y.version - x.version)[0];
+  const workflows = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, "Manager Plan") });
+  const workflow = workflows.length > 0 ? await findLatestByName(workflows, "workflow_definitions named Manager Plan") : null;
+  const project = await findOneByName(await tx.query.projects.findMany({ where: eq(projects.name, "Missions") }), "projects named Missions");
+  return latest && workflow && project
+    ? { agent: { id: latest.id, name: latest.name, version: latest.version }, agentVersionIds: defs.map((d) => d.id), projectId: project.id, planWorkflowDefinitionId: workflow.id }
+    : null;
+}
+
+/** The Keeper's persistent Agent Definition (latest version), for drawing it with its appearance. Null when not seeded. */
+export async function findKeeperAgent(tx: DrizzleTransaction): Promise<{ id: string; name: string; version: number } | null> {
+  const defs = await tx.query.agentDefinitions.findMany({ where: eq(agentDefinitions.name, "Keeper") });
+  const latest = defs.sort((a, b) => b.version - a.version)[0];
+  return latest ? { id: latest.id, name: latest.name, version: latest.version } : null;
+}
+
 export async function findSeededPublishWorkflow(tx: DrizzleTransaction): Promise<SeededWorkflowRefs | null> {
   const workflowDefinition = await findLatestByName(
     await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, WORKFLOW_DEFINITION_NAME) }),

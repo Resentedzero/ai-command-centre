@@ -18,6 +18,7 @@
 import OpenAI from "openai";
 import type { CompiledContext } from "../../context/types.js";
 import type { ProviderCallResult, TierAccounting, TierPricing } from "../types.js";
+import { buildUsageAccounting, reported } from "../usageAccounting.js";
 import { buildSystemPrompt, buildUserMessage } from "./promptBuilder.js";
 
 export type { ProviderCallResult, ProviderUsage } from "../types.js";
@@ -104,6 +105,28 @@ export async function callOpenAiModel(
       costAmount: tokensIn * pricing.inputPerToken + tokensOut * pricing.outputPerToken,
       costUnit: "usd",
       cacheHit: typeof cached === "number" && cached > 0,
+      accounting: buildUsageAccounting({
+        primary: { modelId, identified: "sole_reported", input: tokensIn, output: tokensOut },
+        secondary: null,
+        cache: {
+          read: reported(cached),
+          // OpenAI reports no cache-creation quantity: caching here is automatic and uncharged.
+          creation: null,
+          // THE OPPOSITE OF ANTHROPIC, and the reason this flag exists: `cached_tokens` is a SUBSET of
+          // `prompt_tokens`, so adding it to the input count would double-count it. This comes from
+          // OpenAI's published API reference, NOT from a response recorded in this repo — unlike the
+          // CLI's separation, which 16 captures in `benchmark/raw/` demonstrate arithmetically. If a
+          // real OpenAI response is ever captured here, confirm it.
+          cacheReadIncludedInInput: true,
+        },
+        // Reasoning models report this; others omit it, and then it stays unknown rather than zero.
+        thinking: reported(response.usage?.completion_tokens_details?.reasoning_tokens),
+        counted: {
+          amount: tokensIn * pricing.inputPerToken + tokensOut * pricing.outputPerToken,
+          unit: "usd",
+          rule: "prompt_tokens x inputPerToken + completion_tokens x outputPerToken, at a LOCAL list rate — an estimate, not a bill",
+        },
+      }),
     },
   };
 }

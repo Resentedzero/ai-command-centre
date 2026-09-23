@@ -58,6 +58,7 @@ import { MAX_ACTIVE_SECONDS, MAX_LOOP_ITERATIONS } from "../../governance/autono
 import { TASK_INSTANCE_BUDGET_CEILINGS } from "../../governance/runBudgetPolicy.js";
 import { MIN_ACTIVE_SECONDS, configuredProviders } from "../../definitions/executionProfile.js";
 import { loopActions } from "../../capabilities/shared/loopActions.js";
+import { appearanceBuilderOptions, derivedAppearance, readAppearances } from "../../definitions/appearance.js";
 import { THINKING_INTENTS } from "../../capabilities/agentObjective/buildInvocationSpecs.js";
 import {
   GRANT_AUTONOMY_STATES,
@@ -99,6 +100,7 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
       deps.db.select().from(workflowDefinitions).orderBy(asc(workflowDefinitions.name), asc(workflowDefinitions.version)),
     ]);
 
+    const appearances = await readAppearances(deps.db, agentRows.map((a) => a.name));
     return reply.send({
       agentDefinitions: agentRows.map((a) => ({
         id: a.id,
@@ -110,6 +112,9 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
         memoryPolicy: a.memoryPolicy,
         escalationPolicy: a.escalationPolicy,
         executionProfile: a.executionProfile,
+        // Presentation only, keyed on the persistent name (every version shares it); null = default character.
+        appearance: appearances.get(a.name) ?? null,
+        look: appearances.get(a.name) ?? derivedAppearance(a.name),
         createdAt: a.createdAt,
       })),
       // What an Agent Builder may offer, from the runtime's own configuration: never hard-coded in the UI.
@@ -129,6 +134,8 @@ export function registerRegistryRoutes(app: FastifyInstance, deps: ApiDeps): voi
         // What an autonomous objective may use: thinking actions (no Grant) and capabilities with a loop action (Grant required).
         thinkingIntents: THINKING_INTENTS,
         loopActions: loopActions().map((a) => ({ capability: a.capabilityName, permission: a.permission, describe: a.describe })),
+        // The character kit's parts and options (presentation only; `src/definitions/appearanceCatalogue.json`).
+        appearance: appearanceBuilderOptions(),
         autonomyLimits: {
           maxIterations: MAX_LOOP_ITERATIONS,
           maxActiveSeconds: MAX_ACTIVE_SECONDS,

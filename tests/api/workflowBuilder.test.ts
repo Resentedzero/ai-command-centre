@@ -9,10 +9,11 @@
  * - `?dryRun=1` validates without writing anything.
  * Every model call is mocked.
  */
+import { resolveStepInputArtifacts } from "../../src/capabilities/shared/stepInputs.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { closeTestDb, resetTestSchema, testDb } from "../testDb.js";
+import { closeTestDb, resetTestSchema, rewriteArtifactForTest, testDb } from "../testDb.js";
 import * as schema from "../../src/db/schema.js";
 import { seedPublishWorkflow, seedV11Definitions, type SeedPublishWorkflowResult } from "../../src/definitions/seed.js";
 
@@ -230,5 +231,15 @@ describe("a custom multi-agent workflow runs through the existing interpreter", 
     const events = await testDb.query.events.findMany({ where: eq(schema.events.workflowRunId, workflowRunId) });
     expect(events.map((e) => e.eventType)).toEqual(expect.arrayContaining(["approval_required", "approval_granted", "workflow_run_completed"]));
     expect(callAnthropicModel).not.toHaveBeenCalled();
+
+    // Handoff integrity: provenance is not enough. An artifact whose stored content no longer hashes to
+    // the hash recorded with it can never be handed to a downstream step, even though it still hangs off
+    // the right completed run. (Only reachable by writing around the immutability trigger, as here.)
+    await rewriteArtifactForTest(report.id, JSON.stringify({ format: "report/v1", title: "Rewritten" }));
+    await expect(
+      testDb.transaction((tx) =>
+        resolveStepInputArtifacts(tx as unknown as Parameters<typeof resolveStepInputArtifacts>[0], analyseTi!, [{ fromStepId: "research", artifactType: "report" }])
+      )
+    ).rejects.toThrow(/no longer matches its recorded hash/);
   });
 });

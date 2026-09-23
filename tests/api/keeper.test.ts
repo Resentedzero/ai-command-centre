@@ -24,6 +24,8 @@ let app: FastifyInstance;
 let seed: SeedPublishWorkflowResult;
 const USAGE = { tokensIn: 200, tokensOut: 100, costAmount: 300, costUnit: "subscription_tokens" as const };
 let failResearch = false;
+const WAITING_ANSWER = "## Why it waits\n\nThe publish step needs your approval.";
+let answerText = WAITING_ANSWER;
 
 async function get(url: string) {
   const res = await app.inject({ method: "GET", url });
@@ -63,7 +65,7 @@ beforeAll(async () => {
     if ("answer" in props) {
       return {
         result: {
-          answer: "## Why it waits\n\nThe publish step needs your approval.",
+          answer: answerText,
           keyPoints: ["Publisher asks first"],
           proposal: { kind: "agent", name: "Analyst", role: "Analyst", objective: "Analyse reports", instructions: "Be precise.", capabilities: ["research.retrieve"], steps: [] },
         },
@@ -195,6 +197,16 @@ describe("Keeper Think is an explicit, governed, read-only Goal", () => {
       subject: `workflow_run:${waiting!.id}`,
       proposal: { kind: "agent", name: "Analyst", capabilities: ["research.retrieve"] },
     });
+    // R2 Stage 6: the question maps to an intent, so the Keeper was given that intent's curated facts, not a dump.
+    const inspected = (
+      await testDb
+        .select({ a: schema.artifacts })
+        .from(schema.artifacts)
+        .innerJoin(schema.invocations, eq(schema.artifacts.producingInvocationId, schema.invocations.id))
+        .where(and(eq(schema.invocations.runId, run!.id), eq(schema.invocations.seqNo, 1)))
+    )[0]!.a;
+    expect(JSON.parse(inspected.inlineContent!).explanation).toMatchObject({ intent: "policy", facts: expect.any(Array), derived: expect.any(Array), unknown: expect.any(Array) });
+    expect(content.checks).toEqual({ unsupportedNumbers: [] });
     expect(content.basis.evidence).toEqual(
       expect.arrayContaining([
         { capability: "system.inspect", evidenceClass: "system_state", calls: 1 },
@@ -205,6 +217,32 @@ describe("Keeper Think is an explicit, governed, read-only Goal", () => {
     const after = await counts();
     expect(after.agents).toBe(before.agents);
     expect(await testDb.query.agentDefinitions.findFirst({ where: eq(schema.agentDefinitions.name, "Analyst") })).toBeUndefined();
+  });
+
+  it("flags numbers the Keeper's answer adds that its records do not contain", async () => {
+    answerText = "Publisher has 48213 XP and is level 12.";
+    try {
+      const res = await app.inject({ method: "POST", url: "/keeper/questions", payload: { question: "Why is Publisher level 12?", subject: "system" } });
+      expect(res.statusCode).toBe(202);
+      const { workflowRunId } = res.json() as { workflowRunId: string };
+      const done = await waitFor(async () => {
+        const wr = await testDb.query.workflowRuns.findFirst({ where: eq(schema.workflowRuns.id, workflowRunId) });
+        return wr && wr.status !== "in_progress" ? wr : null;
+      });
+      expect(done.status).toBe("completed");
+      const [ti] = (done.variables as { stepTaskInstanceIds: string[] }).stepTaskInstanceIds;
+      const run = await testDb.query.runs.findFirst({ where: eq(schema.runs.taskInstanceId, ti!) });
+      const answer = (
+        await testDb
+          .select({ a: schema.artifacts })
+          .from(schema.artifacts)
+          .innerJoin(schema.invocations, eq(schema.artifacts.producingInvocationId, schema.invocations.id))
+          .where(and(eq(schema.invocations.runId, run!.id), eq(schema.artifacts.type, "keeper_answer")))
+      )[0]!.a;
+      expect(JSON.parse(answer.inlineContent!).checks).toEqual({ unsupportedNumbers: ["48213"] });
+    } finally {
+      answerText = WAITING_ANSWER;
+    }
   });
 
   it("an emergency stop applies to the Keeper like any agent", async () => {
@@ -243,5 +281,13 @@ describe("structural: the Keeper has no write path of its own", () => {
     // Database writes only (a hash's `.update()` is not one).
     const offenders = files.filter((f) => /(tx|db)\s*\.\s*(insert|update|delete)\(|emitEvent\(|emitLifecycleEvent\(/.test(readFileSync(f, "utf8")));
     expect(offenders).toEqual([]);
+  });
+
+  it("R2 Stage 6: the intent explainers read no environment, no Tool Binding config, and import no provider or writer", () => {
+    const root = path.resolve("src");
+    for (const file of ["keeper/explainIntent.ts", "keeper/intents.ts"]) {
+      const source = readFileSync(path.join(root, file), "utf8");
+      expect(source).not.toMatch(/process\.env|toolBindings|router\/|providers\/|emitEvent|registryWrites|governance\//);
+    }
   });
 });

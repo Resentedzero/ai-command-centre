@@ -1,6 +1,6 @@
 /** Presentation mappings in lib/keep: character identity (#54) and amount display (#45). */
 import { describe, expect, it } from "vitest";
-import { budgetFallbackTitle, characterFor, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeTitle, routeToken } from "../lib/keep";
+import { budgetFallbackTitle, characterFor, kitLayers, lookFor, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeTitle, routeToken } from "../lib/keep";
 
 describe("route and budget fallback presentation", () => {
   it("names a budget downgrade as the tier's source, and never drops a source it does not know", () => {
@@ -75,23 +75,54 @@ describe("formatTime", () => {
   });
 });
 
-describe("characterFor", () => {
-  // The live Publisher and Researcher ids, which the id hash maps to the same knight.
-  const publisher = "e74dc82f-da5d-4485-81be-c5ea2a8ff771";
-  const researcher = "b7913c4d-4743-429e-92d1-c8d84f9625df";
+describe("characterFor and lookFor", () => {
+  const scholar = { skin: "deep", hair: "bun", hairColor: "grey", top: "robe", topColor: "violet", bottom: "skirt", bottomColor: "umber", accessory: "glasses", mark: "book" };
+  const definitions = [
+    { id: "id-strategist-v2", name: "Strategist", appearance: null },
+    { id: "id-researcher-v1", name: "Researcher", appearance: null },
+    { id: "id-strategist-v1", name: "Strategist", appearance: null },
+    { id: "id-scholar-v1", name: "Scholar", appearance: scholar },
+  ];
 
-  it("gives the Registry's definitions distinct characters in sorted id order, whatever order the Registry lists them", () => {
-    expect(characterFor(researcher, [publisher, researcher])).toBe("knight");
-    expect(characterFor(publisher, [publisher, researcher])).toBe("wizard");
-    expect(characterFor(publisher, [researcher, publisher])).toBe("wizard");
+  it("gives the Registry's agents distinct default characters in sorted name order, whatever order the Registry lists them", () => {
+    expect(characterFor("Researcher", ["Strategist", "Researcher"])).toBe("knight");
+    expect(characterFor("Strategist", ["Researcher", "Strategist", "Strategist"])).toBe("wizard");
     expect(characterFor("c", ["a", "b", "c"])).toBe("knight"); // cycles
   });
 
-  it("falls back to the id hash without the Registry, or for an id it doesn't list", () => {
-    const byHash = hashOf(publisher) % 2 === 0 ? "knight" : "wizard";
-    expect(characterFor(publisher)).toBe(byHash);
-    expect(characterFor(publisher, null)).toBe(byHash);
-    expect(characterFor(publisher, ["other"])).toBe(byHash);
+  it("falls back to the name hash without the Registry, or for a name it doesn't list", () => {
+    const byHash = hashOf("Publisher") % 2 === 0 ? "knight" : "wizard";
+    expect(characterFor("Publisher")).toBe(byHash);
+    expect(characterFor("Publisher", null)).toBe(byHash);
+    expect(characterFor("Publisher", ["other"])).toBe(byHash);
+  });
+
+  it("draws every version of an agent the same, keyed on its name, not its version id", () => {
+    expect(lookFor("id-strategist-v1", definitions)).toEqual(lookFor("id-strategist-v2", definitions));
+    expect(lookFor("id-strategist-v1", definitions).name).toBe("Strategist");
+  });
+
+  it("uses a chosen appearance when the name carries one, and the default character otherwise", () => {
+    expect(lookFor("id-scholar-v1", definitions).appearance).toEqual(scholar);
+    expect(lookFor("id-researcher-v1", definitions).appearance).toBeNull();
+    // An agent with no chosen appearance is drawn with the look the API derived from its name.
+    expect(lookFor("x", [{ id: "x", name: "Derived", appearance: null, look: scholar }]).appearance).toEqual(scholar);
+    expect(lookFor("unknown-id", definitions, "Researcher")).toEqual(lookFor("id-researcher-v1", definitions));
+  });
+
+  it("stacks an appearance's layer strips bottom first and draws nothing for a 'none' part", () => {
+    expect(kitLayers(scholar, "walk", "up")).toEqual([
+      "/world/agents/walk-up-body-deep.png",
+      "/world/agents/walk-up-bottom-skirt-umber.png",
+      "/world/agents/walk-up-top-robe-violet.png",
+      "/world/agents/walk-up-hair-bun-grey.png",
+      "/world/agents/walk-up-accessory-glasses.png",
+      "/world/agents/walk-up-mark-book.png",
+    ]);
+    expect(kitLayers({ ...scholar, hair: "none", accessory: "none", mark: "none" }, "idle")).toHaveLength(3);
+    // Left and right share the side strips (left is mirrored by the sprite); down is the default.
+    expect(kitLayers(scholar, "work", "left")).toEqual(kitLayers(scholar, "work", "right"));
+    expect(kitLayers(scholar, "idle")[0]).toBe("/world/agents/idle-down-body-deep.png");
   });
 });
 

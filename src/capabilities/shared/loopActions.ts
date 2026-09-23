@@ -18,6 +18,7 @@
  */
 import type { CapabilityPermission } from "../../governance/policy.js";
 import type { EvidenceClass } from "../toolAdapters.js";
+import type { DrizzleTransaction } from "../../events/emit.js";
 
 export type LoopAction = {
   capabilityName: string;
@@ -47,6 +48,17 @@ export type LoopAction = {
    * under-report what informed it.
    */
   evidenceClass?: EvidenceClass;
+  /**
+   * R2: facts the proposed action needs that only the runtime may supply (`peer.endorse` proves the
+   * endorsing Run received the artifact and its hash). Called with the Run before the Tool Invocation
+   * is built; a refusal is refused like a missing Grant, and a proven snapshot replaces `toSnapshot`'s.
+   * Never sees anything the model wrote beyond this action's own bounded fields.
+   */
+  prove?(
+    tx: DrizzleTransaction,
+    run: { runId: string },
+    input: Record<string, string>
+  ): Promise<{ ok: true; snapshot: Record<string, unknown> } | { ok: false; reason: string }>;
 };
 
 const actions = new Map<string, LoopAction>();

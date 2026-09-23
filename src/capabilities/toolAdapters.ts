@@ -51,6 +51,14 @@ import {
   researchRetrieveSynthetic,
 } from "./researchRetrieve/adapter.js";
 import { RESEARCH_SEARCH_PUBLIC_INDEXES, researchSearchPublicIndexes } from "./researchSearch/adapter.js";
+import { PEER_ENDORSE_RECORD, peerEndorseRecord } from "./peerEndorse/adapter.js";
+import { managerDelegateRecord, managerWorkforceRead } from "./manager/adapters.js";
+import { managerHistoryRead } from "./organisationHistory/adapter.js";
+import { keepStatsRead } from "./keepStats/adapter.js";
+import { KEEP_STATS_READ } from "./keepStats/capability.js";
+import { MANAGER_DELEGATE_RECORD, MANAGER_WORKFORCE_READ, MANAGER_HISTORY_READ } from "./manager/capability.js";
+import { workplaceCalendarRead, workplaceMeetingRecord, workplaceOutcomeRecord } from "./workplace/adapters.js";
+import { WORKPLACE_CALENDAR_READ, WORKPLACE_MEETING_RECORD, WORKPLACE_OUTCOME_RECORD } from "./workplace/capability.js";
 
 type ToolBindingRow = typeof toolBindings.$inferSelect;
 
@@ -120,6 +128,14 @@ registerInternalToolFunction(PUBLISH_REPORT_FILESYSTEM, publishReportFilesystem)
 registerInternalToolFunction(REVIEW_CHECKPOINT_RECORD, reviewCheckpointRecord);
 registerInternalToolFunction(SYSTEM_INSPECT_READ, systemInspectRead);
 registerInternalToolFunction(DOCS_RETRIEVE_GUIDE, docsRetrieveGuide);
+registerInternalToolFunction(PEER_ENDORSE_RECORD, peerEndorseRecord);
+registerInternalToolFunction(MANAGER_WORKFORCE_READ, managerWorkforceRead);
+registerInternalToolFunction(MANAGER_DELEGATE_RECORD, managerDelegateRecord);
+registerInternalToolFunction(KEEP_STATS_READ, keepStatsRead);
+registerInternalToolFunction(MANAGER_HISTORY_READ, managerHistoryRead);
+registerInternalToolFunction(WORKPLACE_CALENDAR_READ, workplaceCalendarRead);
+registerInternalToolFunction(WORKPLACE_MEETING_RECORD, workplaceMeetingRecord);
+registerInternalToolFunction(WORKPLACE_OUTCOME_RECORD, workplaceOutcomeRecord);
 
 /** The evidence class of a registered internal function, or undefined (not evidence, or not registered). */
 export function evidenceClassOfFunction(name: unknown): EvidenceClass | undefined {

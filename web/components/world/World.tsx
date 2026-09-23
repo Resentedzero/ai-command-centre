@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type CSSProperties, type PointerEvent, type ReactNode } from "react";
-import { STRIPS, type Character, type Pose } from "../../lib/keep";
+import { KIT, STRIPS, kitLayers, type AgentLook, type Facing, type KitPose, type Pose } from "../../lib/keep";
 import s from "./world.module.css";
 
 export { s as world };
@@ -37,7 +37,7 @@ export function WorldViewport({
   }, [focus?.x, focus?.y]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
-    if ((e.target as HTMLElement).closest("a,button")) return;
+    if ((e.target as HTMLElement).closest("a,button,input,textarea,select,label")) return;
     const el = ref.current!;
     drag.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop };
     el.setPointerCapture?.(e.pointerId);
@@ -73,36 +73,51 @@ export function WorldViewport({
  * loops at 100 ms per frame, idle breathes at 2 fps, death plays once and holds
  * its last frame. `frozen` holds frame 1 (an execution stop). Reduced motion
  * stops every animation globally. Feet sit at (footX, footY).
+ *
+ * An agent with a kit look (chosen, or derived from its name) is drawn from the
+ * character kit instead: its layer strips stacked as one element's backgrounds,
+ * stepping together, in the pose and facing given (left mirrors the side strip).
+ * The kit has no death strip, so a failed agent holds its idle frame. The runtime
+ * state still chooses the pose; the appearance only chooses the clothes.
  */
 export function AgentSprite({
-  character,
+  look,
   pose,
   footX,
   footY,
   frozen = false,
   scale = 1,
+  kitPose,
+  facing = "down",
 }: {
-  character: Character;
+  look: AgentLook;
   pose: Pose;
   footX: number;
   footY: number;
   frozen?: boolean;
   scale?: 1 | 2;
+  /** The kit pose, when not the runtime pose's own (run → work, otherwise idle): e.g. walk. */
+  kitPose?: KitPose;
+  facing?: Facing;
 }) {
-  const strip = STRIPS[character][pose];
+  const kp: KitPose = kitPose ?? (pose === "run" ? "work" : "idle");
+  const strip = look.appearance
+    ? { ...KIT[kp], once: false, src: kitLayers(look.appearance, kp, facing).reverse().map((src) => `url(${src})`).join(", ") }
+    : { ...STRIPS[look.character][pose], src: `url(${STRIPS[look.character][pose].src})` };
+  const held = frozen || (look.appearance !== null && pose === "death");
   const style = {
-    backgroundImage: `url(${strip.src})`,
+    backgroundImage: strip.src,
     width: strip.w,
     height: strip.h,
     left: footX - strip.w / 2,
     top: footY - strip.h,
-    transform: scale === 2 ? "scale(2)" : undefined,
+    transform: [scale === 2 ? "scale(2)" : "", look.appearance && facing === "left" ? "scaleX(-1)" : ""].join(" ").trim() || undefined,
     transformOrigin: "50% 100%",
     "--w": strip.w,
     "--n": strip.n,
     "--n1": Math.max(strip.n - 1, 0),
     "--ms": `${strip.ms}ms`,
   } as CSSProperties;
-  const cls = frozen ? s.frozen : strip.once ? s.once : "";
-  return <div className={`${s.sprite} ${cls}`} style={style} data-pose={frozen ? "frozen" : pose} aria-hidden />;
+  const cls = held ? s.frozen : strip.once ? s.once : "";
+  return <div className={`${s.sprite} ${cls}`} style={style} data-pose={frozen ? "frozen" : pose} data-look={look.appearance ? "kit" : look.character} data-facing={look.appearance ? facing : undefined} aria-hidden />;
 }

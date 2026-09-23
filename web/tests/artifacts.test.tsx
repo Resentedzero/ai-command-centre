@@ -9,6 +9,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { AgentDetail, ArtifactDetail, RegistryData } from "../lib/api";
 
 const api = vi.hoisted(() => ({
+  getQualityVerdicts: vi.fn(),
+  recordQualityVerdict: vi.fn(),
   getRegistry: vi.fn(),
   listActiveAgents: vi.fn(),
   listActiveStops: vi.fn(),
@@ -83,6 +85,7 @@ async function renderArtifact(id: string, search: { agent?: string; full?: strin
 
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
+  api.getQualityVerdicts.mockResolvedValue({ verdicts: [] });
   api.getRegistry.mockResolvedValue(registry);
   api.listActiveAgents.mockResolvedValue([]);
   api.listActiveStops.mockResolvedValue([]);

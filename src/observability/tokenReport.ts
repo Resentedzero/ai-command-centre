@@ -4,9 +4,19 @@
  * R2 Stage 1 has to prove an economy rather than assert one, so this reads the facts the
  * runtime already records and derives nothing it cannot support:
  *   - `invocation_completed` carries the usage (`tokens_in`, `tokens_out`, `cost_amount`,
- *     `cost_unit`, `model_id`). `cost_amount` is what the provider charged the counter;
- *     `tokens_in + tokens_out` is only the primary model's share, so the difference is the
- *     secondary model's, which the event columns do not carry separately.
+ *     `cost_unit`, `model_id`).
+ *
+ *     CORRECTED 2026-09-18 (R2 Task 42). An earlier revision of this header claimed the difference
+ *     between `cost_amount` and the primary's in+out was "everything the provider did not attribute to
+ *     the primary entry, including cached input", and "not splittable". BOTH CLAIMS WERE FALSE for a
+ *     token-denominated call. `cost_amount` is defined as the sum of `inputTokens + outputTokens` over
+ *     every reported model entry and NOTHING ELSE — cache and thinking tokens are never added to it —
+ *     so the residual is EXACTLY the non-primary entries' in+out, by construction. Since Task 42 the
+ *     per-model split is persisted too, in `invocation_completed`'s `usageAccounting.secondary`.
+ *
+ *     THE RESIDUAL IS ONLY MEANINGFUL FOR A TOKEN UNIT. For a `usd` call, `cost_amount` is money and
+ *     `tokens_in`/`tokens_out` are tokens; subtracting one from the other mixes units, so it is not
+ *     computed at all and reads as unknown.
  *   - `context_compiled` carries what was sent (`estimatedInputTokens`) and what was left out.
  *   - `agent_loop_iteration_recorded` carries per-iteration outcomes and the terminal reason.
  *   - `artifact_created` carries what the Run produced.
@@ -25,8 +35,13 @@ export type CallLine = {
   tokensIn: number | null;
   tokensOut: number | null;
   counted: number | null;
-  /** counted − (in + out): the secondary model's share, which has no column of its own. */
-  unattributed: number | null;
+  /**
+   * For a TOKEN unit: counted − (primary in + out), which is exactly the non-primary model entries'
+   * reported tokens. Null for a money unit, where the subtraction would mix dollars with tokens.
+   */
+  secondaryTokens: number | null;
+  /** The per-model split, when the provider gave one (`usageAccounting.secondary`). */
+  secondaryByModel: Array<{ modelId: string; input: number | null; output: number | null }> | null;
   unit: string | null;
   modelId: string | null;
 };
@@ -36,8 +51,8 @@ export type RunTokenReport = {
   unit: string | null;
   calls: CallLine[];
   modelCalls: number;
-  totals: { counted: number; input: number; output: number; unattributed: number; estimatedInput: number };
-  share: { output: number; context: number; unattributed: number };
+  totals: { counted: number; input: number; output: number; secondaryTokens: number; estimatedInput: number };
+  share: { output: number; context: number; secondary: number };
   iterations: { iteration: number; action: string; outcome: string }[];
   terminal: { status: string; reason: string; iterations: number; maxIterations: number } | null;
   artifacts: number;
@@ -49,6 +64,17 @@ export type RunTokenReport = {
 };
 
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+/** Whether amounts in this unit are token counts, and so share a dimension with tokensIn/tokensOut. */
+function isTokenUnit(unit: string | null): boolean {
+  return unit === "subscription_tokens" || unit === "local_tokens";
+}
+
+/** The per-model secondary split the adapter recorded, when the event carries one (R2 Task 42). */
+function secondaryOf(payload: unknown): Array<{ modelId: string; input: number | null; output: number | null }> | null {
+  const a = asRecord(asRecord(payload).usageAccounting);
+  return Array.isArray(a.secondary) ? (a.secondary as Array<{ modelId: string; input: number | null; output: number | null }>) : null;
+}
+
 const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 
 export async function runTokenReport(runId: string): Promise<RunTokenReport> {
@@ -88,7 +114,10 @@ export async function runTokenReport(runId: string): Promise<RunTokenReport> {
       tokensIn,
       tokensOut,
       counted,
-      unattributed: counted !== null && tokensIn !== null && tokensOut !== null ? counted - tokensIn - tokensOut : null,
+      // Only for a token unit — see the header. A money `counted` shares no dimension with tokens.
+      secondaryTokens:
+        isTokenUnit(row.costUnit) && counted !== null && tokensIn !== null && tokensOut !== null ? counted - tokensIn - tokensOut : null,
+      secondaryByModel: secondaryOf(row.payload),
       unit: row.costUnit,
       modelId: row.modelId,
     });
@@ -117,7 +146,7 @@ export async function runTokenReport(runId: string): Promise<RunTokenReport> {
     counted: sum((c) => c.counted),
     input: sum((c) => c.tokensIn),
     output: sum((c) => c.tokensOut),
-    unattributed: sum((c) => c.unattributed),
+    secondaryTokens: sum((c) => c.secondaryTokens),
     estimatedInput: sum((c) => c.estimatedInputTokens),
   };
   const pct = (part: number) => (totals.counted > 0 ? Math.round((part / totals.counted) * 1000) / 10 : 0);
@@ -131,12 +160,13 @@ export async function runTokenReport(runId: string): Promise<RunTokenReport> {
     calls,
     modelCalls: calls.length,
     totals,
-    // `unattributed` is counted minus the primary model's own input and output — the
-    // secondary model's share, which has no column of its own. The context figure is what
-    // the Compiler estimated it sent, and the two overlap: the secondary call re-reads the
-    // same context. So they are reported as separate views of the same total, never
-    // subtracted from one another.
-    share: { output: pct(totals.output), context: pct(totals.estimatedInput), unattributed: pct(totals.unattributed) },
+    // `secondary` is the non-primary models' share of a TOKEN total — exact, not a residual of
+    // unknowns (see the header). `context` is the COMPILER'S ESTIMATE expressed against a
+    // provider-COUNTED total: an estimate over a measurement, indicative only, and the estimator is
+    // known to under-count. The two views overlap (a secondary call re-reads the same context), so
+    // they are never subtracted from one another. Both are 0 when the unit is money, because neither
+    // ratio has a meaning there.
+    share: { output: pct(totals.output), context: pct(totals.estimatedInput), secondary: pct(totals.secondaryTokens) },
     iterations,
     terminal,
     artifacts: artifactCount,
@@ -148,8 +178,11 @@ export async function runTokenReport(runId: string): Promise<RunTokenReport> {
 
 export function formatTokenReport(report: RunTokenReport): string {
   const lines = [
-    `Run ${report.runId} — ${report.totals.counted} ${report.unit ?? "tokens"} over ${report.modelCalls} model calls`,
-    `  output ${report.totals.output} (${report.share.output}%) · context sent ${report.totals.estimatedInput} (${report.share.context}%) · other ${report.share.unattributed}%`,
+    // An unrecorded unit is printed as unknown, never silently called tokens.
+    `Run ${report.runId} — ${report.totals.counted} ${report.unit ?? "(unit not recorded)"} over ${report.modelCalls} model calls`,
+    isTokenUnit(report.unit)
+      ? `  output ${report.totals.output} (${report.share.output}%) · context sent ~${report.totals.estimatedInput} (${report.share.context}%, ESTIMATED) · secondary models ${report.totals.secondaryTokens} (${report.share.secondary}%)`
+      : `  priced in ${report.unit} at local list rates — an estimate, not a bill; token shares are not comparable to it`,
     ...report.calls.map(
       (c) => `  #${c.seqNo ?? "?"} ${c.intent ?? c.kind ?? "?"}: sent ~${c.estimatedInputTokens ?? "?"}, out ${c.tokensOut ?? "?"}, counted ${c.counted ?? "?"} (${c.modelId ?? "?"})`
     ),

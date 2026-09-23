@@ -4,8 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   getRegistry,
+  getWorld,
   listActiveAgents,
   listActiveStops,
+  getAgentStates,
+  getMeetingPresence,
+  type AgentState,
+  type MeetingPresence,
   listGoals,
   listPendingApprovals,
   listWorkflowRuns,
@@ -20,29 +25,36 @@ import { AgentSprite, WorldViewport, world } from "../components/world/World";
 import {
   KEEP,
   SYSTEM_ROOMS,
-  WORKSHOP_SLOTS,
   agentState,
-  characterFor,
-  placeInWorkshops,
+  lookFor,
+  type KnownAgent,
   countLabel,
   errorText,
   floorOf,
   formatTime,
-  poseFor,
   stateWord,
   type Rect,
 } from "../lib/keep";
 import o from "./overview.module.css";
-import { useKeeper } from "../components/keeper/Keeper";
+import { KeeperFigure, useKeeper } from "../components/keeper/Keeper";
+import { usePreferences } from "../components/preferences";
+import { windowParam, windowWords } from "../lib/preferences";
+import { LivingAgents, type LivingAgent } from "../components/world/LivingAgents";
+import { AgentPanel } from "../components/world/AgentPanel";
+import { AgentLabel } from "../components/agents/RoleIcon";
+import type { LivingWorld } from "../lib/living";
 
 /**
  * Overview (spec 15.1 screen 1; Figma "Overview A5 — pixel keep"): is the
  * system working, and where must I act? The keep's system rooms show real
- * counts; each active Agent Definition gets a workshop, lit by its real state.
- * An agent awaiting approval stands on the council-hall seal and its workshop
- * goes dark (one approval, one place). The board shows the selected agent with
+ * counts. Every persistent agent lives in the keep (plan §13, D27): real work
+ * walks it to a workstation for that kind of work, lit cyan while the run is
+ * active; awaiting approval walks it to the council hall; a stop freezes it
+ * behind a barrier; with no unfinished run it lives ambiently in the common
+ * areas, labelled as ambient. Where it walks is client presentation; what it is
+ * doing is only ever the runtime's rows. The board shows the selected agent with
  * Stop directly under its name. Everything rendered is an API value, client
- * state (selection, pan, feed status), chrome, or an honest absence.
+ * state (selection, pan, feed status, ambient movement), chrome, or an honest absence.
  */
 
 type Group = {
@@ -77,6 +89,7 @@ function Floor({ rect, children }: { rect: Rect; children: ReactNode }) {
 
 export default function OverviewPage() {
   const { status } = useLive();
+  const { preferences } = usePreferences();
   const keeper = useKeeper();
   const [agents, setAgents] = useState<AgentCardData[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -85,9 +98,15 @@ export default function OverviewPage() {
   const [goalCount, setGoalCount] = useState<Read<number>>(null);
   const [inProgress, setInProgress] = useState<Read<{ n: number; capped: boolean }>>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [definitions, setDefinitions] = useState<Read<{ id: string; name: string; version: number }[]>>(null);
+  const [definitions, setDefinitions] = useState<Read<(KnownAgent & { version: number })[]>>(null);
+  const [worldMap, setWorldMap] = useState<Read<LivingWorld>>(null);
   // The newest workflow run (`GET /workflow-runs` is newest first) when it failed: act-now history the board points at.
   const [latestFailed, setLatestFailed] = useState<{ id: string; title: string | null } | null>(null);
+  // Real meetings now (event-verified by the API): the only thing that can put an agent in a meeting room.
+  const [presence, setPresence] = useState<MeetingPresence[]>([]);
+  // What the server says each agent is doing. Unreadable: no state, so the world falls back to the runtime
+  // rows alone — an absence, never a guess.
+  const [agentStates, setAgentStates] = useState<AgentState[]>([]);
 
   const load = useCallback(async () => {
     const settle = <T,>(p: Promise<T>) => p.then((v) => ({ ok: true as const, v }), (e: unknown) => ({ ok: false as const, e }));
@@ -95,11 +114,30 @@ export default function OverviewPage() {
       settle(listActiveAgents()),
       settle(listPendingApprovals()),
       settle(listActiveStops()),
-      settle(listGoals()),
-      settle(listWorkflowRuns()),
+      settle(listGoals(windowParam(preferences))),
+      settle(listWorkflowRuns(windowParam(preferences))),
       settle(getRegistry()),
     ]);
     setDefinitions(r.ok ? r.v.agentDefinitions : "error");
+    // Unreadable presence draws nobody in a meeting: an absence, never a guess.
+    void getMeetingPresence()
+      .then((p) => setPresence(p.presence))
+      .catch(() => setPresence([]));
+    void getAgentStates()
+      .then((s) => setAgentStates(s.agents))
+      .catch(() => setAgentStates([]));
+    // The configured world, or the current keep as an unsaved preview before one is created.
+    void Promise.resolve()
+      .then(() => getWorld())
+      .then((wd) =>
+        setWorldMap(
+          wd.workspace
+            ? { areas: wd.areas, workstations: wd.workstations, buildings: wd.buildings }
+            : { areas: wd.preview?.areas ?? [], workstations: wd.preview?.workstations ?? [], buildings: wd.preview?.buildings ?? [] }
+        )
+      )
+      // A transient failure keeps the last world drawn; only a world never read is an absence.
+      .catch(() => setWorldMap((current) => (current === null ? "error" : current)));
     if (a.ok) {
       setAgents(a.v);
       setLoadError(null);
@@ -111,12 +149,25 @@ export default function OverviewPage() {
     setGoalCount(g.ok ? g.v.reduce((n, p) => n + p.goals.length, 0) : "error");
     setInProgress(w.ok ? { n: w.v.filter((r) => r.status === "in_progress").length, capped: w.v.length >= WORKFLOW_LIST_CAP } : "error");
     if (w.ok) setLatestFailed(w.v[0]?.status === "failed" ? { id: w.v[0].id, title: w.v[0].goal?.title ?? null } : null);
-  }, []);
+  }, [preferences]);
 
   useEffect(() => {
     void load();
   }, [load]);
   useRefetchOnEvents(load);
+  // A meeting starts and ends by the clock, with no event at that moment: re-read presence every 15 s.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void getMeetingPresence()
+        .then((p) => setPresence(p.presence))
+        .catch(() => setPresence([]));
+      // A break ends and a working day closes by the clock, with no event at that moment either.
+      void getAgentStates()
+        .then((s) => setAgentStates(s.agents))
+        .catch(() => setAgentStates([]));
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, []);
   // An Approval can expire with no event; re-read on the same cadence as the top bar.
   useEffect(() => {
     const timer = setInterval(() => void load(), OVERVIEW_REFRESH_MS);
@@ -138,29 +189,37 @@ export default function OverviewPage() {
     }));
   }, [agents, stops]);
 
-  // Each active Agent Definition takes its preferred workshop; any past the two are listed on the board.
-  const slots = useMemo(() => placeInWorkshops(groups), [groups]);
-  const placed = useMemo(() => slots.filter((g): g is Group => g !== undefined), [slots]);
   const needsAttention = (g: Group) => g.stop !== null || g.state === "awaiting_approval";
   const selected = groups.find((g) => g.key === selectedKey) ?? groups.find(needsAttention) ?? groups[0] ?? null;
   // Pin the first automatic choice, so a refresh never moves the board (and its Stop) to another agent.
   useEffect(() => {
     if (selectedKey === null && selected) setSelectedKey(selected.key);
   }, [selectedKey, selected]);
-  const onSeal = placed.filter((g) => g.state === "awaiting_approval" && !g.stop);
+  const onSeal = groups.filter((g) => g.state === "awaiting_approval" && !g.stop);
   const pendingN = typeof pending === "number" ? pending : 0;
 
   const focus = useMemo(() => {
-    if (selected) {
-      const slot = slots.indexOf(selected);
-      if (onSeal.includes(selected)) return centreOf(SYSTEM_ROOMS.approvals);
-      if (slot >= 0) return centreOf(WORKSHOP_SLOTS[slot]!);
-    }
+    if (selected && onSeal.includes(selected)) return centreOf(SYSTEM_ROOMS.approvals);
     return pendingN > 0 ? centreOf(SYSTEM_ROOMS.approvals) : centreOf(SYSTEM_ROOMS.runtime);
-  }, [selected, slots, onSeal, pendingN]);
+  }, [selected, onSeal, pendingN]);
+
+  // The character whose world panel is open (client state; any agent, busy or idle).
+  const [panelAgent, setPanelAgent] = useState<string | null>(null);
+  const closePanel = useCallback(() => setPanelAgent(null), []);
 
   const loaded = agents !== null;
-  const definitionIds = Array.isArray(definitions) ? definitions.map((d) => d.id) : undefined;
+  const known = Array.isArray(definitions) ? definitions : undefined;
+
+  // One inhabitant per persistent agent (its latest version's look), carrying only its own unfinished runs.
+  const inhabitants = useMemo<LivingAgent[]>(() => {
+    if (!known) return [];
+    const names = [...new Set(known.map((d) => d.name))].sort();
+    return names.map((name) => {
+      const versions = known.filter((d) => d.name === name).sort((x, y) => x.version - y.version);
+      const latest = versions.at(-1)!;
+      return { name, definitionIds: versions.map((v) => v.id), look: lookFor(latest.id, known, name), rows: (agents ?? []).filter((row) => row.agentName === name), meeting: presence.find((p) => p.agentName === name) ?? null, state: agentStates.find((s) => s.agentName === name) ?? null };
+    });
+  }, [known, agents, presence, agentStates]);
   const count = (v: Read<number>, cap?: number) => (v === null ? <Skeleton /> : v === "error" ? "n/a" : cap ? countLabel(v, cap) : v);
 
   return (
@@ -174,9 +233,6 @@ export default function OverviewPage() {
         <Floor rect={SYSTEM_ROOMS.approvals}>
           {loaded && pendingN > 0 && <img className={world.light} src="/world/light-wait-2x.png" style={{ left: 64, top: -48 }} alt="" />}
           {loaded && (pendingN > 0 || onSeal.length > 0) && <div className={world.seal} style={{ left: 184, top: 96 }} />}
-          {onSeal.map((g, i) => (
-            <AgentSprite key={g.key} character={characterFor(g.id!, definitionIds)} pose="idle" footX={240 + (i - (onSeal.length - 1) / 2) * 72} footY={116} />
-          ))}
         </Floor>
 
         {/* Runtime core: silver, glowing only while the live feed is up. */}
@@ -197,19 +253,6 @@ export default function OverviewPage() {
           <img className="px" src="/world/core-crystal-pedestal-2x.png" style={{ position: "absolute", left: 224, top: 108 }} alt="" />
         </Floor>
 
-        {WORKSHOP_SLOTS.map((rect, slot) => {
-          const g = slots[slot];
-          if (!g) return null;
-          const pose = g.state === "awaiting_approval" && !g.stop ? null : poseFor(g.state, g.stop !== null);
-          return (
-            <Floor key={g.key} rect={rect}>
-              {g.state === "active" && !g.stop && <img className={world.light} src="/world/light-active-2x.png" style={{ left: 0, top: 0 }} alt="" />}
-              {pose && <AgentSprite character={characterFor(g.id!, definitionIds)} pose={pose} footX={176} footY={200} frozen={g.stop !== null} />}
-              {g.stop && <div className={world.barrier} style={{ left: 128, top: 0, width: 96 }} />}
-            </Floor>
-          );
-        })}
-
         <SystemPlaque rect={SYSTEM_ROOMS.approvals} href="/approvals" name="Approvals">
           {pending === null ? (
             <StatusMark state={null} />
@@ -222,7 +265,9 @@ export default function OverviewPage() {
           )}
         </SystemPlaque>
         <SystemPlaque rect={SYSTEM_ROOMS.goals} href="/goals" name="Goals">
-          <span className={px.dim}>{goalCount === null || goalCount === "error" ? count(goalCount) : `${countLabel(goalCount, GOAL_LIST_CAP)} goals`}</span>
+          <span className={px.dim} title={`Unfinished, or active in ${windowWords(preferences.currentWindowHours)}`}>
+            {goalCount === null || goalCount === "error" ? count(goalCount) : `${countLabel(goalCount, GOAL_LIST_CAP)} current goals`}
+          </span>
         </SystemPlaque>
         <SystemPlaque rect={SYSTEM_ROOMS.workflows} href="/workflows" name="Workflows">
           {inProgress === null ? (
@@ -241,11 +286,6 @@ export default function OverviewPage() {
         </SystemPlaque>
         <SystemPlaque rect={SYSTEM_ROOMS.artifacts} href="/artifacts" name="Artifacts" />
 
-        {/* The Keeper lives in the entrance hall: a guide, not an agent, so no state light and no workshop. */}
-        <Floor rect={SYSTEM_ROOMS.entrance}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/world/strips/rogue-idle-2x-outlined.png" width={68} height={68} alt="" className={o.keeper} draggable={false} />
-        </Floor>
         <button type="button" className={world.plaque} style={plaqueAt(SYSTEM_ROOMS.entrance)} onClick={() => keeper.setOpen(true)}>
           Keeper
         </button>
@@ -253,21 +293,42 @@ export default function OverviewPage() {
           Runtime
         </span>
 
-        {slots.map((g, slot) => g && (
-          <button
-            key={g.key}
-            type="button"
-            className={cx(world.plaque, selected?.key === g.key && world.plaqueSelected)}
-            style={plaqueAt(WORKSHOP_SLOTS[slot]!)}
-            aria-pressed={selected?.key === g.key}
-            onClick={() => setSelectedKey(g.key)}
-          >
-            {g.name}
-            <StatusMark state={g.stop ? "stopped" : g.state} />
-            {/* One flash when a stop engages (mounted per stop), then steady; the button keeps its focus. */}
-            {g.stop && <span key={g.stop.id} className={world.flashFail} aria-hidden />}
-          </button>
-        ))}
+        {worldMap === null || worldMap === "error" ? null : (
+          <LivingAgents
+            world={worldMap}
+            agents={inhabitants}
+            stops={Array.isArray(stops) ? stops : []}
+            stopsUnreadable={stops === "error"}
+            selected={selected?.name ?? null}
+            selectable={new Set(groups.map((g) => g.name))}
+            ambient={preferences.ambient}
+            nameTags={preferences.nameTags}
+            onSelect={(name) => {
+              const group = groups.find((g) => g.name === name);
+              if (group) setSelectedKey(group.key);
+              setPanelAgent((open) => (open === name ? null : name));
+            }}
+            panelFor={panelAgent}
+            renderPanel={({ agent, desire, activityLabel, areaName }) => (
+              <AgentPanel
+                key={agent.name}
+                name={agent.name}
+                agentDefinitionId={agent.definitionIds.at(-1)!}
+                desire={desire}
+                activityLabel={activityLabel}
+                areaName={areaName}
+                onClose={closePanel}
+              />
+            )}
+            figureFor={(name) =>
+              name === keeper.identity?.name ? (
+                <span className={o.keeperFigure}>
+                  <KeeperFigure size={68} />
+                </span>
+              ) : null
+            }
+          />
+        )}
       </WorldViewport>
 
       <aside className={cx(px.board, o.board)} aria-label="Selected agent">
@@ -304,7 +365,7 @@ export default function OverviewPage() {
                   <li key={d.id}>
                     <Link href={`/agents/${d.id}`} className={px.plaque}>
                       <span className={o.grow}>
-                        {d.name} <span className={px.dim}>v{d.version}</span>
+                        <AgentLabel name={d.name} suffix={<span className={px.dim}>v{d.version}</span>} />
                       </span>
                       <StatusMark state="none" tone="neutral">
                         no active run
@@ -320,11 +381,12 @@ export default function OverviewPage() {
             <AgentBoard
               groups={groups}
               selected={selected}
-              definitionIds={definitionIds}
-              placed={placed.includes(selected)}
+              definitions={known}
+              placed
               stopsUnreadable={stops === "error"}
               onSelect={setSelectedKey}
               onChanged={load}
+              states={agentStates}
             />
           )
         )}
@@ -349,22 +411,41 @@ function SystemPlaque({ rect, href, name, children }: { rect: Rect; href: string
 function AgentBoard({
   groups,
   selected,
-  definitionIds,
+  definitions,
   placed,
   stopsUnreadable,
   onSelect,
   onChanged,
+  states,
 }: {
   groups: Group[];
   selected: Group;
-  definitionIds: string[] | undefined;
+  definitions: KnownAgent[] | undefined;
   placed: boolean;
   stopsUnreadable: boolean;
   onSelect: (key: string) => void;
   onChanged: () => Promise<void>;
+  states: AgentState[];
 }) {
   return (
     <>
+      {/*
+        Who is where, for every agent in the Keep — not only the ones with a Run. The word and its mark
+        come straight from `GET /agents/state`; the browser derives nothing here. An agent with nothing to
+        do says so, which is the honest answer and not a gap to fill with invented activity.
+      */}
+      {states.length > 0 && (
+        <div className={o.roster} role="group" aria-label="Who is where">
+          {states.map((st) => (
+            <span key={st.agentName} className={px.plaque} title={st.detail}>
+              <span className={o.grow}>
+                <AgentLabel name={st.agentName} />
+              </span>
+              <StatusMark state={st.state}>{stateWord(st.state)}</StatusMark>
+            </span>
+          ))}
+        </div>
+      )}
       <div className={o.roster} role="group" aria-label="Active agents">
         {groups.map((g) => (
           <button
@@ -374,7 +455,9 @@ function AgentBoard({
             aria-pressed={g.key === selected.key}
             onClick={() => onSelect(g.key)}
           >
-            <span className={o.grow}>{g.name}</span>
+            <span className={o.grow}>
+                        <AgentLabel name={g.name} />
+                      </span>
             <StatusMark state={g.stop ? "stopped" : g.state} />
           </button>
         ))}
@@ -384,10 +467,12 @@ function AgentBoard({
         {selected.id && (
           // The 4x portrait shows only on screens at least 1080 px tall (screens.md laptop rule).
           <div className={o.portrait} aria-hidden>
-            <AgentSprite character={characterFor(selected.id, definitionIds)} pose="idle" footX={72} footY={140} scale={2} frozen={selected.stop !== null} />
+            <AgentSprite look={lookFor(selected.id, definitions, selected.name)} pose="idle" footX={72} footY={140} scale={2} frozen={selected.stop !== null} />
           </div>
         )}
-        <h2 className={px.heading}>{selected.name}</h2>
+        <h2 className={px.heading}>
+                    <AgentLabel name={selected.name} size={18} />
+                  </h2>
       </div>
       {selected.id && (
         <StopControl agentId={selected.id} name={selected.name} stop={selected.stop} stopsUnreadable={stopsUnreadable} onChanged={onChanged} />

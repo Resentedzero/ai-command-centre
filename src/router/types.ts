@@ -9,6 +9,7 @@ import type { ResourceUnit } from "../governance/resourceUnit.js";
 import type { QuotaObservation } from "../governance/subscriptionQuotaState.js";
 import type { CandidateCapability, ProviderName } from "./tierConfig.js";
 import type { CompiledContext, ContextBudget } from "../context/types.js";
+import type { UsageAccounting } from "./usageAccounting.js";
 
 /**
  * The model-quality ladder. Ordered least to most capable.
@@ -79,6 +80,12 @@ export type ProviderUsage = {
   };
   /** The provider reported reading input from its prompt cache (§5.11). Diagnostic: never changes `costAmount`. */
   cacheHit?: boolean;
+  /**
+   * R2 Task 42: the per-category record of what the provider actually measured, and what it never
+   * mentioned (`./usageAccounting.ts`). Telemetry only — it changes no counted amount, no budget and
+   * no route. Absent when an adapter does not build one.
+   */
+  accounting?: UsageAccounting;
 };
 
 export type ProviderCallResult = {

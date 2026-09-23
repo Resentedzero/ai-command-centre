@@ -42,7 +42,10 @@
  * summary is left to the UI (`web/lib/api.ts`'s own `EventDisplayItem`
  * derivation) or a future unit, not invented here.
  */
+import { AGENT_STATES, readAgentStates } from "../agentState.js";
+import { readOrganisationHistory } from "../organisationHistory.js";
 import type { FastifyInstance } from "fastify";
+import { derivedAppearance, readAppearances } from "../../definitions/appearance.js";
 import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import {
   agentPerformance,
@@ -84,7 +87,45 @@ export type ActiveAgentData = {
   /** Null for a standalone Task Instance, which has no Workflow Run to reach a Goal through. */
   goalTitle: string | null;
   latestActivitySummary: string | null;
+  /**
+   * Living workplace (plan §13): what the Run is doing right now, read from its latest Invocation that
+   * is not a bookkeeping step — its kind, status, the Capability it exercises and the intent its
+   * context was compiled for. Null before the Run's first such Invocation. Presentation reads it to
+   * choose where the agent is drawn working; it decides nothing.
+   */
+  activity: { invocationKind: string; invocationStatus: string; capability: string | null; intent: string | null; taskKind: string | null } | null;
+  /** The Run's Workflow Run and Goal (null for a standalone Task Instance), so a stop at those scopes can be matched. */
+  workflowRunId: string | null;
+  /** The Workflow Run's own status: `paused` holds the step even while its Task Instance still reads active. */
+  workflowRunStatus: string | null;
+  goalId: string | null;
 };
+
+async function activityForRun(deps: ApiDeps, runId: string): Promise<ActiveAgentData["activity"]> {
+  const [latest] = await deps.db
+    .select({ id: invocations.id, kind: invocations.kind, status: invocations.status, capability: capabilities.name })
+    .from(invocations)
+    .leftJoin(capabilities, eq(capabilities.id, invocations.capabilityId))
+    .where(and(eq(invocations.runId, runId), sql`${invocations.kind} <> 'deterministic'`))
+    .orderBy(desc(invocations.seqNo))
+    .limit(1);
+  if (!latest) return null;
+  const [compiled] = await deps.db
+    .select({ payload: events.payload })
+    .from(events)
+    .where(and(eq(events.runId, runId), eq(events.invocationId, latest.id), eq(events.eventType, "context_compiled")))
+    .limit(1);
+  const intent = compiled?.payload.intent;
+  // The step's Task Definition kind (e.g. keeper_answer): what the work is, recorded when the task was created.
+  const [task] = await deps.db
+    .select({ kind: taskDefinitions.kind })
+    .from(runs)
+    .innerJoin(taskInstances, eq(taskInstances.id, runs.taskInstanceId))
+    .innerJoin(taskDefinitions, and(eq(taskDefinitions.id, taskInstances.taskDefinitionId), eq(taskDefinitions.version, taskInstances.taskDefinitionVersion)))
+    .where(eq(runs.id, runId))
+    .limit(1);
+  return { invocationKind: latest.kind, invocationStatus: latest.status, capability: latest.capability, intent: typeof intent === "string" ? intent : null, taskKind: task?.kind ?? null };
+}
 
 async function latestActivitySummaryForRun(deps: ApiDeps, runId: string): Promise<string | null> {
   const rows = await deps.db
@@ -306,6 +347,18 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       .where(and(eq(agentPerformance.agentDefinitionId, agent.id), eq(agentPerformance.agentDefinitionVersion, agent.version)))
       .orderBy(agentPerformance.taskDefinitionId, agentPerformance.modelTier);
 
+    // R2 progression: the same measured outcomes summed over every version of this agent's name, so
+    // a new version keeps its history. Display only; nothing decides on it (decisions stay per version).
+    const [acrossVersions] = await deps.db
+      .select({
+        samples: sql<number>`COALESCE(SUM(${agentPerformance.sampleCount}), 0)::int`,
+        successes: sql<number>`COALESCE(ROUND(SUM(${agentPerformance.successRate} * ${agentPerformance.sampleCount})), 0)::int`,
+        versions: sql<number>`COUNT(DISTINCT ${agentPerformance.agentDefinitionVersion})::int`,
+      })
+      .from(agentPerformance)
+      .innerJoin(agentDefinitions, eq(agentDefinitions.id, agentPerformance.agentDefinitionId))
+      .where(eq(agentDefinitions.name, agent.name));
+
     return reply.send({
       agent: {
         id: agent.id,
@@ -315,6 +368,10 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
         objective: agent.objective,
         // Instructions stay in the Registry read (`GET /registry`); this read model never carries them.
         executionProfile: agent.executionProfile,
+        // Presentation only, keyed on the persistent name so every version looks the same; null = none chosen.
+        appearance: (await readAppearances(deps.db, [agent.name])).get(agent.name) ?? null,
+        // How it is drawn: the chosen appearance, else the look derived from its name (D28, never stored).
+        look: (await readAppearances(deps.db, [agent.name])).get(agent.name) ?? derivedAppearance(agent.name),
       },
       activeStop: activeStop ?? null,
       grants: grantRows.map((g) => ({
@@ -331,6 +388,7 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
       recentEvents,
       outputs,
       contextLineage,
+      performanceAcrossVersions: acrossVersions ?? { samples: 0, successes: 0, versions: 0 },
       performance: performanceRows.map((p) => ({
         taskDefinitionId: p.taskDefinitionId,
         modelTier: p.modelTier,
@@ -342,6 +400,31 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
         ...eligibilityFields(p.sampleCount),
       })),
     });
+  });
+
+  /**
+   * `GET /agents/state` — what every agent is doing now, one deterministic answer (`../agentState.ts`).
+   * Read-only, no model, no writes. The living world, the agent views and the Keeper all render THIS,
+   * rather than each deriving a state vocabulary of their own.
+   */
+  app.get("/agents/state", async (_request, reply) => {
+    return reply.send({ agents: await readAgentStates(deps.db), states: AGENT_STATES });
+  });
+
+  /**
+   * `GET /organisation/history` — what the Keep DID, bounded (`../organisationHistory.ts`).
+   * Read-only, no model, no writes. `hours` and `limit` are clamped; there is no free-text filter and no
+   * "everything" query. Every record carries the ids that prove it and whether it was recorded or
+   * calculated. Artifact CONTENT is never returned — only ids and hashes.
+   */
+  app.get<{ Querystring: { hours?: string; limit?: string } }>("/organisation/history", async (request, reply) => {
+    const num = (v: string | undefined) => (v === undefined ? undefined : Number(v));
+    const hours = num(request.query.hours);
+    const limit = num(request.query.limit);
+    if ((hours !== undefined && !Number.isFinite(hours)) || (limit !== undefined && !Number.isFinite(limit))) {
+      return reply.status(400).send({ error: "hours and limit must be numbers." });
+    }
+    return reply.send(await readOrganisationHistory(deps.db, { ...(hours === undefined ? {} : { hours }), ...(limit === undefined ? {} : { limit }) }));
   });
 
   app.get("/agents/active", async (_request, reply) => {
@@ -376,6 +459,10 @@ export function registerAgentsRoutes(app: FastifyInstance, deps: ApiDeps): void 
         taskDefinitionName: taskDefinition?.name ?? null,
         goalTitle: goal?.title ?? null,
         latestActivitySummary,
+        activity: await activityForRun(deps, run.id),
+        workflowRunId: workflowRun?.id ?? null,
+        workflowRunStatus: workflowRun?.status ?? null,
+        goalId: goal?.id ?? null,
       });
     }
 

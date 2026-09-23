@@ -148,6 +148,69 @@
       "when": 1789560000000,
       "tag": "0020_agent_execution_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789567200000,
+      "tag": "0021_agent_appearances",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789574400000,
+      "tag": "0022_agent_progression",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789581600000,
+      "tag": "0023_world_and_archive",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789588800000,
+      "tag": "0024_world_templates_facing",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1789658515170,
+      "tag": "0025_workplace",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789666743448,
+      "tag": "0026_role_icons",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1789700000000,
+      "tag": "0027_meetings_convened_and_deadlines",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1789710000000,
+      "tag": "0028_work_outside_hours",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789720000000,
+      "tag": "0029_events_goal_index",
+      "breakpoints": true
     }
   ]
 }

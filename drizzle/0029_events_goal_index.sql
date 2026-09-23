@@ -1,0 +1,12 @@
+-- Stage 9: make "what happened on this goal" cheap to ask.
+--
+-- `events` carries five correlation columns but is indexed only on `global_seq` (the SSE replay cursor)
+-- and on `(run_id, sequence_no)`. Every per-goal read — the mission trace, the Keeper's explanations, the
+-- history read model — is therefore a sequential scan over the whole table. Organisational history asks
+-- that question constantly, so it gets the index the question deserves.
+--
+-- Partial, matching the style of `events_run_id_sequence_no_idx`: most events carry a goal, but the ones
+-- that do not (stops, grant revocations, workplace records) should not pay for the index.
+--
+-- Additive and derived: an index changes no row and no history. Dropping it would only make reads slower.
+CREATE INDEX IF NOT EXISTS "events_goal_id_global_seq_idx" ON "events" ("goal_id", "global_seq") WHERE "goal_id" IS NOT NULL;

@@ -1,0 +1,218 @@
+{
+  "version": 1,
+  "note": "Role icons: who an agent is, at a glance. Identity only — an icon never grants, implies or restricts a capability, and changing one changes no authority. Each icon has a distinct symbol AND a distinct identity colour token (web/app/tokens.css), so colour is never the only difference. `pixels` is a 12x12 bitmap: '#' the identity colour, '+' the outline, '.' transparent.",
+  "size": 12,
+  "icons": [
+    {
+      "id": "command",
+      "name": "Command",
+      "colorToken": "--role-command",
+      "description": "Coordination: turns objectives into bounded work for others.",
+      "pixels": [
+        "............",
+        "....++++....",
+        "...+####+...",
+        "..+##++##+..",
+        "..+#+..+#+..",
+        "..+#+..+#+..",
+        "..+##++##+..",
+        "...+####+...",
+        "....+##+....",
+        "...+####+...",
+        "..++++++++..",
+        "............"
+      ]
+    },
+    {
+      "id": "keeper",
+      "name": "Keeper",
+      "colorToken": "--role-keeper",
+      "description": "Explains the Keep's records; opens what is already there.",
+      "pixels": [
+        "............",
+        "...++++.....",
+        "..+####+....",
+        "..+#++#+....",
+        "..+####+....",
+        "...+##+.....",
+        "....##......",
+        "....##......",
+        "....###+....",
+        "....##......",
+        "....###+....",
+        "............"
+      ]
+    },
+    {
+      "id": "research",
+      "name": "Research",
+      "colorToken": "--role-research",
+      "description": "Retrieves what is already held and synthesises it.",
+      "pixels": [
+        "............",
+        "...++++.....",
+        "..+####+....",
+        ".+##++##+...",
+        ".+#+..+#+...",
+        ".+##++##+...",
+        "..+####+....",
+        "...++##+....",
+        ".....+##+...",
+        "......+##+..",
+        ".......+#+..",
+        "............"
+      ]
+    },
+    {
+      "id": "field",
+      "name": "Field research",
+      "colorToken": "--role-field",
+      "description": "Gathers evidence from outside sources and says what it does not show.",
+      "pixels": [
+        "............",
+        "....+##+....",
+        "...+####+...",
+        "..+#+##+#+..",
+        "..+#+##+#+..",
+        ".+##########",
+        "..+#+##+#+..",
+        "..+#+##+#+..",
+        "...+####+...",
+        "....+##+....",
+        "............",
+        "............"
+      ]
+    },
+    {
+      "id": "idea",
+      "name": "Ideas",
+      "colorToken": "--role-idea",
+      "description": "Frames problems and proposes options.",
+      "pixels": [
+        "............",
+        "....++++....",
+        "...+####+...",
+        "..+######+..",
+        "..+######+..",
+        "..+#+##+#+..",
+        "...+####+...",
+        "....+##+....",
+        "....+##+....",
+        "....++++....",
+        ".....++.....",
+        "............"
+      ]
+    },
+    {
+      "id": "analysis",
+      "name": "Analysis",
+      "colorToken": "--role-analysis",
+      "description": "Weighs evidence and reports what it supports.",
+      "pixels": [
+        "............",
+        "............",
+        ".+........+.",
+        ".+......+#+.",
+        ".+..+#++##+.",
+        ".+..##+.##+.",
+        ".+.+##+.##+.",
+        ".+.+##+.##+.",
+        ".+.+##+.##+.",
+        ".++++++++++.",
+        "............",
+        "............"
+      ]
+    },
+    {
+      "id": "publishing",
+      "name": "Publishing",
+      "colorToken": "--role-publishing",
+      "description": "Writes the record others read, and puts it where it belongs.",
+      "pixels": [
+        "............",
+        ".........++.",
+        "........+##+",
+        ".......+##+.",
+        "......+##+..",
+        ".....+##+...",
+        "....+##+....",
+        "...+##+.....",
+        "..+##+......",
+        ".+#++.......",
+        ".++.........",
+        "............"
+      ]
+    },
+    {
+      "id": "review",
+      "name": "Review",
+      "colorToken": "--role-review",
+      "description": "Checks work against its criteria and holds it until it passes.",
+      "pixels": [
+        "............",
+        "...++++++...",
+        "..+######+..",
+        "..+######+..",
+        "..+##+#+#+..",
+        "..+#+###+#..",
+        "..+######+..",
+        "...+####+...",
+        "....+##+....",
+        ".....++.....",
+        "............",
+        "............"
+      ]
+    },
+    {
+      "id": "strategy",
+      "name": "Strategy",
+      "colorToken": "--role-strategy",
+      "description": "Sets direction and sequences the work.",
+      "pixels": [
+        "............",
+        "....++++....",
+        "..++#..#++..",
+        ".+#..##..#+.",
+        ".+#.+##+.#+.",
+        "+#..+##+..#+",
+        "+#...##...#+",
+        ".+#.+##+.#+.",
+        ".+#..##..#+.",
+        "..++#..#++..",
+        "....++++....",
+        "............"
+      ]
+    },
+    {
+      "id": "generic",
+      "name": "General",
+      "colorToken": "--role-generic",
+      "description": "No role words the Keep recognises yet; the agent's own definition says what it does.",
+      "pixels": [
+        "............",
+        "............",
+        "....++++....",
+        "...+####+...",
+        "..+##++##+..",
+        "..+#+..+#+..",
+        "..+#+..+#+..",
+        "..+##++##+..",
+        "...+####+...",
+        "....++++....",
+        "............",
+        "............"
+      ]
+    }
+  ],
+  "rules": [
+    { "icon": "command", "match": "coordinat|manager|orchestrat|delegat" },
+    { "icon": "keeper", "match": "keeper|guide|explain" },
+    { "icon": "field", "match": "field|public source|outside|external|explor" },
+    { "icon": "idea", "match": "idea|architect|brainstorm|concept|design" },
+    { "icon": "research", "match": "research|retriev|investigat" },
+    { "icon": "analysis", "match": "analy|evidence|assess|measure" },
+    { "icon": "publishing", "match": "publish|writer|writing|scribe" },
+    { "icon": "review", "match": "review|approv|checkpoint|verif|quality" },
+    { "icon": "strategy", "match": "strateg|plan|roadmap|direction" }
+  ]
+}

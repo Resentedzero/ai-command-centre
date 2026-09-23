@@ -28,7 +28,7 @@ Licence (`Terms.txt`): may be used and altered inside a commercial app. Credit i
 | `…/Hit_Base/Hit_{Down,Side,Up}-Sheet.png` | 256×64 | 4 × 64 px |
 | `…/Death_Base/Death_{Down,Side,Up}-Sheet.png` | 512×64 | 8 × 64 px |
 
-An agent's sprite is a visual identity keyed to its Agent Definition id, assigned deterministically in the UI (for example a hash of the id picks a silhouette plus a room tint). It is not a role or a class, and says nothing about capability.
+An agent's sprite is a visual identity keyed to its **persistent name** (every Definition version looks the same), never a version id. An agent the operator dressed draws its `agent_appearances` look from the character kit (`agent-kit-2x/`, D24); any other agent keeps a default Knight or Wizzard, assigned in sorted name order. It is not a role or a class, and says nothing about capability.
 
 ## Stations and world
 

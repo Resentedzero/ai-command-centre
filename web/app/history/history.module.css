@@ -1,0 +1,100 @@
+/* History / Archive: filters on a wood board, goals as vellum rows. Archived rows are dimmed, never hidden. */
+.screen {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  height: 100%;
+}
+.filters,
+.results {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.filters > span:first-child,
+.filters > button {
+  align-self: flex-start;
+}
+.filters p,
+.results p {
+  margin: 0;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: 2px;
+  min-width: 0;
+}
+.dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.goal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  align-items: flex-start;
+}
+.archived {
+  opacity: 0.8;
+}
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-md);
+}
+.title {
+  font: 16px/20px var(--font-pixel), monospace;
+  color: var(--pixel-label);
+  overflow-wrap: anywhere;
+}
+.badge {
+  font: 12px/16px var(--font-mono), monospace;
+  color: var(--pixel-label-dim);
+  border: 2px solid var(--pixel-wood-edge);
+  padding: 0 var(--space-xs);
+}
+.runs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+}
+.link {
+  color: var(--pixel-label);
+  font: 12px/16px var(--font-mono), monospace;
+}
+.error {
+  border-left: 2px solid var(--state-fail);
+  padding-left: var(--space-sm);
+}
+.tabs {
+  display: flex;
+  gap: var(--space-xs);
+}
+.tabs > button[aria-pressed="true"] {
+  outline: 2px solid var(--pixel-label);
+  outline-offset: -4px;
+}
+/* Bulk archive: count first (dry run), then one confirmed archive of exactly that count. */
+.bulk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 2px solid var(--pixel-wood-edge);
+}

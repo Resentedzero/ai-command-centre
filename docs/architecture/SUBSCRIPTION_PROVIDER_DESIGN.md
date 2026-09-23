@@ -100,9 +100,34 @@ Phase 5.0's "Money/**quota**" pair.
 | model | pinned `modelId` | audit; recorded on the Event |
 | reported input tokens | `modelUsage[*].inputTokens` | **counted** |
 | reported output tokens | `modelUsage[*].outputTokens` | **counted** |
-| cache creation tokens | `modelUsage[*].cacheCreationInputTokens` | **diagnostic only** |
-| cache read tokens | `modelUsage[*].cacheReadInputTokens` | **diagnostic only** |
-| thinking tokens | `modelUsage[*].thinkingTokens` | diagnostic only |
+| cache creation tokens | `modelUsage[*].cacheCreationInputTokens` | **recorded, never counted** (R2 Task 42) |
+| cache read tokens | `modelUsage[*].cacheReadInputTokens` | **recorded, never counted** (R2 Task 42) |
+| thinking tokens | `modelUsage[*].thinkingTokens` | **recorded, never counted** (R2 Task 42) |
+
+> **Audited 2026-09-18; implemented the same day (R2 Task 42).** These three, plus the per-model split,
+> are now parsed and persisted in the `invocation_completed` **payload** under `usageAccounting`
+> (`src/router/usageAccounting.ts`). They are TELEMETRY: none of them is added to `cost_amount`, changes a
+> budget, or affects routing. What the record adds is the ability to tell **"the provider said zero" from
+> "the provider said nothing"** — every category is `number | null` and every null is additionally named
+> in `usageAccounting.unknown`.
+>
+> Three things the records now make explicit, each evidenced from
+> `benchmark/raw/phase2-results.json` rather than assumed:
+> - **Cache tokens are SEPARATE from `inputTokens`.** Capture 1 reports `inputTokens: 10` beside
+>   `cacheCreationInputTokens: 7568`. This is why `events.tokens_in` can read 2–4 tokens, and why **it must
+>   never be read as prompt size**.
+> - **Thinking tokens are INSIDE `outputTokens`.** The CLI's own footprint figure sums input + output +
+>   cache and never adds thinking, and the top-level view shows 566 thinking tokens within an
+>   `output_tokens` of 967. Adding them would double-count.
+> - **A per-model entry is not always one call.** When the internal secondary call runs on the same model
+>   as the request, the CLI MERGES them into one entry (an entry of 1170/981 beside a top-level primary-only
+>   view of 10/967). `usageAccounting.primary.mergedWithSecondary` records that disagreement where the
+>   top-level view exists; `secondary: []` therefore means "the CLI listed no second model", NOT "no
+>   secondary work happened".
+>
+> Still true, and still a limitation: `events.cache_hit` collapses "reported nothing" into `false`, because
+> the frozen envelope types it as a plain boolean. Read `usageAccounting.cache.read` instead, which is null
+> when unreported. See `TRUST_BOUNDARIES.md` §6.
 | accounting unit | constant `subscription_tokens` | required on every usage Event |
 
 **Counted today:** `Σ(inputTokens) + Σ(outputTokens)` across **every**
@@ -111,7 +136,32 @@ Opus runs show a separate Haiku entry whose input *scales with context*
 (1,295 → 3,903 tokens), so counting only the primary would under-report
 materially.
 
-**Not counted today:** cache creation and cache read.
+**Not counted today:** cache creation and cache read. Since R2 Task 42 they are *recorded* on the
+invocation even though they are not counted, so the size of the gap is now visible per call rather than
+only in a benchmark.
+
+### Does `subscription_tokens` accurately represent total entitlement consumed?
+
+**No — and Task 42 did not make it answerable.** It made the question precise, which is a different
+thing, and the distinction matters enough to state plainly:
+
+- **What is now known per invocation:** exactly which token categories the provider reported, their
+  values, and which categories it never mentioned. The counted figure is `Σ(input + output)` over
+  reported entries; cache creation, cache read and thinking are recorded beside it and excluded from it.
+- **What is still unknown, and cannot be derived from anything recorded:** whether cache-creation and
+  cache-read tokens draw on the Max allowance at all, and at what weight. That is a fact about
+  Anthropic's billing, not about the response — no field in any capture states it, so no amount of
+  better parsing can settle it. Recording the numbers narrows the question from "how big might the gap
+  be?" to "what multiplier applies to these specific, now-visible quantities?", and no further.
+- **Therefore:** `subscription_tokens` remains a **locally imposed spending discipline**, not a mirror of
+  entitlement. It is a lower bound on consumption in a knowable ratio to the uncounted categories — and
+  the ratio is now readable per call instead of inferred from three benchmark runs. Nothing in this
+  system should present it as "how much of your plan you have used".
+
+**Settled by Task 42, and no longer open:** the residual between `cost_amount` and the primary entry's
+in+out. It is **exactly** the non-primary entries' tokens, because `cost_amount` is defined as that sum
+and cache tokens are never added to it. An earlier note in `tokenReport.ts` claimed the residual also
+contained cached input and was "not splittable"; that was false, and is corrected.
 
 **UNKNOWN — the central open question.** Whether cache-creation tokens draw on
 Max entitlement is not observable. What *is* **VERIFIED** is the size of the
@@ -589,7 +639,7 @@ Four independently visible layers. They must never be blended into one number.
 
 | Layer | Shows | Must never imply |
 |---|---|---|
-| Invocation usage | in/out/cache-create/cache-read/thinking per model entry, unit-tagged | that cache tokens are counted, or that tokens are dollars |
+| Invocation usage | the counted in/out, unit-tagged, plus `usageAccounting` in the payload: cache-create, cache-read, thinking and the per-model split, each `number \| null` with every unreported category named in `unknown[]` (R2 Task 42) | that any of those categories is COUNTED (none is), that `tokens_in` is the prompt size, that a `usd` amount is a bill, or that `secondary: []` means no secondary work happened |
 | Provider quota state | 5h/7d utilization, reset times, status, overage status, **freshness** | that utilization is a consumed fraction of a known budget |
 | Policy decision | ALLOW / REFUSE / UNKNOWN, plus which mechanism decided (A or B) | that a refusal was a provider error |
 | Provider result | success/failure + failure code | that `cli_unavailable` and `nonzero_exit` are the same thing |

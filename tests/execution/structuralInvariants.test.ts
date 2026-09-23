@@ -192,13 +192,48 @@ describe("Definitions, Tool Bindings, Capabilities and Grants are created only t
   });
 });
 
+describe("the Manager holds no authority beyond its Capabilities (R2 management layer)", () => {
+  // The Manager's code may read the workforce and create Workflow Definitions and Runs through the Registry
+  // and Interpreter. It may not reach anything that grants, revokes, approves, budgets, routes, stops, scores
+  // or calls a model provider, and it may not write authority or progression tables.
+  const FORBIDDEN_IMPORT = /governance\/(budget|policy|approvals|executionStop|performanceEligibility|runBudgetPolicy|dailyBudgetPolicy|autonomyLimits)|router\/|providers\/|projections\/|api\/|world\//;
+  const FORBIDDEN_CALL = /\b(createCapabilityGrant|createAgentDefinition|createCapability|createToolBinding|createTaskDefinition|revokeCapabilityGrant|resolveApproval|reserveBudget|reconcileBudget|engageExecutionStop|liftExecutionStop|dispatchModelCall|routeModel)\b/;
+  const FORBIDDEN_WRITE = /\.(insert|update|delete)\(\s*(capabilities|capabilityGrants|toolBindings|agentDefinitions|taskDefinitions|approvals|budgetCounters|executionStops|agentXpAwards|agentAchievements|agentDomainWork|agentEndorsements|agentPerformance|agentAppearances|agentRoleIcons|artifacts|events|runs|taskInstances|workflowRuns|workflowDefinitions|invocations|goals)\b/;
+
+  it("capabilities/manager imports no governance, routing, provider, projection, API or world module, and calls or writes none of their authority", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles().filter((f) => rel(f).startsWith("capabilities/manager/"))) {
+      const text = readFileSync(file, "utf8");
+      visit(parse(file), (n) => {
+        if ((ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier) && FORBIDDEN_IMPORT.test(n.moduleSpecifier.text)) offenders.push(`${rel(file)} imports ${n.moduleSpecifier.text}`);
+        if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword && n.arguments[0] && ts.isStringLiteral(n.arguments[0]) && FORBIDDEN_IMPORT.test(n.arguments[0].text)) offenders.push(`${rel(file)} dynamically imports ${n.arguments[0].text}`);
+      });
+      const code = text.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+      if (FORBIDDEN_CALL.test(code)) offenders.push(`${rel(file)} calls ${code.match(FORBIDDEN_CALL)![0]}`);
+      if (FORBIDDEN_WRITE.test(code)) offenders.push(`${rel(file)} writes ${code.match(FORBIDDEN_WRITE)![0]}`);
+    }
+    expect(offenders).toEqual([]);
+    expect(sourceFiles().filter((f) => rel(f).startsWith("capabilities/manager/")).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("the probe catches what it forbids", () => {
+    expect(FORBIDDEN_CALL.test("await createCapabilityGrant(tx, body)")).toBe(true);
+    expect(FORBIDDEN_WRITE.test("tx.update(capabilityGrants).set({})")).toBe(true);
+    // The Manager starts work through the Interpreter and the Registry; it never writes the runtime's own rows.
+    expect(FORBIDDEN_WRITE.test("tx.insert(workflowRuns).values({})")).toBe(true);
+    expect(FORBIDDEN_WRITE.test("tx.update(runs).set({ status: 'completed' })")).toBe(true);
+    expect(FORBIDDEN_IMPORT.test("../../governance/budget.js")).toBe(true);
+    expect(FORBIDDEN_CALL.test("createWorkflowDefinition(tx, body)")).toBe(false);
+  });
+});
+
 describe("core names no capability (spec 18.3)", () => {
   // Capability code and the seed are where capabilities and seeded Definitions
   // are named. Everything else — Interpreter, Executor, governance, routing,
   // context, events, API — must work for any capability, so it may neither
   // import a capability's modules nor name one in code.
   const CAPABILITY_SPECIFIC =
-    /research\.retrieve|research\.search|research\.web|research\.open|publish\.report|Research-Report|Review-and-Publish|Research-and-Publish|^Researcher$|^Publisher$/;
+    /research\.retrieve|research\.search|research\.web|research\.open|publish\.report|peer\.endorse|review\.checkpoint|Research-Report|Review-and-Publish|Research-and-Publish|^Researcher$|^Publisher$|^Agent Talk$|^Direct requests$|manager\.inspect_workforce|manager\.delegate|^Manager Plan$|^Manager Review$|^Manager Recovery$|^Meeting Contribution$|^Meeting Outcome$|workplace\.record_outcome|^Missions$|system\.keep_stats|workplace\.inspect_calendar|workplace\.schedule_meeting/;
   const allowed = (file: string) => file.startsWith("capabilities/") || file === "definitions/seed.ts" || file === "definitions/lookupSeed.ts";
 
   it("outside capability code and the seed, no string literal names a capability or seeded Definition, and no capability module is imported", () => {
@@ -237,6 +272,9 @@ describe("agent_performance reaches decisions only through its sample criterion 
     "api/start.ts",
     "db/schema.ts",
     "governance/performanceEligibility.ts",
+    // R2 Stage 6: the Keeper explains measured performance, read-only; it decides nothing.
+    "keeper/explainIntent.ts",
+    "keeper/intents.ts", // names it as an intent's authority; reads nothing
     "projections/agentPerformance.ts",
   ];
 
@@ -284,6 +322,170 @@ describe("agent_performance reaches decisions only through its sample criterion 
       });
     }
     expect([...referencing].sort()).toEqual(ALLOWED);
+  });
+});
+
+describe("agent appearance is presentation only (R2 visual identity)", () => {
+  // How an agent looks must never reach what it may do, what it costs, which model serves it,
+  // what enters its context or how it is scored. Only its schema, its module, and the read and
+  // write routes that show and set it reference the table or the module. A tripwire like the one above.
+  it("only the schema, the appearance module and the API routes reference agent appearance", () => {
+    const referencing = new Set<string>();
+    for (const file of sourceFiles()) {
+      const source = parse(file);
+      visit(source, (n) => {
+        const named =
+          (ts.isIdentifier(n) && n.text === "agentAppearances") ||
+          ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && /agent_appearances|agentAppearances|\/appearance(Catalogue)?\.js(on)?$/.test(n.text));
+        if (named) referencing.add(rel(file));
+      });
+    }
+    expect([...referencing].sort()).toEqual([
+      "api/routes/agents.ts",
+      "api/routes/appearances.ts",
+      "api/routes/keeper.ts", // R2 Stage 6: the Keeper is drawn with its own appearance
+      "api/routes/registry.ts",
+      "db/schema.ts",
+      "definitions/appearance.ts",
+    ]);
+  });
+});
+
+describe("progression is never authority (R2 agent progression)", () => {
+  // XP, levels, achievements, specialisation, endorsements and quality verdicts are interpretation and
+  // evidence. Only their schema, projector, startup loop and read/verdict routes touch the tables and
+  // the verdict event; nothing that authorizes, routes, budgets, executes or compiles context imports
+  // any progression module, so progression can neither grant anything nor enter an agent's context.
+  it("only the schema, projector, startup loop and progression routes reference progression tables or the verdict event", () => {
+    const referencing = new Set<string>();
+    for (const file of sourceFiles()) {
+      visit(parse(file), (n) => {
+        const named =
+          (ts.isIdentifier(n) && /^(agentXpAwards|agentAchievements|agentDomainWork|agentEndorsements|refreshAgentProgression)$/.test(n.text)) ||
+          ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && /agent_xp_awards|agent_achievements|agent_domain_work|agent_endorsements|quality_verdict_recorded/.test(n.text)) ||
+          (ts.isTemplateExpression(n) && /agent_xp_awards|agent_achievements|agent_domain_work|agent_endorsements|quality_verdict_recorded/.test(n.getText()));
+        if (named) referencing.add(rel(file));
+      });
+    }
+    // keeper/explainIntent.ts (R2 Stage 6): the Keeper's read-only explanations, run in a READ ONLY transaction.
+    expect([...referencing].sort()).toEqual(["api/routes/progression.ts", "api/start.ts", "db/schema.ts", "keeper/explainIntent.ts", "keeper/intents.ts", "projections/agentProgression.ts"]);
+  });
+
+  it("governance, the Model Router, execution, workflow and context never import a progression module", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles()) {
+      if (!/^(governance|router|execution|workflow|context)\//.test(rel(file))) continue;
+      for (const s of parse(file).statements) {
+        if ((ts.isImportDeclaration(s) || ts.isExportDeclaration(s)) && s.moduleSpecifier && ts.isStringLiteral(s.moduleSpecifier) &&
+          /agentProgression|progressionRules|progressionFacts|peerEndorse|routes\/progression|keeper\/explainIntent|keeper\/intents/.test(s.moduleSpecifier.text)) {
+          offenders.push(`${rel(file)} imports ${s.moduleSpecifier.text}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe("a role icon is identity, never authority (workplace identity)", () => {
+  // Who an agent is pictured as must never reach what it may do, what it costs, which model serves it,
+  // what enters its context or how it is scored — and no model may choose one.
+  it("only the schema, the role icon module and its API routes reference role icons", () => {
+    const referencing = new Set<string>();
+    for (const file of sourceFiles()) {
+      visit(parse(file), (n) => {
+        const named =
+          (ts.isIdentifier(n) && /^agentRoleIcons$/.test(n.text)) ||
+          ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && /agent_role_icons|roleIconCatalogue\.json|\/roleIcon\.js$/.test(n.text));
+        if (named) referencing.add(rel(file));
+      });
+      for (const st of parse(file).statements) {
+        if ((ts.isImportDeclaration(st) || ts.isExportDeclaration(st)) && st.moduleSpecifier && ts.isStringLiteral(st.moduleSpecifier) && /roleIcon\.js|routes\/roleIcons/.test(st.moduleSpecifier.text)) {
+          referencing.add(rel(file));
+        }
+      }
+    }
+    expect([...referencing].sort()).toEqual(["api/routes/roleIcons.ts", "api/server.ts", "db/schema.ts", "definitions/roleIcon.ts"]);
+  });
+
+  it("the role icon module reaches no authority, and its catalogue ids are all distinct in shape and colour", () => {
+    // Comments say what the module must not do; the code is what is checked.
+    const code = readFileSync(sourceFiles().find((f) => rel(f) === "definitions/roleIcon.ts")!, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+    for (const forbidden of [/capabilityGrants/, /governance\//, /registryWrites/, /policy/i, /budget/i, /executionStop/, /agentXpAwards/, /router\//]) expect(code).not.toMatch(forbidden);
+    const catalogue = JSON.parse(readFileSync(new URL("../../src/definitions/roleIconCatalogue.json", import.meta.url), "utf8")) as { icons: { id: string; colorToken: string; pixels: string[] }[] };
+    expect(new Set(catalogue.icons.map((i) => i.id)).size).toBe(catalogue.icons.length);
+    expect(new Set(catalogue.icons.map((i) => i.colorToken)).size).toBe(catalogue.icons.length);
+    expect(new Set(catalogue.icons.map((i) => i.pixels.join("|"))).size).toBe(catalogue.icons.length);
+    // Identity colours are their own tokens: never a runtime state colour.
+    const tokens = readFileSync(new URL("../../web/app/tokens.css", import.meta.url), "utf8");
+    for (const icon of catalogue.icons) {
+      expect(icon.colorToken.startsWith("--role-")).toBe(true);
+      expect(tokens).toContain(`${icon.colorToken}:`);
+    }
+  });
+});
+
+describe("the workplace is office records, never authority (workplace)", () => {
+  // Calendars, meetings, rooms and notifications are written only by the workplace module (which the operator
+  // routes and the Manager's governed capability positions call), and that module can reach no authority:
+  // no Registry writer, Grant, Policy, approval, budget, stop, router, provider, projection, world or API code.
+  it("only the schema and the workplace module reference the workplace tables", () => {
+    const referencing = new Set<string>();
+    for (const file of sourceFiles()) {
+      visit(parse(file), (n) => {
+        const named =
+          (ts.isIdentifier(n) && /^workplace(Settings|AgentSettings|Rooms|Meetings|MeetingParticipants|CalendarEvents|Notifications)$/.test(n.text)) ||
+          // Raw SQL naming a table (a label such as "workplace_meetings" in an explanation's sources is not access).
+          ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n)) &&
+            /(from|join|into|update|table)\s+"?workplace_(settings|agent_settings|rooms|meetings|meeting_participants|calendar_events|notifications)/i.test(n.text));
+        if (named) referencing.add(rel(file));
+      });
+    }
+    expect([...referencing].sort()).toEqual(["db/schema.ts", "workplace/workplace.ts"]);
+  });
+
+  it("the workplace module imports no authority, routing, provider, projection, world or API code", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles().filter((f) => rel(f).startsWith("workplace/"))) {
+      for (const s of parse(file).statements) {
+        if ((ts.isImportDeclaration(s) || ts.isExportDeclaration(s)) && s.moduleSpecifier && ts.isStringLiteral(s.moduleSpecifier) && /governance\/|registryWrites|router\/|providers\/|projections\/|world\/|api\/|capabilities\//.test(s.moduleSpecifier.text)) {
+          offenders.push(`${rel(file)} imports ${s.moduleSpecifier.text}`);
+        }
+      }
+      const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+      if (/\.(insert|update|delete)\(\s*(capabilities|capabilityGrants|toolBindings|agentDefinitions|taskDefinitions|workflowDefinitions|approvals|budgetCounters|executionStops|runs|goals|workflowRuns|taskInstances|invocations|artifacts|events)\b/.test(code)) offenders.push(`${rel(file)} writes runtime or authority tables`);
+    }
+    expect(offenders).toEqual([]);
+    expect(sourceFiles().filter((f) => rel(f).startsWith("workplace/")).length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("the workspace is space, never authority (living workplace)", () => {
+  // Buildings, areas and workstations say where agents are drawn. Nothing that authorizes, routes,
+  // budgets, executes, compiles context, scores or explains authority reads them.
+  it("only the schema, the world module and its routes reference the world tables", () => {
+    const referencing = new Set<string>();
+    for (const file of sourceFiles()) {
+      visit(parse(file), (n) => {
+        const named =
+          (ts.isIdentifier(n) && /^(worldWorkspaces|worldBuildings|worldAreas|worldWorkstations)$/.test(n.text)) ||
+          ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && /world_(workspaces|buildings|areas|workstations)/.test(n.text));
+        if (named) referencing.add(rel(file));
+      });
+    }
+    expect([...referencing].sort()).toEqual(["db/schema.ts", "world/worldConfig.ts"]);
+  });
+
+  it("governance, the Model Router, execution, workflow, context, projections and capabilities never import the world module", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles()) {
+      if (!/^(governance|router|execution|workflow|context|projections|capabilities|keeper)\//.test(rel(file))) continue;
+      for (const s of parse(file).statements) {
+        if ((ts.isImportDeclaration(s) || ts.isExportDeclaration(s)) && s.moduleSpecifier && ts.isStringLiteral(s.moduleSpecifier) && /world\/|routes\/world|routes\/history/.test(s.moduleSpecifier.text)) {
+          offenders.push(`${rel(file)} imports ${s.moduleSpecifier.text}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -361,5 +563,55 @@ describe("status changes are recorded as events", () => {
     expect(offenders).toEqual([]);
     // A stale allowlist entry hides nothing and should be removed.
     for (const key of Object.keys(NO_EVENT_ALLOWLIST)) expect(sites, `stale allowlist entry ${key}`).toContain(key);
+  });
+
+  /**
+   * R2 Task 42. Usage is an OBSERVATION of a provider response, never a claim anyone else may make.
+   * `buildUsageAccounting` is therefore callable only from a provider adapter — the one place that
+   * holds a real response. If capability code, the Executor, a projection or an API route could build
+   * one, a value that reads as "provider-measured" could be manufactured from model output.
+   */
+  it("only a provider adapter may build a usage accounting record", () => {
+    const callers: string[] = [];
+    for (const file of sourceFiles()) {
+      const text = readFileSync(file, "utf8");
+      if (/\bbuildUsageAccounting\b/.test(text) && rel(file) !== "router/usageAccounting.ts") callers.push(rel(file));
+    }
+    expect(callers.sort()).toEqual(["router/providers/anthropic.ts", "router/providers/claudeSubscription.ts", "router/providers/openai.ts"]);
+  });
+
+  /**
+   * The counted amount and its unit come from the adapter and are reconciled against a budget. The
+   * accounting record explains them and must never become them: nothing outside the Router may read
+   * `usageAccounting` back into a cost, a counter or a route.
+   */
+  it("no governance, projection or routing module reads the usage accounting record", () => {
+    const readers: string[] = [];
+    for (const file of sourceFiles()) {
+      const dir = rel(file).split("/")[0]!;
+      if (!["governance", "projections", "workflow", "execution", "context"].includes(dir)) continue;
+      if (/\busageAccounting\b/.test(readFileSync(file, "utf8"))) readers.push(rel(file));
+    }
+    expect(readers).toEqual([]);
+  });
+
+  /**
+   * R2 Stage 14. A deliverable's `basis` and `completion` are what `carriesRecordedEvidence` and
+   * `evidenceBasisFor` treat as code-written truth. `persistDeliverableArtifact` also takes a caller
+   * `extra` bag — and one caller (`keeperAnswer`) puts sanitized MODEL OUTPUT in it. If that bag were
+   * spread last it could overwrite the very fields the runtime vouches for. No caller collides today,
+   * so the property that makes it safe is the spread ORDER, which nothing else would catch.
+   */
+  it("a deliverable's caller-supplied extras can never overwrite its code-written basis or completion", () => {
+    const source = readFileSync(path.join(SRC, "capabilities", "shared", "deliverable.ts"), "utf8");
+    const extraSpread = source.indexOf("...(extras.extra ?? {})");
+    const basisKey = source.indexOf("basis: extras.basis");
+    const completionKey = source.indexOf("...(extras.completion ?");
+    const formatKey = source.indexOf("format: DELIVERABLE_FORMAT");
+    expect(extraSpread, "the extras.extra spread should still exist").toBeGreaterThan(-1);
+    expect(basisKey, "the code-written basis should still exist").toBeGreaterThan(-1);
+    for (const [name, at] of [["format", formatKey], ["completion", completionKey], ["basis", basisKey]] as const) {
+      expect(at, `${name} must be written AFTER the extras.extra spread, or a caller could overwrite it`).toBeGreaterThan(extraSpread);
+    }
   });
 });

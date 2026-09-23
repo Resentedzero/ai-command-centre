@@ -1,6 +1,6 @@
 // Copies the adapted pixel art the UI uses into public/world/ (git-ignored there:
 // the art derives from third-party packs, see public/world/.gitignore).
-import { cpSync, mkdirSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +29,9 @@ const files = [
 mkdirSync(join(out, "strips"), { recursive: true });
 for (const [dir, name] of files) cpSync(join(dir, name), join(out, name));
 cpSync(join(adapted, "strips-outlined-2x"), join(out, "strips"), { recursive: true });
+// The recruitable character kit: one layer strip per part option (make-agent-kit.ps1).
+rmSync(join(out, "agents"), { recursive: true, force: true });
+cpSync(join(adapted, "agent-kit-2x"), join(out, "agents"), { recursive: true });
 // The Keeper: one outlined Rogue frame (read from the design workstream's art; no strip exists yet).
 cpSync(join(adapted, "sprites-outlined-2x", "rogue-idle-2x-outlined.png"), join(out, "strips", "rogue-idle-2x-outlined.png"));
 console.log(`Copied ${files.length} files and the outlined strips into public/world/`);

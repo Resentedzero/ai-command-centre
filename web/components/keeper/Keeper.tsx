@@ -5,26 +5,78 @@ import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   askKeeper,
-  getArtifact,
-  getWorkflowRun,
   keeperExplain,
+  keeperExplanation,
   keeperGuide,
+  keeperIdentity,
+  type KeeperAnswer,
   type KeeperExplanation,
   type KeeperGuideCard,
+  type KeeperIdentity,
 } from "../../lib/api";
-import { parseDeliverable, type Deliverable } from "../../lib/deliverable";
+import { AgentSprite } from "../world/World";
+import type { Deliverable } from "../../lib/deliverable";
 import { errorText } from "../../lib/keep";
+import { readRunAnswer } from "../../lib/workAnswer";
 import { storeKeeperProposal } from "../../lib/keeperProposal";
 import { DocumentView, Markdown } from "../deliverable/DocumentView";
 import { PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../pixel/Pixel";
 import k from "./keeper.module.css";
+import { AgentLabel } from "../agents/RoleIcon";
 
-type KeeperState = { open: boolean; setOpen: (open: boolean) => void };
-const KeeperContext = createContext<KeeperState>({ open: false, setOpen: () => undefined });
+/** A question another screen hands to the Keeper: an intent about a subject ("why is this agent level 4?"). */
+export type KeeperRequest = { intent: string; subject: string; nonce: number };
+
+type KeeperState = {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  identity: KeeperIdentity | null;
+  request: KeeperRequest | null;
+  askAbout: (intent: string, subject: string) => void;
+};
+const KeeperContext = createContext<KeeperState>({ open: false, setOpen: () => undefined, identity: null, request: null, askAbout: () => undefined });
 
 export function KeeperProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  return <KeeperContext.Provider value={{ open, setOpen }}>{children}</KeeperContext.Provider>;
+  const [identity, setIdentity] = useState<KeeperIdentity | null>(null);
+  const [request, setRequest] = useState<KeeperRequest | null>(null);
+  useEffect(() => {
+    // Presentation only: without it the Keeper is drawn as its default figure and offers no intent choices.
+    Promise.resolve()
+      .then(() => keeperIdentity())
+      .then((found) => setIdentity(found ?? null))
+      .catch(() => setIdentity(null));
+  }, []);
+  const askAbout = useCallback((intent: string, subject: string) => {
+    setRequest({ intent, subject, nonce: Date.now() });
+    setOpen(true);
+  }, []);
+  // Closing ends a handed-over question: the next opening explains the page again.
+  const close = useCallback((next: boolean) => {
+    if (!next) setRequest(null);
+    setOpen(next);
+  }, []);
+  return <KeeperContext.Provider value={{ open, setOpen: close, identity, request, askAbout }}>{children}</KeeperContext.Provider>;
+}
+
+/**
+ * The Keeper as a character: its persistent agent's chosen appearance through the ordinary appearance
+ * system, else its default figure, the Rogue (D22). It stands still: the Keeper does no work here.
+ */
+export function KeeperFigure({ size }: { size: 34 | 68 }) {
+  const { identity } = useKeeper();
+  const drawn = identity?.appearance ?? identity?.look;
+  if (drawn) {
+    return (
+      <span className={k.figure} style={{ width: size, height: size }} aria-hidden>
+        <span style={{ position: "absolute", left: 0, top: 0, width: 68, height: 68, transform: size === 34 ? "scale(0.5)" : undefined, transformOrigin: "0 0" }}>
+          <AgentSprite look={{ character: "knight", appearance: drawn }} pose="idle" footX={34} footY={68} frozen />
+        </span>
+      </span>
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/world/strips/rogue-idle-2x-outlined.png" width={size} height={size} alt="" className="px" />;
 }
 
 export function useKeeper(): KeeperState {
@@ -51,8 +103,7 @@ export function KeeperDock() {
   if (open) return null;
   return (
     <button type="button" className={k.dock} onClick={() => setOpen(true)} aria-label="Ask the Keeper">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/world/strips/rogue-idle-2x-outlined.png" width={34} height={34} alt="" className="px" />
+      <KeeperFigure size={34} />
       <span>Keeper</span>
     </button>
   );
@@ -62,7 +113,7 @@ type ThinkState =
   | { phase: "idle" }
   | { phase: "starting" }
   | { phase: "working"; workflowRunId: string; status: string }
-  | { phase: "answered"; workflowRunId: string; artifactId: string; doc: Deliverable; proposal: Proposal | null }
+  | { phase: "answered"; workflowRunId: string; artifactId: string; doc: Deliverable; proposal: Proposal | null; unsupportedNumbers: string[] }
   | { phase: "failed"; workflowRunId: string | null; error: string };
 
 type Proposal = { kind: "agent" | "workflow"; href: string; label: string };
@@ -76,9 +127,36 @@ const POLL_MS = 2_000;
  * A proposal only opens a pre-filled builder; nothing is saved from here.
  */
 export function KeeperPanel() {
-  const { open, setOpen } = useKeeper();
+  const { open, setOpen, identity, request } = useKeeper();
   const path = usePathname() ?? "/";
-  const subject = subjectForPath(path);
+  const pageSubject = subjectForPath(path);
+  // A question handed over by another screen names its own subject; otherwise the page's.
+  const subject = request?.subject ?? pageSubject;
+  const subjectKind = subject.split(":")[0]!;
+  const choices = (identity?.intents ?? []).filter((i) => i.subjects.includes(subjectKind));
+
+  const [answer, setAnswer] = useState<KeeperAnswer | null>(null);
+  const [answering, setAnswering] = useState(false);
+  const [answerError, setAnswerError] = useState<string | null>(null);
+
+  const explainIntent = useCallback(async (ask: { question?: string; intent?: string }, about: string) => {
+    setAnswering(true);
+    setAnswerError(null);
+    try {
+      setAnswer(await keeperExplanation(about, ask));
+    } catch (err) {
+      setAnswerError(errorText(err));
+    } finally {
+      setAnswering(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open && request) void explainIntent({ intent: request.intent }, request.subject);
+  }, [open, request, explainIntent]);
+  useEffect(() => {
+    setAnswer(null);
+  }, [pageSubject]);
 
   const [explanation, setExplanation] = useState<KeeperExplanation | null>(null);
   const [explainError, setExplainError] = useState<string | null>(null);
@@ -116,26 +194,14 @@ export function KeeperPanel() {
   }
 
   async function readAnswer(workflowRunId: string): Promise<boolean> {
-    const run = await getWorkflowRun(workflowRunId);
-    const status = run.workflowRun.status;
-    if (status !== "completed" && status !== "failed") {
-      setThink({ phase: "working", workflowRunId, status });
+    const answer = await readRunAnswer(workflowRunId, "keeper_answer");
+    if (answer.phase === "working") {
+      setThink({ phase: "working", workflowRunId, status: answer.status });
       return false;
     }
-    if (status === "failed") {
-      setThink({ phase: "failed", workflowRunId, error: "The Keeper's run failed. Open it to see why." });
-      return true;
-    }
-    const ids = run.steps.flatMap((s) => s.run?.invocations.flatMap((i) => i.artifactIds) ?? []);
-    for (const id of ids.reverse()) {
-      const a = await getArtifact(id, true);
-      if (a.artifact.type !== "keeper_answer") continue;
-      const doc = parseDeliverable("keeper_answer", a.artifact.content);
-      if (!doc) break;
-      setThink({ phase: "answered", workflowRunId, artifactId: id, doc, proposal: proposalFrom(a.artifact.content ?? null) });
-      return true;
-    }
-    setThink({ phase: "failed", workflowRunId, error: "The run finished without a readable answer." });
+    if (answer.phase === "failed") setThink({ phase: "failed", workflowRunId, error: "The Keeper's run failed. Open it to see why." });
+    else if (answer.phase === "unreadable") setThink({ phase: "failed", workflowRunId, error: "The run finished without a readable answer." });
+    else setThink({ phase: "answered", workflowRunId, artifactId: answer.artifactId, doc: answer.doc, proposal: proposalFrom(answer.content), unsupportedNumbers: checksFrom(answer.content) });
     return true;
   }
 
@@ -162,8 +228,7 @@ export function KeeperPanel() {
   return (
     <aside className={cx(px.board, k.panel)} aria-label="The Keeper">
       <header className={k.header}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/world/strips/rogue-idle-2x-outlined.png" width={68} height={68} alt="" className="px" />
+        <KeeperFigure size={68} />
         <div>
           <h2 className={k.title}>The Keeper</h2>
           <p className={px.detail}>Explanations and look-ups read the keep&apos;s records and use no model.</p>
@@ -172,6 +237,35 @@ export function KeeperPanel() {
           Close
         </PixelButton>
       </header>
+
+      <section className={k.section} aria-label="Explain">
+        <span className={px.tab}>Explain</span>
+        <p className={px.detail}>Ask why. The Keeper answers only from what the records show, and says what they don&apos;t.</p>
+        {choices.length > 0 && (
+          <div className={k.choices} role="group" aria-label="Questions the Keeper can answer here">
+            {choices.map((c) => (
+              <button key={c.id} type="button" className={k.choice} onClick={() => void explainIntent({ intent: c.id }, subject)} disabled={answering}>
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <form
+          className={k.ask}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void explainIntent({ question: question.trim() }, subject);
+          }}
+        >
+          <input className={px.input} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Why is this agent level 4?" aria-label="Question for the Keeper" />
+          <PixelButton type="submit" disabled={!question.trim() || answering}>
+            Explain
+          </PixelButton>
+        </form>
+        {answering && <Skeleton label="reading the records" />}
+        {answerError && <StateNotice role="alert" message="The Keeper couldn't read the records." detail={answerError} />}
+        {answer && !answering && <AnswerView answer={answer} onNavigate={() => setOpen(false)} onAsk={(intent) => void explainIntent({ intent }, subject)} />}
+      </section>
 
       <section className={k.section} aria-label="Here">
         <span className={px.tab}>{subject === "system" ? "The keep" : "This page"}</span>
@@ -213,9 +307,9 @@ export function KeeperPanel() {
       </section>
 
       <section className={k.section} aria-label="Ask">
-        <span className={px.tab}>Ask</span>
+        <span className={px.tab}>How to</span>
         <form onSubmit={lookUp} className={k.ask}>
-          <input className={px.input} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="How do I create an agent?" aria-label="Question for the Keeper" />
+          <p className={px.detail}>Look up the guide cards for the question above.</p>
           <PixelButton type="submit" disabled={!question.trim()}>
             Look it up
           </PixelButton>
@@ -233,9 +327,16 @@ export function KeeperPanel() {
       <section className={k.section} aria-label="Think">
         <span className={px.tab}>Think</span>
         <p className={px.detail}>
-          Think asks the Keeper&apos;s agent to reason about your question and this page. It runs as a governed goal on the CHEAP tier and uses
-          subscription quota; the Keeper can only read, and proposes rather than changes.
+          Think asks the Keeper&apos;s agent to put the same records into words for your question. It runs as a governed goal on the CHEAP tier
+          and uses subscription quota; the Keeper can only read, and proposes rather than changes.
         </p>
+          <p className={px.dim}>
+            The Keeper explains; it does not organise work. To make something happen, give the Manager an objective in{" "}
+            <Link href="/command" className={k.link}>
+              Command
+            </Link>
+            .
+          </p>
         <PixelButton onClick={() => void startThinking()} disabled={!question.trim() || think.phase === "starting" || think.phase === "working"}>
           Think
         </PixelButton>
@@ -260,6 +361,11 @@ export function KeeperPanel() {
         )}
         {think.phase === "answered" && (
           <div className={k.answer} data-testid="keeper-answer">
+            {think.unsupportedNumbers.length > 0 && (
+              <p role="alert" className={k.warn}>
+                Check this answer: it mentions {think.unsupportedNumbers.join(", ")}, which the records it was given do not contain. Use Explain for the recorded facts.
+              </p>
+            )}
             <DocumentView doc={think.doc} fallbackTitle={null} untrusted={false} />
             <div className={k.links}>
               <Link href={`/artifacts/${think.artifactId}`} className={k.link}>
@@ -275,6 +381,73 @@ export function KeeperPanel() {
         )}
       </section>
     </aside>
+  );
+}
+
+/** Numbers the answer used that its records did not contain (a code-written tripwire on the answer). */
+function checksFrom(content: string | null): string[] {
+  try {
+    const found = (JSON.parse(content ?? "null") as { checks?: { unsupportedNumbers?: unknown } } | null)?.checks?.unsupportedNumbers;
+    return Array.isArray(found) ? found.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** One intent answer: what is recorded, what is calculated from it, and what is not known, each with its source and records. */
+function AnswerView({ answer, onNavigate, onAsk }: { answer: KeeperAnswer; onNavigate: () => void; onAsk: (intent: string) => void }) {
+  const lines = (title: string, testId: string, list: KeeperAnswer["facts"]) =>
+    list.length > 0 && (
+      <div className={k.block} data-testid={testId}>
+        <div className={px.label}>{title}</div>
+        <ul className={k.lines}>
+          {list.map((l, i) => (
+            <li key={i}>
+              <span>{l.text}</span>
+              <span className={k.source} title="Where this comes from">
+                {l.source}
+              </span>
+              {l.links.map((link) => (
+                <Link key={link.href + link.label} href={link.href} className={k.link} onClick={onNavigate}>
+                  {link.label}
+                </Link>
+              ))}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  return (
+    <div className={cx(px.vellum, k.explain)} data-testid="keeper-intent-answer">
+      <p className={k.headline}>{answer.headline}</p>
+      {answer.subject.name && (
+        <p className={px.detail}>
+          About <AgentLabel name={answer.subject.name} />, across all its versions.
+        </p>
+      )}
+      {lines("Recorded", "keeper-facts", answer.facts)}
+      {lines("Calculated from the records", "keeper-derived", answer.derived)}
+      {answer.unknown.length > 0 && (
+        <div className={k.block} data-testid="keeper-unknown">
+          <div className={px.label}>Not known from the records</div>
+          <ul className={k.lines}>
+            {answer.unknown.map((u, i) => (
+              <li key={i}>{u}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {answer.intent === null && answer.canExplain.length > 0 && (
+        <div className={k.choices} role="group" aria-label="What the Keeper can explain here">
+          {answer.canExplain.map((c) => (
+            <button key={c.intent} type="button" className={k.choice} onClick={() => onAsk(c.intent)}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className={px.detail}>Read from the records without a model · about {answer.size.estimatedTokens} tokens of context</p>
+    </div>
   );
 }
 

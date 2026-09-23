@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   createAgentDefinition,
   getRegistry,
+  setAgentAppearance,
+  type Appearance,
   type AgentDefinitionInput,
   type BuilderOptions,
   type ExecutionProfile,
@@ -14,6 +16,8 @@ import {
 import { errorText } from "../../lib/keep";
 import { PixelButton, Skeleton, StateNotice, cx, px } from "../pixel/Pixel";
 import b from "./builder.module.css";
+import { CharacterStation, appearanceFrom } from "./CharacterStation";
+import { usePreferences } from "../preferences";
 
 type GrantDraft = { enabled: boolean; permissions: string[]; autonomyState: string; maxTrustLevelRequired: number };
 
@@ -29,6 +33,9 @@ const DEFAULT_TRUST = 1;
  * Capability Grants and execution profile, through the Registry's one versioned
  * write. Every option comes from `GET /registry` (`builder`); the API validates and
  * refuses. A new version never edits the old one: it is a new row with its own Grants.
+ *
+ * A new agent also gets a character (presentation only), saved after its Definition as a
+ * separate write keyed on its name. A new version keeps its agent's character untouched.
  */
 export function AgentBuilder({ fromId, prefill }: { fromId?: string; prefill?: AgentPrefill }) {
   const [registry, setRegistry] = useState<RegistryData | null>(null);
@@ -59,6 +66,7 @@ function BuilderForm({
   base?: RegistryData["agentDefinitions"][number];
   prefill?: AgentPrefill;
 }) {
+  const { preferences } = usePreferences();
   const latestVersion = base ? Math.max(...registry.agentDefinitions.filter((d) => d.name === base.name).map((d) => d.version)) : undefined;
   const seedProfile: ExecutionProfile = base?.executionProfile ?? prefill?.executionProfile ?? {};
 
@@ -88,6 +96,12 @@ function BuilderForm({
     }
     return drafts;
   });
+
+  // Only a new agent chooses a character here; a version shows its agent's, read-only.
+  const [appearance, setAppearance] = useState<Appearance | null>(() =>
+    options.appearance && !base ? appearanceFrom(options.appearance, options.appearance.presets?.find((p) => p.id === preferences.recruitPreset)?.appearance) : null
+  );
+  const [appearanceError, setAppearanceError] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -134,7 +148,12 @@ function BuilderForm({
     setSaving(true);
     setSaveError(null);
     try {
-      setSaved(await createAgentDefinition(payload));
+      const created = await createAgentDefinition(payload);
+      if (appearance) {
+        // The Definition is already recorded: a refused look is reported beside it, never as a failed recruit.
+        await setAgentAppearance(created.name, appearance).catch((err) => setAppearanceError(errorText(err)));
+      }
+      setSaved(created);
     } catch (err) {
       setSaveError(errorText(err));
     } finally {
@@ -149,6 +168,12 @@ function BuilderForm({
           {saved.name} v{saved.version} recruited
         </h1>
         <p>The Registry recorded the version and its keys. Nothing older was changed.</p>
+        {appearanceError && (
+          <p role="alert">
+            Its character wasn&apos;t saved, so it keeps the default one. Change it from the agent&apos;s board.{" "}
+            <span className={px.detail}>{appearanceError}</span>
+          </p>
+        )}
         <Link href={`/agents/${saved.id}`} className={b.inkLink}>
           Open {saved.name} v{saved.version}
         </Link>
@@ -186,6 +211,26 @@ function BuilderForm({
           <textarea className={cx(px.input, b.textareaTall)} value={instructions} onChange={(e) => setInstructions(e.target.value)} disabled={saving} required />
         </label>
       </fieldset>
+
+      {options.appearance && (
+        <CharacterStation
+          options={options.appearance}
+          value={base ? (base.appearance ?? null) : appearance}
+          onChange={base ? undefined : setAppearance}
+          disabled={saving}
+          note={
+            base && (
+              <p className={px.detail}>
+                A new version keeps {base.name}&apos;s character.{" "}
+                <Link href={`/agents/${base.id}/appearance`} className={b.labelLink}>
+                  Change appearance
+                </Link>{" "}
+                separately; it saves no version.
+              </p>
+            )
+          }
+        />
+      )}
 
       <fieldset className={cx(px.board, b.group)}>
         <legend className={px.tab}>Keys (capabilities)</legend>

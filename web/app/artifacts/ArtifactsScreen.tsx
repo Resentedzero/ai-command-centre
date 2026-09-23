@@ -1,5 +1,6 @@
 "use client";
 
+import { QualityVerdictControl } from "../../components/QualityVerdict";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAgentDetail, getArtifact, type AgentDetail, type ArtifactDetail } from "../../lib/api";
@@ -309,6 +310,8 @@ export function ArtifactsScreen({ id, agentParam, full = false }: { id?: string;
             )}
           </div>
         </div>
+
+        {a && id && <QualityVerdictControl artifactId={id} />}
 
         {a && artifact && (
           <div role="tablist" aria-label="Artifact views" className={ds.tabs}>

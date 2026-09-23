@@ -1,6 +1,6 @@
 "use client";
 
-import { WORKSHOP_CLOSEUPS, characterFor, preferredSlot } from "../../lib/keep";
+import { WORKSHOP_CLOSEUPS, lookFor, preferredSlot, type KnownAgent } from "../../lib/keep";
 import { StatusMark, cx } from "../pixel/Pixel";
 import { AgentSprite, world } from "./World";
 import s from "./workshop.module.css";
@@ -22,27 +22,27 @@ export function WorkshopCloseup({
   state,
   label,
   keys = [],
-  definitionIds,
+  definitions,
 }: {
   /** "" when no agent could be read: the first close-up, unlit (`state="unknown"` draws no actor). */
   agentId: string;
   state: WorkshopState;
   label: string;
   keys?: KeyMark[];
-  /** The Registry's Agent Definition ids, so the character matches every other screen. */
-  definitionIds?: string[];
+  /** The Registry's Agent Definitions, so the agent looks the same as on every other screen. */
+  definitions?: KnownAgent[];
 }) {
-  const character = characterFor(agentId, definitionIds);
+  const look = lookFor(agentId, definitions);
   const sprite =
     state === "active" ? "run" : state === "idle" || state === "stopped" ? "idle" : null;
   return (
     <div className={cx(s.closeup)} role="img" aria-label={label}>
       <div className={s.room}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={WORKSHOP_CLOSEUPS[preferredSlot(agentId)]} width={768} height={640} alt="" className={world.base} draggable={false} />
+        <img src={WORKSHOP_CLOSEUPS[preferredSlot(look.name)]} width={768} height={640} alt="" className={world.base} draggable={false} />
         <div className={world.night} />
         {state === "active" && <img className={world.light} src="/world/light-active-4x.png" style={{ left: 32, top: 128 }} alt="" />}
-        {sprite && <AgentSprite character={character} pose={sprite} footX={384} footY={540} scale={2} frozen={state === "stopped"} />}
+        {sprite && <AgentSprite look={look} pose={sprite} footX={384} footY={540} scale={2} frozen={state === "stopped"} />}
         {state === "stopped" && <div className={world.barrier} style={{ left: 304, top: 600, width: 160 }} />}
         {keys.map((k, i) => (
           <div key={k.n} className={cx(s.key, k.revoked && s.revoked)} style={{ left: 384 - ((keys.length - 1) * 88) / 2 + i * 88 - 32, top: 188 }}>

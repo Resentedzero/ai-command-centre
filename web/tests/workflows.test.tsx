@@ -59,7 +59,9 @@ describe("Workflows runs board", () => {
 
   it("says so when there are no runs, with a way to start a goal", async () => {
     render(<WorkflowsPage />);
-    expect(await screen.findByText("No workflow runs yet.")).toBeInTheDocument();
+    // Default preferences: the current-work window is the last day, and the list says so.
+    expect(await screen.findByText("No current workflow runs.")).toBeInTheDocument();
+    expect(api.listWorkflowRuns).toHaveBeenCalledWith(24);
     expect(screen.getByRole("link", { name: "Start a goal" })).toHaveAttribute("href", "/goals");
   });
 

@@ -35,7 +35,7 @@
 }
 
 .tab {
-  width: 120px;
+  width: 90px;
   height: 40px;
   display: flex;
   align-items: center;
@@ -76,4 +76,28 @@
 .chipText {
   font-size: 12px;
   color: var(--pixel-label);
+}
+
+/* Settings sits with the chips: available everywhere, never competing with the screens. */
+.settings {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 var(--space-sm);
+  font: 14px/18px var(--font-pixel), monospace;
+  color: var(--pixel-label-dim);
+  border: 2px solid var(--pixel-wood-edge);
+  text-decoration: none;
+}
+.settings:hover {
+  color: var(--pixel-label);
+}
+
+/* Laptop: ten tabs (Calendar added for the workplace) fit beside the chips by sizing each tab to its word. */
+@media (max-width: 1440px) {
+  .tab {
+    width: auto;
+    padding: 0 7px;
+    font-size: 14px;
+  }
 }

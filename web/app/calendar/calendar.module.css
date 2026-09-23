@@ -1,0 +1,193 @@
+/* Calendar: the week (or day) on a wood board, the chosen meeting beside it. */
+.screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  height: 100%;
+}
+.main,
+.side {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.main p,
+.side p {
+  margin: 0;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-sm);
+}
+.group,
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.toggle {
+  padding: 4px 10px;
+  background: var(--pixel-wood-dark);
+  border: 2px solid var(--pixel-wood-edge);
+  color: var(--pixel-label);
+  font: 13px/17px var(--font-mono), monospace;
+  cursor: pointer;
+}
+.toggleOn {
+  border-color: var(--pixel-label);
+}
+.toggle:focus-visible,
+.event:focus-visible {
+  outline: 2px solid var(--pixel-label);
+  outline-offset: 2px;
+}
+.filter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.filter select,
+.filter input {
+  max-width: 190px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: 13px/17px var(--font-mono), monospace;
+  color: inherit;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-xs);
+}
+.gridDay {
+  grid-template-columns: minmax(0, 1fr);
+}
+.day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-height: 240px;
+  min-width: 0;
+  padding: var(--space-xs);
+  background: var(--pixel-wood-dark);
+  border: 2px solid var(--pixel-wood-edge);
+}
+.today {
+  border-color: var(--pixel-label);
+}
+.dayHead {
+  font: 700 13px/17px var(--font-mono), monospace;
+  color: var(--pixel-label);
+}
+.event {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 2px solid var(--pixel-wood-edge);
+  font: 12px/16px var(--font-mono), monospace;
+  text-align: left;
+  overflow: hidden;
+}
+.meeting {
+  background: var(--pixel-parchment);
+  color: var(--pixel-ink);
+  cursor: pointer;
+}
+.entry {
+  background: transparent;
+  color: var(--pixel-label);
+  border-style: dashed;
+}
+/* Ink is the only text colour on parchment (contrast rule); the status wraps instead of clipping. */
+.sub {
+  color: var(--pixel-ink);
+  overflow-wrap: anywhere;
+}
+.meeting > span:last-child {
+  white-space: normal;
+  flex-wrap: wrap;
+}
+.cancelled .title {
+  text-decoration: line-through;
+}
+.eventSelected {
+  border-color: var(--pixel-label);
+  box-shadow: 0 0 0 2px var(--pixel-label);
+}
+.time {
+  font-weight: 700;
+}
+.title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail,
+.block,
+.newMeeting,
+.notifications {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.newMeeting {
+  padding: var(--space-sm);
+}
+.people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font: 13px/18px var(--font-mono), monospace;
+}
+.kv dt {
+  color: var(--pixel-label);
+  opacity: 0.8;
+}
+.kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font: 13px/18px var(--font-mono), monospace;
+}
+.notification {
+  overflow-wrap: anywhere;
+}
+.message {
+  font: 13px/18px var(--font-mono), monospace;
+}
+@media (max-width: 1400px) {
+  .screen {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}

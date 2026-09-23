@@ -1,0 +1,62 @@
+{
+  "version": 2,
+  "note": "Presentation only. The single source of the agent character kit: read by assets/gamification/adapted/make-agent-kit.ps1 (to draw the layers), by the API (to validate and default an appearance) and by the Agent Builder (options and presets). Colours are identity tints and neutrals, never the state hues. Nothing here affects capabilities, grants, policy, budgets, routing, context or performance.",
+  "poses": ["idle", "walk", "work"],
+  "facings": ["down", "side", "up"],
+  "frameSize": 68,
+  "frames": { "idle": 4, "walk": 6, "work": 6 },
+  "frameMs": { "idle": 500, "walk": 120, "work": 150 },
+  "parts": {
+    "skin": { "label": "Skin", "default": "tan", "options": ["fair", "tan", "olive", "deep", "ebony"] },
+    "hair": { "label": "Hair", "default": "short", "options": ["none", "short", "long", "bun", "hood", "ponytail", "curly"] },
+    "hairColor": { "label": "Hair colour", "default": "brown", "options": ["black", "brown", "blonde", "auburn", "ginger", "grey", "white", "raven"] },
+    "top": { "label": "Top", "default": "tunic", "options": ["tunic", "coat", "vest", "robe", "tabard", "apron", "cloak"] },
+    "topColor": { "label": "Top colour", "default": "indigo", "options": ["violet", "magenta", "indigo", "lilac", "teal", "slate", "umber", "cream", "forest", "navy", "plum"] },
+    "bottom": { "label": "Bottom", "default": "trousers", "options": ["trousers", "skirt", "shorts", "boots", "long-skirt"] },
+    "bottomColor": { "label": "Bottom colour", "default": "slate", "options": ["violet", "magenta", "indigo", "lilac", "teal", "slate", "umber", "cream", "forest", "navy", "plum"] },
+    "accessory": { "label": "Accessory", "default": "none", "options": ["none", "glasses", "scarf", "cap", "headband", "satchel"] },
+    "mark": { "label": "Role mark", "default": "none", "options": ["none", "book", "quill", "lens", "scroll", "gear", "key", "flask", "compass"] }
+  },
+  "presets": [
+    { "id": "archivist", "name": "Archivist", "appearance": { "skin": "deep", "hair": "bun", "hairColor": "grey", "top": "robe", "topColor": "violet", "bottom": "long-skirt", "bottomColor": "umber", "accessory": "glasses", "mark": "book" } },
+    { "id": "scout", "name": "Scout", "appearance": { "skin": "fair", "hair": "hood", "hairColor": "black", "top": "cloak", "topColor": "forest", "bottom": "boots", "bottomColor": "umber", "accessory": "satchel", "mark": "compass" } },
+    { "id": "scribe", "name": "Scribe", "appearance": { "skin": "olive", "hair": "ponytail", "hairColor": "auburn", "top": "tunic", "topColor": "cream", "bottom": "trousers", "bottomColor": "navy", "accessory": "none", "mark": "quill" } },
+    { "id": "artificer", "name": "Artificer", "appearance": { "skin": "tan", "hair": "short", "hairColor": "ginger", "top": "apron", "topColor": "slate", "bottom": "boots", "bottomColor": "slate", "accessory": "headband", "mark": "gear" } },
+    { "id": "herald", "name": "Herald", "appearance": { "skin": "ebony", "hair": "curly", "hairColor": "black", "top": "tabard", "topColor": "magenta", "bottom": "trousers", "bottomColor": "cream", "accessory": "scarf", "mark": "scroll" } },
+    { "id": "warden", "name": "Warden", "appearance": { "skin": "fair", "hair": "long", "hairColor": "white", "top": "coat", "topColor": "navy", "bottom": "boots", "bottomColor": "navy", "accessory": "cap", "mark": "key" } },
+    { "id": "alchemist", "name": "Alchemist", "appearance": { "skin": "deep", "hair": "none", "hairColor": "brown", "top": "robe", "topColor": "teal", "bottom": "skirt", "bottomColor": "plum", "accessory": "glasses", "mark": "flask" } },
+    { "id": "analyst", "name": "Analyst", "appearance": { "skin": "olive", "hair": "short", "hairColor": "raven", "top": "vest", "topColor": "indigo", "bottom": "trousers", "bottomColor": "slate", "accessory": "glasses", "mark": "lens" } }
+  ],
+  "palettes": {
+    "skin": {
+      "fair": ["#F1C7A1", "#C58F6B", "#FFE3C8"],
+      "tan": ["#D9A066", "#A26543", "#FAC895"],
+      "olive": ["#B98A5E", "#8A6340", "#D8AE84"],
+      "deep": ["#8A5A3C", "#5E3A26", "#B07A55"],
+      "ebony": ["#5A3A28", "#3C261A", "#7A5238"]
+    },
+    "hair": {
+      "black": ["#3A3340", "#1F1B24"],
+      "brown": ["#6B4A2E", "#4A321E"],
+      "blonde": ["#CFB06A", "#9E834A"],
+      "auburn": ["#8E4A30", "#65321F"],
+      "ginger": ["#B8642E", "#84451E"],
+      "grey": ["#9C9A96", "#6E6C69"],
+      "white": ["#E6E1D6", "#B8B2A5"],
+      "raven": ["#2E3450", "#1A1E30"]
+    },
+    "cloth": {
+      "violet": ["#9C4AEE", "#6A2FB0"],
+      "magenta": ["#F84FB9", "#B8338A"],
+      "indigo": ["#6A7BFF", "#4652C0"],
+      "lilac": ["#C77DFF", "#9150C4"],
+      "teal": ["#2BD9C5", "#1C9C8D"],
+      "slate": ["#6E7B8C", "#4A5563"],
+      "umber": ["#8A6A4A", "#5E4630"],
+      "cream": ["#D8CBB0", "#A89C82"],
+      "forest": ["#557A55", "#3A553B"],
+      "navy": ["#3A4775", "#252E50"],
+      "plum": ["#7C4A6C", "#56324A"]
+    }
+  }
+}

@@ -27,6 +27,12 @@ const data: CostsData = {
     { scope: "day", resourceUnit: "usd", consumed: "0.0412", reserved: "0.05", counters: 1 },
     { scope: "run", resourceUnit: "subscription_tokens", consumed: "18204", reserved: "0", counters: 1 },
   ],
+  // The usd figure is entirely estimated — no provider has ever reported a usd cost — and the
+  // subscription figure is entirely measured. The screen must not present the two the same way.
+  consumedBasis: {
+    usd: { reported: "0", estimate: "0.0412" },
+    subscription_tokens: { reported: "18204", estimate: "0" },
+  },
   costVsSuccess: [
     {
       agentDefinitionId: "a-1",
@@ -62,6 +68,10 @@ describe("Cost ledger", () => {
       expect.stringContaining("day · usd0.0412 consumed · 0.05 reserved"),
       expect.stringContaining("run · subscription_tokens18204 consumed · 0 reserved"),
     ]);
+    // An estimate is not spend: the usd total says so, and the measured one says the opposite.
+    expect(totals[0]).toHaveTextContent("all of it charged at estimate — not measured spend");
+    expect(totals[1]).toHaveTextContent("all of it the provider’s own reported usage");
+
     const counters = screen.getAllByTestId("counter");
     expect(counters[0]).toHaveTextContent("Researcher v1 · Research-Report");
     expect(counters[0]).toHaveTextContent("18204 consumed · 0 reserved · limit 200000");
@@ -72,6 +82,26 @@ describe("Cost ledger", () => {
     expect(screen.getByTestId("cost-vs-success")).toHaveTextContent("eligible · meets sample criterion");
     expect(screen.getByText(/A measurement, not a recommendation\. An eligible row can steer/)).toBeInTheDocument();
     expect(api.getCosts).toHaveBeenCalledWith(undefined);
+  });
+
+  it("never calls a usd charge provider-reported: the tokens were measured, the price was local", async () => {
+    // The one case the main fixture cannot show, because consumedBasis is keyed by unit: a usd total
+    // whose consumption was all charged from a provider's report. No provider reports money, so the
+    // stronger phrase used for tokens would be false here.
+    api.getCosts.mockResolvedValue({
+      ...data,
+      totals: [
+        { scope: "day", resourceUnit: "usd", consumed: "0.90", reserved: "0", counters: 1 },
+        { scope: "run", resourceUnit: "subscription_tokens", consumed: "18204", reserved: "0", counters: 1 },
+      ],
+      consumedBasis: { usd: { reported: "0.90", estimate: "0" }, subscription_tokens: { reported: "18204", estimate: "0" } },
+    });
+    render(<CostsPage />);
+    const totals = await screen.findAllByTestId("total");
+    expect(totals[0]).toHaveTextContent("priced from provider-reported tokens at a local rate — not a billed amount");
+    expect(totals[0]).not.toHaveTextContent("the provider’s own reported usage");
+    // A token unit really was reported by the provider, so it keeps the stronger wording.
+    expect(totals[1]).toHaveTextContent("all of it the provider’s own reported usage");
   });
 
   it("filters by scope through the API", async () => {

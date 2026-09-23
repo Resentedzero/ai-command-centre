@@ -36,7 +36,8 @@ import {
 } from "../../src/capabilities/agentObjective/buildInvocationSpecs.js";
 import { loopActionFor, parseLoopActionInput } from "../../src/capabilities/shared/loopActions.js";
 import { refreshAgentPerformance } from "../../src/projections/agentPerformance.js";
-import { createHash } from "node:crypto";
+import { refreshAgentProgression } from "../../src/projections/agentProgression.js";
+import { createHash, randomUUID } from "node:crypto";
 
 let app: FastifyInstance;
 let seed: SeedPublishWorkflowResult;
@@ -749,6 +750,54 @@ describe("an autonomous agent works on an objective", () => {
       // (9) Tokens land on the Run — and so the agent — that spent them.
       expect(research.tokens).toBe(1_000 + 1_000 + 3_000);
       expect(analysis!.tokens).toBe(500 + 700 + 500 + 2_000);
+    });
+
+    it("R2: an agent endorses only a deliverable the runtime proves it received from another agent, and earns nothing for it", async () => {
+      // The seed creates the Capability and its binding, held by no agent.
+      const seeded = await testDb.query.capabilities.findFirst({ where: eq(schema.capabilities.name, "peer.endorse") });
+      expect(await testDb.query.capabilityGrants.findFirst({ where: eq(schema.capabilityGrants.capabilityId, seeded!.id) })).toBeUndefined();
+      const capability = { body: { id: seeded!.id } };
+      const m = await mission({
+        analystGrants: [{ capabilityId: capability.body.id, permissions: ["CREATE"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: 1 }],
+        analyst: { tools: [{ capability: "peer.endorse", maxCalls: 3 }] },
+      });
+      expect(m.status).toBe(201);
+      let handoff = "";
+      const neverReceived = randomUUID();
+      script = {
+        decisions: [tool("research.retrieve", { query: "invoicing pain points" }), finish(), finish(), finish(), finish(), finish()],
+        before: async (kind, n) => {
+          if (kind === "decide" && n === 2) script.decisions[1] = finishCiting([await latestResultId()]);
+          if (kind === "decide" && n === 3) {
+            handoff = await latestDeliverableId();
+            script.decisions[2] = tool("peer.endorse", { artifactId: neverReceived, reason: "claims to be useful" });
+          }
+          if (kind === "decide" && n === 4) script.decisions[3] = tool("peer.endorse", { artifactId: handoff, reason: "the evidence held up" });
+          if (kind === "decide" && n === 5) script.decisions[4] = finishCiting([handoff]);
+        },
+      };
+      const started = await startGoal(m.workflowId);
+      expect(started.status).toBe("completed");
+      const { research, analysis } = await stepsOf(started.workflowRunId);
+
+      const outcomes = analysis!.loop.filter((e) => (e.payload as { action?: { capability?: string } }).action?.capability === "peer.endorse").map((e) => (e.payload as { outcome: unknown }).outcome);
+      expect(outcomes[0]).toMatchObject({ status: "refused", reason: expect.stringMatching(/does not exist|never received/) });
+      expect(outcomes[1]).toMatchObject({ status: "completed" });
+
+      // The snapshot's facts come from the record, not the decision.
+      const handed = (await testDb.query.artifacts.findFirst({ where: eq(schema.artifacts.id, handoff) }))!;
+      const endorsements = analysis!.invocations.filter((i) => i.capabilityId === capability.body.id);
+      expect(endorsements).toHaveLength(1);
+      const researcherName = (await testDb.query.agentDefinitions.findFirst({ where: eq(schema.agentDefinitions.id, m.researcher) }))!.name;
+      const analystName = (await testDb.query.agentDefinitions.findFirst({ where: eq(schema.agentDefinitions.id, m.analyst) }))!.name;
+      expect(endorsements[0]!.proposedActionSnapshot).toMatchObject({ artifactId: handoff, artifactHash: handed.hash, endorserRunId: analysis!.run.id, endorsedAgentName: researcherName });
+      expect(research.run.id).not.toBe(analysis!.run.id);
+
+      await testDb.transaction((tx) => refreshAgentProgression(tx));
+      const recorded = await testDb.query.agentEndorsements.findFirst({ where: eq(schema.agentEndorsements.invocationId, endorsements[0]!.id) });
+      expect(recorded).toMatchObject({ endorserName: analystName, endorsedName: researcherName, verified: true, excludedReason: null });
+      const analystAwards = await testDb.query.agentXpAwards.findMany({ where: eq(schema.agentXpAwards.agentName, analystName) });
+      expect(analystAwards.some((a) => JSON.stringify(a.evidence).includes("peer.endorse"))).toBe(false);
     });
 
     it("one agent's Grant never becomes another's: refused at save time, and refused at run time", async () => {

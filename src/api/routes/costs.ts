@@ -11,6 +11,12 @@
  *   decision (ROADMAP_STATUS §6), so it is not interpreted here. `limitAmount` is
  *   the limit stored when the counter was created: enforced for a run counter, and
  *   for a day counter only while a ceiling for its unit is configured.
+ * - `consumedBasis`: per unit, how much of all recorded consumption was charged from a provider's
+ *   own report and how much at a client-side ESTIMATE. An estimate is never presented as spend.
+ *   CAREFUL WITH `usd`: even a "reported" usd charge is provider-reported TOKENS multiplied by a
+ *   locally configured list rate. No provider in this system reports a monetary cost, so no usd
+ *   figure anywhere is a measured or billed amount — `reported` there means "priced from a measured
+ *   token count", not "the provider told us what it cost".
  * - `totals`: consumed and reserved per (scope, unit), summed in SQL over every
  *   counter, never across units. Limits are not summed: a sum of per-Run limits is
  *   not a limit. Do not add totals across scopes: the same spend is held at a run
@@ -23,12 +29,13 @@
  */
 import type { FastifyInstance } from "fastify";
 import { eligibilityFields } from "../performanceEligibilityFields.js";
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   agentDefinitions,
   agentPerformance,
   budgetCounters,
   budgetCounterScope,
+  events,
   runs,
   taskDefinitions,
   taskInstances,
@@ -87,6 +94,33 @@ export function registerCostsRoutes(app: FastifyInstance, deps: ApiDeps): void {
         .orderBy(taskDefinitions.name, agentDefinitions.name, agentPerformance.agentDefinitionVersion, agentPerformance.modelTier),
     ]);
 
+    // What a counter's `consumed` is actually MADE OF (R2 Stage 16).
+    //
+    // `reconcileBudget` charges a counter either from the provider's own reported usage
+    // (`basis: "reported"`) or, when consumption is unknowable — a tool's caller-supplied
+    // `estimatedCost`, or an invocation that failed without reporting — at the estimate
+    // (`basis: "estimate"`). The counter keeps the number and loses the distinction, so
+    // `sum(consumed_amount)` alone cannot say whether a figure is measured or guessed. For
+    // `usd` today it is guessed in full: no provider has ever reported a usd cost.
+    //
+    // A client-side estimate must never be shown as though it were billing, so the split is
+    // re-derived from the `budget_consumed` events, which do record the basis. It is reported
+    // per unit (an event does not carry the counter's scope), and the shares are of the events,
+    // not of the counter: a counter created before this event stream is simply unattributed.
+    const unitExpr = sql<string>`${events.payload}->>'resourceUnit'`;
+    const basisExpr = sql<string | null>`${events.payload}->>'basis'`;
+    const basisRows = await deps.db
+      .select({ resourceUnit: unitExpr, basis: basisExpr, amount: sql<string>`sum((${events.payload}->>'amount')::numeric)::text` })
+      .from(events)
+      .where(and(eq(events.eventType, "budget_consumed"), isNotNull(unitExpr)))
+      .groupBy(unitExpr, basisExpr);
+    const consumedBasis: Record<string, { reported: string; estimate: string }> = {};
+    for (const r of basisRows) {
+      const unit = (consumedBasis[r.resourceUnit] ??= { reported: "0", estimate: "0" });
+      if (r.basis === "estimate") unit.estimate = r.amount;
+      else if (r.basis === "reported") unit.reported = r.amount;
+    }
+
     const shown = counterRows.slice(0, COUNTER_LIMIT);
     // Labels for the shown Run counters only, by primary key. A run counter's key is a Run id.
     const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -125,6 +159,7 @@ export function registerCostsRoutes(app: FastifyInstance, deps: ApiDeps): void {
       }),
       countersTruncated: counterRows.length > COUNTER_LIMIT,
       totals,
+      consumedBasis,
       costVsSuccess: performanceRows.map((p) => ({ ...p, ...eligibilityFields(p.sampleCount) })),
     });
   });

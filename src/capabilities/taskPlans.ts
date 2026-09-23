@@ -25,14 +25,19 @@ import type { LinearGraphDefinition } from "../workflow/graphTypes.js";
 import { buildAgentTaskInvocationSpecs, validateAgentTaskStep, type AgentTaskParameters } from "./agentTask/buildInvocationSpecs.js";
 import { buildCheckpointInvocationSpecs, validateCheckpointStep, type CheckpointParameters } from "./reviewCheckpoint/buildInvocationSpecs.js";
 import { loadExecutionProfile } from "./shared/agentProfile.js";
-import { parseStepInputs } from "./shared/stepInputs.js";
+import { parseStepInputs, validateStepInputs } from "./shared/stepInputs.js";
 import { registerLoopAction } from "./shared/loopActions.js";
 import { researchRetrieveLoopAction } from "./researchRetrieve/loopAction.js";
 import { researchSearchLoopAction } from "./researchSearch/loopAction.js";
 import { researchWebLoopAction } from "./researchWeb/loopAction.js";
+import { peerEndorseLoopAction } from "./peerEndorse/loopAction.js";
+import { keepStatsLoopAction } from "./keepStats/adapter.js";
 import { buildAgentObjectiveInvocationSpecs, parseObjectiveParameters, validateObjectiveStep } from "./agentObjective/buildInvocationSpecs.js";
 import { excludeTaskKindFromAutomaticRetry } from "../governance/retryPolicy.js";
 import { buildKeeperAnswerInvocationSpecs } from "./keeperAnswer/buildInvocationSpecs.js";
+import { buildAgentTalkInvocationSpecs } from "./agentTalk/buildInvocationSpecs.js";
+import { buildMeetingContributionInvocationSpecs, buildMeetingOutcomeInvocationSpecs } from "./meeting/buildInvocationSpecs.js";
+import { buildManagerRecoverInvocationSpecs, buildManagerPlanInvocationSpecs, buildManagerReviewInvocationSpecs, parseReviewParameters, type ManagerRefs } from "./manager/buildInvocationSpecs.js";
 
 export type TaskPlanContext = {
   taskDefinition: typeof taskDefinitions.$inferSelect;
@@ -201,6 +206,8 @@ export const AGENT_OBJECTIVE_KIND = "agent_objective";
 registerLoopAction(researchRetrieveLoopAction);
 registerLoopAction(researchSearchLoopAction);
 registerLoopAction(researchWebLoopAction);
+registerLoopAction(peerEndorseLoopAction);
+registerLoopAction(keepStatsLoopAction);
 // Operator decision 2026-09-15: autonomous tasks are not retried automatically.
 excludeTaskKindFromAutomaticRetry(AGENT_OBJECTIVE_KIND);
 
@@ -240,6 +247,140 @@ registerTaskPlanBuilder(
     ),
   {
     validateStepParameters: async (_tx, ctx) => (Object.keys(ctx.parameters).length > 0 ? "a Keeper answer step takes no parameters." : null),
+  }
+);
+
+/** R2 character interaction: the operator talks to one agent; one governed model call, no tools, no actions. */
+export const AGENT_TALK_KIND = "agent_talk";
+
+registerTaskPlanBuilder(
+  AGENT_TALK_KIND,
+  async (tx, ctx) =>
+    buildAgentTalkInvocationSpecs(
+      tx,
+      {
+        contextBudget: requireContextBudget(ctx.taskDefinition.defaultContextBudget, ctx.taskDefinition.name),
+        profile: await loadExecutionProfile(tx, ctx.agentDefinitionId, ctx.agentDefinitionVersion),
+      },
+      ctx.params
+    ),
+  {
+    validateStepParameters: async (_tx, ctx) => (Object.keys(ctx.parameters).length > 0 ? "a talk step takes no parameters." : null),
+  }
+);
+// One request, one attempt: a failed talk is shown as failed, never silently re-run at more cost.
+excludeTaskKindFromAutomaticRetry(AGENT_TALK_KIND);
+
+/** R2 management layer: the Manager plans a mission, and reviews the work it delegated. Never retried automatically. */
+export const MANAGER_PLAN_KIND = "manager_plan";
+export const MANAGER_REVIEW_KIND = "manager_review";
+/** One bounded recovery round after delegated work failed: diagnose by code, propose, validate, delegate. */
+export const MANAGER_RECOVER_KIND = "manager_recover";
+/** One participant's turn in a meeting the Keep is holding, and the Manager closing it. */
+export const MEETING_CONTRIBUTION_KIND = "meeting_contribution";
+export const MEETING_OUTCOME_KIND = "meeting_outcome";
+excludeTaskKindFromAutomaticRetry(MANAGER_PLAN_KIND);
+excludeTaskKindFromAutomaticRetry(MANAGER_REVIEW_KIND);
+excludeTaskKindFromAutomaticRetry(MANAGER_RECOVER_KIND);
+// A meeting happens once. Re-running a turn would put a second version of what someone said into the room.
+excludeTaskKindFromAutomaticRetry(MEETING_CONTRIBUTION_KIND);
+excludeTaskKindFromAutomaticRetry(MEETING_OUTCOME_KIND);
+
+/** The Task Definitions delegated work runs as: the latest `agent_objective` and `manager_review` definitions. */
+async function managerRefs(tx: Parameters<TaskPlanBuilder>[0]): Promise<ManagerRefs> {
+  const latest = async (kind: string) => {
+    const rows = await tx.query.taskDefinitions.findMany({ where: (t, { eq: e }) => e(t.kind, kind) });
+    const top = rows.sort((a, b) => b.version - a.version || a.id.localeCompare(b.id))[0];
+    if (!top) throw new Error(`manager: no "${kind}" Task Definition exists (fail closed).`);
+    return { id: top.id, version: top.version };
+  };
+  return { objectiveTask: await latest(AGENT_OBJECTIVE_KIND), reviewTask: await latest(MANAGER_REVIEW_KIND) };
+}
+
+registerTaskPlanBuilder(
+  MANAGER_PLAN_KIND,
+  async (tx, ctx) =>
+    buildManagerPlanInvocationSpecs(
+      tx,
+      {
+        contextBudget: requireContextBudget(ctx.taskDefinition.defaultContextBudget, ctx.taskDefinition.name),
+        profile: await loadExecutionProfile(tx, ctx.agentDefinitionId, ctx.agentDefinitionVersion),
+        agentDefinitionId: ctx.agentDefinitionId,
+        agentDefinitionVersion: ctx.agentDefinitionVersion,
+        refs: () => managerRefs(tx),
+      },
+      ctx.params
+    ),
+  { validateStepParameters: async (_tx, ctx) => (Object.keys(ctx.parameters).length > 0 ? "a Manager plan step takes no parameters." : null) }
+);
+
+/** Both meeting kinds take exactly one parameter, the meeting code named when it convened the round table. */
+const meetingStepParameters = async (_tx: unknown, ctx: { parameters: Record<string, unknown> }) => {
+  const keys = Object.keys(ctx.parameters);
+  return keys.length === 1 && keys[0] === "meetingId" && typeof ctx.parameters.meetingId === "string" ? null : "a meeting step takes exactly { meetingId }.";
+};
+
+const meetingConfig = async (tx: DrizzleTransaction, ctx: TaskPlanContext) => ({
+  contextBudget: requireContextBudget(ctx.taskDefinition.defaultContextBudget, ctx.taskDefinition.name),
+  profile: await loadExecutionProfile(tx, ctx.agentDefinitionId, ctx.agentDefinitionVersion),
+  agentDefinitionId: ctx.agentDefinitionId,
+  agentDefinitionVersion: ctx.agentDefinitionVersion,
+});
+
+registerTaskPlanBuilder(
+  MEETING_CONTRIBUTION_KIND,
+  async (tx, ctx) => buildMeetingContributionInvocationSpecs(tx, await meetingConfig(tx, ctx), { ...ctx.params, meetingId: ctx.parameters.meetingId }),
+  { validateStepParameters: meetingStepParameters }
+);
+
+registerTaskPlanBuilder(
+  MEETING_OUTCOME_KIND,
+  async (tx, ctx) => buildMeetingOutcomeInvocationSpecs(tx, await meetingConfig(tx, ctx), { ...ctx.params, meetingId: ctx.parameters.meetingId }),
+  { validateStepParameters: meetingStepParameters }
+);
+
+registerTaskPlanBuilder(
+  MANAGER_RECOVER_KIND,
+  async (tx, ctx) =>
+    buildManagerRecoverInvocationSpecs(
+      tx,
+      {
+        contextBudget: requireContextBudget(ctx.taskDefinition.defaultContextBudget, ctx.taskDefinition.name),
+        profile: await loadExecutionProfile(tx, ctx.agentDefinitionId, ctx.agentDefinitionVersion),
+        agentDefinitionId: ctx.agentDefinitionId,
+        agentDefinitionVersion: ctx.agentDefinitionVersion,
+        refs: () => managerRefs(tx),
+      },
+      ctx.params
+    ),
+  { validateStepParameters: async (_tx, ctx) => (Object.keys(ctx.parameters).length > 0 ? "a Manager recovery step takes no parameters." : null) }
+);
+
+registerTaskPlanBuilder(
+  MANAGER_REVIEW_KIND,
+  async (tx, ctx) => {
+    const parsed = parseReviewParameters(ctx.parameters);
+    if (!parsed.ok) throw new Error(`manager_review: ${parsed.reason} (fail closed)`);
+    return buildManagerReviewInvocationSpecs(
+      tx,
+      {
+        contextBudget: requireContextBudget(ctx.taskDefinition.defaultContextBudget, ctx.taskDefinition.name),
+        profile: await loadExecutionProfile(tx, ctx.agentDefinitionId, ctx.agentDefinitionVersion),
+        agentDefinitionId: ctx.agentDefinitionId,
+        agentDefinitionVersion: ctx.agentDefinitionVersion,
+        refs: () => managerRefs(tx),
+        parameters: parsed.params,
+      },
+      ctx.params
+    );
+  },
+  {
+    validateStepParameters: async (_tx, ctx) => {
+      const parsed = parseReviewParameters(ctx.parameters);
+      if (!parsed.ok) return parsed.reason;
+      const inputs = validateStepInputs(ctx.parameters.inputs, ctx.graph, ctx.stepIndex);
+      return inputs.ok ? null : inputs.reason;
+    },
   }
 );
 

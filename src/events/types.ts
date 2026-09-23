@@ -47,8 +47,13 @@ export type EventEnvelope = {
     /**
      * Model usage the provider reported BEYOND the primary model — e.g. the
      * internal secondary model call the subscription CLI performs per
-     * invocation. Recorded so the event log shows WHAT was consumed, not just
-     * a total; its tokens are already included in `costAmount`.
+     * invocation. Its tokens are already included in `costAmount`.
+     *
+     * NOT PERSISTED — verified R2 Task 42. `emitEvent` writes six usage columns and silently discards
+     * this one, so nothing has ever read it back: the type promised a record the write path dropped.
+     * The per-model split now lives where it is actually kept, in `invocation_completed`'s payload
+     * under `usageAccounting.secondary`. This field is retained only because the envelope shape is
+     * frozen, and nothing sets it any more.
      */
     secondaryUsage?: Array<{ modelId: string; tokensIn: number; tokensOut: number }>;
   } | null; // present only for LLM-related events; never flattened onto the envelope itself

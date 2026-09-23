@@ -15,9 +15,10 @@
  * Run commit first, so a request that fails later has still created them.
  */
 import type { FastifyInstance } from "fastify";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { goals, projects, workflowDefinitions, workflowRuns } from "../../db/schema.js";
 import type { ApiDeps } from "../server.js";
+import type { DrizzleTransaction } from "../../events/emit.js";
 import { startWorkflowRun } from "../../workflow/interpreter.js";
 import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRunUntilBlocked.js";
 import { buildInvocationSpecsFromDefinitions } from "../../workflow/buildInvocationSpecsFromDefinitions.js";
@@ -25,6 +26,7 @@ import { requireSeededPublishWorkflow } from "../../definitions/lookupSeed.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { emitLifecycleEvent, NO_CORRELATION } from "../../events/lifecycle.js";
 import { isUuid } from "../requestGuards.js";
+import { MAX_WINDOW_HOURS, currentGoalSql, parseHours } from "./history.js";
 import { MAX_TEXT_LENGTH } from "../../definitions/registryWrites.js";
 
 type CreateGoalBody = { title?: string; description?: string; workflowDefinitionId?: string; projectId?: string; async?: boolean };
@@ -37,9 +39,17 @@ type CreateGoalBody = { title?: string; description?: string; workflowDefinition
  */
 export async function createGoalWithWorkflowRun(
   deps: ApiDeps,
-  input: { title: string; description: string | null; workflowDefinitionId?: string; projectId?: string }
+  input: { title: string; description: string | null; workflowDefinitionId?: string; projectId?: string; dueAt?: Date | null }
 ): Promise<{ error: string } | { goalId: string; workflowRunId: string }> {
-  return deps.db.transaction(async (tx) => {
+  return deps.db.transaction((tx) => insertGoalWithWorkflowRun(tx, input));
+}
+
+/** `createGoalWithWorkflowRun` inside a caller's transaction, for a start that must be checked in the same unit (Talk's busy check). */
+export async function insertGoalWithWorkflowRun(
+  tx: DrizzleTransaction,
+  input: { title: string; description: string | null; workflowDefinitionId?: string; projectId?: string; dueAt?: Date | null }
+): Promise<{ error: string } | { goalId: string; workflowRunId: string }> {
+  {
     const seed = input.workflowDefinitionId && input.projectId ? null : await requireSeededPublishWorkflow(tx);
     const workflowDefinitionId = input.workflowDefinitionId ?? seed!.workflowDefinitionId;
     const projectId = input.projectId ?? seed!.projectId;
@@ -49,7 +59,7 @@ export async function createGoalWithWorkflowRun(
     if (!(await tx.query.projects.findFirst({ where: eq(projects.id, projectId) }))) {
       return { error: "projectId does not name a Project" };
     }
-    const [goalRow] = await tx.insert(goals).values({ projectId, title: input.title, description: input.description, status: "active" }).returning();
+    const [goalRow] = await tx.insert(goals).values({ projectId, title: input.title, description: input.description, status: "active", ...(input.dueAt ? { dueAt: input.dueAt } : {}) }).returning();
     const goalId = goalRow!.id;
     // Spec §8.2 `goal_created`, same transaction as the row. The V1 operator identity.
     await emitLifecycleEvent(tx, {
@@ -62,7 +72,7 @@ export async function createGoalWithWorkflowRun(
     });
     const { workflowRunId } = await startWorkflowRun(tx, workflowDefinitionId, goalId);
     return { goalId, workflowRunId };
-  });
+  }
 }
 
 /**
@@ -87,9 +97,14 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
    * Project with its Goals (newest first), each with its Workflow Runs.
    * Read-only. Three queries grouped in memory rather than one per row.
    */
-  app.get("/goals", async (_request, reply) => {
+  // Archived Goals are history (`./history.ts`): left out of current work unless `?archived=include`.
+  // `?within=<hours>`: only current work — unfinished, or active within that many hours (see `./history.ts`).
+  app.get<{ Querystring: { archived?: string; within?: string } }>("/goals", async (request, reply) => {
+    const within = parseHours(request.query.within);
+    if (within === "invalid") return reply.status(400).send({ error: `within must be a whole number of hours from 0 to ${MAX_WINDOW_HOURS}` });
     const projectRows = await deps.db.query.projects.findMany({ orderBy: (p, { asc }) => asc(p.name) });
     const goalRows = await deps.db.query.goals.findMany({
+      where: (g) => and(request.query.archived === "include" ? undefined : isNull(g.archivedAt), within === undefined ? undefined : currentGoalSql(within, g)),
       orderBy: (g, { desc }) => desc(g.createdAt),
       limit: GOALS_LIST_LIMIT,
     });
@@ -120,6 +135,7 @@ export function registerGoalsRoutes(app: FastifyInstance, deps: ApiDeps): void {
         description: goal.description,
         status: goal.status,
         createdAt: goal.createdAt,
+        archivedAt: goal.archivedAt,
         workflowRuns: runsByGoal.get(goal.id) ?? [],
       });
       goalsByProject.set(goal.projectId, list);

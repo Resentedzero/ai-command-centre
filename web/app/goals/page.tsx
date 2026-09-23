@@ -7,6 +7,8 @@ import { useRefetchOnEvents } from "../../components/live";
 import { RefreshNotice, PixelButton, Skeleton, StateNotice, StatusMark, cx, px } from "../../components/pixel/Pixel";
 import { world } from "../../components/world/World";
 import { countLabel, errorText, formatTime } from "../../lib/keep";
+import { usePreferences } from "../../components/preferences";
+import { windowParam, windowWords } from "../../lib/preferences";
 import g from "./goals.module.css";
 
 const GOAL_LIST_CAP = 500;
@@ -19,6 +21,7 @@ const GOAL_LIST_CAP = 500;
  * Starting a goal is a plain call; every governance check runs server-side.
  */
 export default function GoalsPage() {
+  const { preferences } = usePreferences();
   const [projects, setProjects] = useState<ProjectGoals[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -43,12 +46,12 @@ export default function GoalsPage() {
 
   const refetch = useCallback(async () => {
     try {
-      setProjects(await listGoals());
+      setProjects(await listGoals(windowParam(preferences)));
       setLoadError(null);
     } catch (err) {
       setLoadError(errorText(err));
     }
-  }, []);
+  }, [preferences]);
 
   useEffect(() => {
     void refetch();
@@ -108,6 +111,9 @@ export default function GoalsPage() {
         <Link href="/workflows/new" className={g.link}>
           Build a workflow
         </Link>
+        <p className={g.note}>
+          This is current work. Archived goals, and every goal with its runs, are in <Link href="/history" className={g.link}>History</Link>.
+        </p>
         <p className={g.warning}>Starting a goal runs its workflow now, in the background. It can take a few minutes and uses model quota.</p>
         <PixelButton type="submit" disabled={starting || !title.trim()}>
           Start goal
@@ -148,6 +154,9 @@ export default function GoalsPage() {
                 <div>
                   {countLabel(goalCount, GOAL_LIST_CAP)} goal{goalCount === 1 ? "" : "s"} across {withGoals.length} project{withGoals.length === 1 ? "" : "s"} with goals
                 </div>
+                <p className={px.detail} data-testid="current-window">
+                  Current work: unfinished, or active in {windowWords(preferences.currentWindowHours)}. Older and archived work is in <Link href="/history">History</Link>.
+                </p>
                 <div className={g.row}>
                   {(["in_progress", "paused", "failed", "completed"] as const).map((s) => {
                     const n = runs.filter((r) => r.status === s).length;

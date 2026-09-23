@@ -49,7 +49,7 @@ export default function RegistryPage({ searchParams }: { searchParams: Promise<{
           state={roomState}
           label={`${def.name}'s keys`}
           keys={grants.map((g, i) => ({ n: i + 1, revoked: g.revokedAt !== null }))}
-          definitionIds={reg!.agentDefinitions.map((d) => d.id)}
+          definitions={reg!.agentDefinitions}
         />
       ) : (
         // Unloaded means unlit, not absent: the workshop stays, dark, with no actor or keys.

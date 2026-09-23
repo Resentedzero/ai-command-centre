@@ -3,6 +3,8 @@
 .viewport {
   position: relative;
   overflow: auto;
+  /* World layers (characters by y, plaques, character panels) stack inside the map, never over page chrome or the Keeper. */
+  isolation: isolate;
   background: var(--void);
   border: 2px solid var(--pixel-wood-edge);
   box-shadow: 0 0 0 2px var(--pixel-outline);
@@ -139,6 +141,8 @@
   box-shadow: 0 0 0 2px var(--pixel-outline);
   text-decoration: none;
   cursor: pointer;
+  /* Above every character (characters stack by their y, at most the map height). */
+  z-index: 1100;
 }
 .plaque:hover {
   background: color-mix(in srgb, var(--pixel-wood) 85%, var(--pixel-label));

@@ -12,6 +12,9 @@ import { NoticeStrip } from "../components/pixel/NoticeStrip";
 import type { AgentCardData, EventDisplayItem, StreamStatus } from "../lib/api";
 
 const api = vi.hoisted(() => ({
+  getAgentSchedule: vi.fn(),
+  getMeetingPresence: vi.fn(),
+  getAgentStates: vi.fn(),
   listActiveAgents: vi.fn(),
   listPendingApprovals: vi.fn(),
   listActiveStops: vi.fn(),
@@ -48,6 +51,10 @@ const publisherWaiting: AgentCardData = {
 
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
+  // Workplace: no meetings unless a test says so.
+  api.getAgentSchedule.mockResolvedValue({ now: "2026-09-17T09:00:00Z", timezone: "Europe/London", current: null, meetings: [], entries: [], next: null });
+  api.getMeetingPresence.mockResolvedValue({ now: "2026-09-17T09:00:00Z", presence: [] });
+  api.getAgentStates.mockResolvedValue({ agents: [], states: [] });
   api.listPendingApprovals.mockResolvedValue([]);
   api.listActiveStops.mockResolvedValue([]);
   api.listGoals.mockResolvedValue([]);

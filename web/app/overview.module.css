@@ -130,3 +130,11 @@
   top: 52px;
   image-rendering: pixelated;
 }
+/* The Keeper's own figure, drawn with its feet at the living position. */
+.keeperFigure {
+  position: absolute;
+  left: -34px;
+  top: -68px;
+  width: 68px;
+  height: 68px;
+}

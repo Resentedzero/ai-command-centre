@@ -12,6 +12,24 @@
   --state-fail: #fb5d42;
   --state-idle: #3b83d2;
   --core-silver: #dde8ff;
+  /* Identity, never state (D7): progression and character accents. */
+  --identity-violet: #9c4aee;
+
+  /*
+   * Role identity (D32): the colour of an agent's role icon. Identity, never runtime state — none of
+   * these is a --state-* hue, and each role also has its own symbol, so colour is never the only
+   * difference. One token per catalogue icon (src/definitions/roleIconCatalogue.json).
+   */
+  --role-command: #e8b23a;
+  --role-keeper: #b98cf0;
+  --role-research: #7fb2ff;
+  --role-field: #d98b4a;
+  --role-idea: #f0a6d0;
+  --role-analysis: #9ad1c4;
+  --role-publishing: #c9b68a;
+  --role-review: #8f9ff2;
+  --role-strategy: #d2718f;
+  --role-generic: #a9a2b8;
 
   --pixel-wood-dark: #1c130d;
   --pixel-wood: #2a1b12;
@@ -93,12 +111,19 @@ h3 {
   white-space: nowrap;
 }
 
-/* Reduced motion: every animation stops; sprites hold their first frame. */
+/* Reduced motion: every animation stops; sprites hold their first frame. Follows the OS unless
+   Settings → General says otherwise (html[data-motion], set by PreferencesProvider). */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  :root:not([data-motion="full"]) *,
+  :root:not([data-motion="full"]) *::before,
+  :root:not([data-motion="full"]) *::after {
     animation: none !important;
     transition: none !important;
   }
+}
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation: none !important;
+  transition: none !important;
 }

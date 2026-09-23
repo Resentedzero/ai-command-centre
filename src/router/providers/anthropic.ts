@@ -68,6 +68,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { CompiledContext } from "../../context/types.js";
 import type { ProviderCallResult, TierAccounting, TierPricing } from "../types.js";
+import { buildUsageAccounting, reported } from "../usageAccounting.js";
 import { buildSystemPrompt, buildUserMessage } from "./promptBuilder.js";
 
 export type { ProviderCallResult, ProviderUsage } from "../types.js";
@@ -161,6 +162,26 @@ export async function callAnthropicModel(
       costAmount: tokensIn * pricing.inputPerToken + tokensOut * pricing.outputPerToken,
       costUnit: "usd",
       cacheHit: typeof cacheRead === "number" && cacheRead > 0,
+      accounting: buildUsageAccounting({
+        // One call, one model: the response is this model's usage, so "primary" is measured here
+        // rather than assumed, and there is no per-model breakdown in which a secondary could hide.
+        primary: { modelId, identified: "sole_reported", input: tokensIn, output: tokensOut },
+        secondary: null,
+        cache: {
+          read: reported(cacheRead),
+          creation: reported(response.usage?.cache_creation_input_tokens),
+          // Anthropic's `input_tokens` EXCLUDES cache reads and creations; they are billed at
+          // different rates precisely because they are separate quantities.
+          cacheReadIncludedInInput: false,
+        },
+        // No thinking/reasoning token field exists on this response shape.
+        thinking: null,
+        counted: {
+          amount: tokensIn * pricing.inputPerToken + tokensOut * pricing.outputPerToken,
+          unit: "usd",
+          rule: "input_tokens x inputPerToken + output_tokens x outputPerToken, at a LOCAL list rate — an estimate, not a bill; cache tokens are priced differently and are not included",
+        },
+      }),
     },
   };
 }

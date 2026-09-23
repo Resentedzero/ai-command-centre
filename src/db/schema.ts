@@ -24,6 +24,7 @@ import {
   jsonb,
   numeric,
   pgEnum,
+  index,
   uniqueIndex,
   primaryKey,
   check,
@@ -130,6 +131,21 @@ export const agentDefinitions = pgTable("agent_definitions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * R2 (migration 0021): how a persistent agent LOOKS. Keyed by the agent's `name` — the identity
+ * that spans every Agent Definition version — so a new version keeps its character, and changing a
+ * character never mints a version. Presentation only: `appearance` holds catalogue keys
+ * (`../definitions/appearanceCatalogue.json`), never image data, and nothing in governance, routing,
+ * context, execution or projections reads this table (`tests/execution/structuralInvariants.test.ts`).
+ * Unlike a Definition, a row is updated in place: a look has no history that anything depends on.
+ */
+export const agentAppearances = pgTable("agent_appearances", {
+  agentName: text("agent_name").primaryKey(),
+  appearance: jsonb("appearance").$type<Record<string, string>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const capabilityGrants = pgTable("capability_grants", {
   id: uuid("id").primaryKey().$defaultFn(genId),
   agentDefinitionId: uuid("agent_definition_id")
@@ -181,6 +197,16 @@ export const goals = pgTable("goals", {
   description: text("description"),
   status: text("status").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Migration 0023: archiving is presentation. An archived Goal and all its work stay exactly as recorded;
+  // it is only moved out of the current-work lists. Set and cleared by the operator's archive route, with an event.
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  archivedBy: text("archived_by"),
+  /**
+   * Migration 0027: when the operator needs this Goal by. Nothing estimates how long work will take and
+   * nothing promises to meet it; "overdue" is derived from the clock, like a meeting's status. Distinct
+   * from MISSION_LIMITS.maxMissionMinutes, which is a spend cap measured from `createdAt`.
+   */
+  dueAt: timestamp("due_at", { withTimezone: true }),
 });
 
 export const workflowRuns = pgTable("workflow_runs", {
@@ -344,6 +370,12 @@ export const events = pgTable(
     // invariant rather than something that merely happens to be true because
     // a sequence currently backs the column.
     uniqueIndex("events_global_seq_idx").on(table.globalSeq),
+    // Migration 0029. "What happened on this goal, in order" — asked constantly by the mission trace, the
+    // Keeper's explanations and the organisational history read model, and a sequential scan before this.
+    // Partial like the run index above: events with no goal never pay for it.
+    index("events_goal_id_global_seq_idx")
+      .on(table.goalId, table.globalSeq)
+      .where(sql`${table.goalId} is not null`),
   ]
 );
 
@@ -383,6 +415,296 @@ export const agentPerformance = pgTable(
     primaryKey({ name: "agent_performance_pk", columns: [table.agentDefinitionId, table.agentDefinitionVersion, table.taskDefinitionId, table.modelTier] }),
   ]
 );
+
+/**
+ * R2 agent progression (migration 0022): rebuilt from Events by `../projections/agentProgression.ts`,
+ * keyed on the persistent agent NAME so every Definition version shares one history. Projections:
+ * never written anywhere else, never read by governance, routing, execution or context (structural
+ * invariant). Progression is presentation and evidence, never authority.
+ */
+export const agentXpAwards = pgTable(
+  "agent_xp_awards",
+  {
+    agentName: text("agent_name").notNull(),
+    /** The award's identity (`rule:subject id`): one row per rule per fact, however often the projection rebuilds. */
+    awardKey: text("award_key").notNull(),
+    rule: text("rule").notNull(),
+    xp: integer("xp").notNull(),
+    runId: uuid("run_id"),
+    workflowRunId: uuid("workflow_run_id"),
+    goalId: uuid("goal_id"),
+    artifactId: uuid("artifact_id"),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull(),
+    earnedAt: timestamp("earned_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ name: "agent_xp_awards_pk", columns: [table.agentName, table.awardKey] })]
+);
+
+export const agentAchievements = pgTable(
+  "agent_achievements",
+  {
+    agentName: text("agent_name").notNull(),
+    achievement: text("achievement").notNull(),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull(),
+    earnedAt: timestamp("earned_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ name: "agent_achievements_pk", columns: [table.agentName, table.achievement] })]
+);
+
+/** Specialisation evidence: one row per successful Run per domain it worked in. */
+export const agentDomainWork = pgTable(
+  "agent_domain_work",
+  {
+    agentName: text("agent_name").notNull(),
+    domain: text("domain").notNull(),
+    runId: uuid("run_id").notNull(),
+    earnedAt: timestamp("earned_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ name: "agent_domain_work_pk", columns: [table.agentName, table.domain, table.runId] })]
+);
+
+/** One row per completed `peer.endorse` Invocation, re-verified from Events. Endorsements award no XP. */
+export const agentEndorsements = pgTable("agent_endorsements", {
+  invocationId: uuid("invocation_id").primaryKey(),
+  endorserName: text("endorser_name").notNull(),
+  endorserRunId: uuid("endorser_run_id").notNull(),
+  endorsedName: text("endorsed_name"),
+  artifactId: uuid("artifact_id").notNull(),
+  artifactHash: text("artifact_hash").notNull(),
+  /** Proven from Events: the hash was in the endorser's compiled context and the artifact is another agent's deliverable. */
+  verified: boolean("verified").notNull(),
+  /** The endorsed agent has also endorsed the endorser: shown, and not counted as independent standing. */
+  mutual: boolean("mutual").notNull(),
+  excludedReason: text("excluded_reason"),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+});
+
+/**
+ * Workspace configuration (migration 0023): the physical Command Centre the agents live in —
+ * buildings, their areas and the workstations inside them, in world pixels. Presentation and
+ * space only: nothing that authorizes, routes, budgets, executes or scores reads these tables
+ * (structural invariant). Rows are deactivated, never deleted. Operator control-plane state,
+ * not runtime facts, so edits emit no event. Validated by `../world/worldConfig.ts`.
+ */
+export const worldWorkspaces = pgTable("world_workspaces", {
+  id: uuid("id").primaryKey().$defaultFn(genId),
+  name: text("name").notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  // Migration 0024: one workspace is current; applying a template retires the previous one (kept, never deleted).
+  active: boolean("active").notNull().default(true),
+  /** The template it was created from, if any. */
+  template: text("template"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const worldBuildings = pgTable("world_buildings", {
+  id: uuid("id").primaryKey().$defaultFn(genId),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => worldWorkspaces.id),
+  name: text("name").notNull(),
+  x: integer("x").notNull(),
+  y: integer("y").notNull(),
+  w: integer("w").notNull(),
+  h: integer("h").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const worldAreas = pgTable("world_areas", {
+  id: uuid("id").primaryKey().$defaultFn(genId),
+  buildingId: uuid("building_id")
+    .notNull()
+    .references(() => worldBuildings.id),
+  name: text("name").notNull(),
+  /** work, common, rest, social, waiting, corridor or other (`../world/worldConfig.ts`). Every active area is walkable. */
+  purpose: text("purpose").notNull(),
+  x: integer("x").notNull(),
+  y: integer("y").notNull(),
+  w: integer("w").notNull(),
+  h: integer("h").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const worldWorkstations = pgTable("world_workstations", {
+  id: uuid("id").primaryKey().$defaultFn(genId),
+  areaId: uuid("area_id")
+    .notNull()
+    .references(() => worldAreas.id),
+  name: text("name").notNull(),
+  /** The kind of real activity it hosts: think, research, analysis, writing, publishing or generic. */
+  activity: text("activity").notNull(),
+  /** Where the agent stands to work (its feet), in world pixels. */
+  x: integer("x").notNull(),
+  y: integer("y").notNull(),
+  /** Migration 0024: which way the agent faces while working here (up = back to the viewer, at a desk). */
+  facing: text("facing").notNull().default("up"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Workplace (migration 0025): the Command Keep's internal office — settings, rooms, meetings, calendar
+ * entries and internal notifications. Office facts, never authority: nothing that authorizes, routes,
+ * budgets, executes or scores reads these tables, and only `../workplace/*` writes them (structural
+ * invariant). Meeting status is derived from its times and `cancelledAt`, never ticked. Every
+ * mutation emits an event (`../workplace/meetings.ts`). Rooms name the world area they occupy;
+ * the web resolves that name against the current world, so this module never reads world tables.
+ */
+export const workplaceSettings = pgTable("workplace_settings", {
+  id: text("id").primaryKey(),
+  /** IANA zone that defines the Keep's clock: working hours, "today", "tomorrow morning". */
+  timezone: text("timezone").notNull().default("Europe/London"),
+  /** Minutes after local midnight. */
+  workStartMinute: integer("work_start_minute").notNull().default(540),
+  workEndMinute: integer("work_end_minute").notNull().default(1020),
+  /** ISO weekdays, 1 = Monday. */
+  workingDays: jsonb("working_days").$type<number[]>().notNull().default([1, 2, 3, 4, 5]),
+  /** "forbid": meetings must fit working hours; "allow": any time. */
+  outsideWorkingHours: text("outside_working_hours").notNull().default("forbid"),
+  /**
+   * Migration 0028. Whether WORK may start outside an agent's working hours, as distinct from whether a
+   * MEETING may be booked then (`outsideWorkingHours`). Defaults to "allow": the Keep behaves exactly as
+   * before until an operator asks for office hours to gate execution.
+   */
+  workOutsideHours: text("work_outside_hours").notNull().default("allow"),
+  defaultMeetingMinutes: integer("default_meeting_minutes").notNull().default(30),
+  reminderMinutes: integer("reminder_minutes").notNull().default(10),
+  /** How long before a meeting its participants leave for the room. */
+  gatherMinutes: integer("gather_minutes").notNull().default(2),
+  notifyInvitations: boolean("notify_invitations").notNull().default(true),
+  notifyReminders: boolean("notify_reminders").notNull().default(true),
+  notifyAnnouncements: boolean("notify_announcements").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Per-agent working hours (by agent name, across versions). A null field falls back to the workplace setting. */
+export const workplaceAgentSettings = pgTable("workplace_agent_settings", {
+  agentName: text("agent_name").primaryKey(),
+  workStartMinute: integer("work_start_minute"),
+  workEndMinute: integer("work_end_minute"),
+  workingDays: jsonb("working_days").$type<number[]>(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const workplaceRooms = pgTable("workplace_rooms", {
+  id: uuid("id").primaryKey().$defaultFn(genId),
+  name: text("name").notNull().unique(),
+  /** boardroom, conference, small_meeting, one_to_one, presentation or lounge. */
+  purpose: text("purpose").notNull(),
+  capacity: integer("capacity").notNull(),
+  /** The world area this room occupies, by name; null when it is not on the map. */
+  locationAreaName: text("location_area_name"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type WorkplaceEntry = { text: string; actor: string; at: string };
+
+export const workplaceMeetings = pgTable("workplace_meetings", {
+  id: uuid("id").primaryKey().$defaultFn(genId),
+  title: text("title").notNull(),
+  agenda: text("agenda").notNull().default(""),
+  /** Who scheduled it: `agent:<name>` or `human:operator`. */
+  organiser: text("organiser").notNull(),
+  roomId: uuid("room_id")
+    .notNull()
+    .references(() => workplaceRooms.id),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelReason: text("cancel_reason"),
+  notes: jsonb("notes").$type<WorkplaceEntry[]>().notNull().default([]),
+  decisions: jsonb("decisions").$type<WorkplaceEntry[]>().notNull().default([]),
+  /** Work explicitly started from this meeting: `{ goalId, text, actor, at }`. */
+  actions: jsonb("actions").$type<(WorkplaceEntry & { goalId: string })[]>().notNull().default([]),
+  /** Provenance: the mission Goal, Run and Invocation that scheduled it, when an agent did. */
+  goalId: uuid("goal_id").references(() => goals.id),
+  runId: uuid("run_id"),
+  invocationId: uuid("invocation_id"),
+  /**
+   * Migration 0027. A past end time means the meeting is over; these say whether it was ever HELD.
+   * `convenedGoalId` is the Goal of the round-table Workflow Run that held it, `convenedAt` when the
+   * runtime convened it, and `notConvenedReason` why it could not be held. All null: nobody met.
+   */
+  convenedGoalId: uuid("convened_goal_id").references(() => goals.id),
+  convenedAt: timestamp("convened_at", { withTimezone: true }),
+  notConvenedReason: text("not_convened_reason"),
+  /** Incremented by each reschedule. */
+  revision: integer("revision").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const workplaceMeetingParticipants = pgTable(
+  "workplace_meeting_participants",
+  {
+    meetingId: uuid("meeting_id")
+      .notNull()
+      .references(() => workplaceMeetings.id),
+    agentName: text("agent_name").notNull(),
+    /** organiser or participant. */
+    role: text("role").notNull().default("participant"),
+  },
+  (table) => [primaryKey({ name: "workplace_meeting_participants_pk", columns: [table.meetingId, table.agentName] })]
+);
+
+export const workplaceCalendarEvents = pgTable("workplace_calendar_events", {
+  id: uuid("id").primaryKey().$defaultFn(genId),
+  /** Null: applies to the whole workplace (e.g. a deadline). */
+  agentName: text("agent_name"),
+  /** appointment, break, unavailable, scheduled_work or deadline. */
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  goalId: uuid("goal_id").references(() => goals.id),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const workplaceNotifications = pgTable("workplace_notifications", {
+  id: uuid("id").primaryKey().$defaultFn(genId),
+  /** `agent:<name>` or `operator`. */
+  recipient: text("recipient").notNull(),
+  /** meeting_invitation, meeting_reminder, meeting_changed, meeting_cancelled, work_assigned, announcement or message. */
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  sender: text("sender").notNull(),
+  meetingId: uuid("meeting_id").references(() => workplaceMeetings.id),
+  goalId: uuid("goal_id").references(() => goals.id),
+  /** Only "internal" today; the boundary an external adapter would add a value to. */
+  channel: text("channel").notNull().default("internal"),
+  /** When it becomes visible (a reminder is written with the meeting and delivered before it). */
+  deliverAt: timestamp("deliver_at", { withTimezone: true }).notNull().defaultNow(),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  /** Set when what it announced changed before delivery (a reminder for a moved or cancelled meeting); kept, never deleted. */
+  withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Role icons (migration 0026): which catalogue symbol stands beside an agent's name, when the operator
+ * chose one. Identity only, keyed by the persistent NAME so it survives new Agent Definition versions;
+ * an agent with no row uses the icon its first version's own words earn (`../definitions/roleIcon.ts`).
+ * Nothing that authorizes, routes, budgets, executes, compiles context or scores reads this table.
+ */
+export const agentRoleIcons = pgTable("agent_role_icons", {
+  agentName: text("agent_name").primaryKey(),
+  iconId: text("icon_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const budgetCounters = pgTable(
   "budget_counters",

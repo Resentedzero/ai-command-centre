@@ -63,5 +63,5 @@ None exist yet (`web/CLAUDE.md` only points at the Next.js version notes in
 Architecture invariants that can be checked statically — no provider call or
 tool side effect inside a transaction, the single chokepoint, status changes
 recorded as events, core code naming no capability, Definitions and Grants
-inserted only by the Registry, `agent_performance` read
+inserted only by the Registry, progression never imported by governance, routing, execution, workflow or context (`docs/architecture/AGENT_PROGRESSION.md`), the workspace configuration (world tables) read only by its own module, `agent_performance` read
 only by its projector, read APIs and eligibility gate (imported only by the Router, the Invocation lifecycle's Conditional Autonomy evidence and the read APIs' display helper) — are enforced by `tests/execution/structuralInvariants.test.ts`.

@@ -1,0 +1,23 @@
+/* Role icons: small, secondary to the name, and never a status colour. */
+.icon {
+  flex: none;
+  vertical-align: -1px;
+  image-rendering: pixelated;
+}
+.fill {
+  fill: var(--role);
+}
+.outline {
+  fill: var(--pixel-outline);
+}
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

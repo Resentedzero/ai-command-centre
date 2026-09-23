@@ -24,6 +24,10 @@ import { expireStaleApprovals } from "../workflow/expireStaleApprovals.js";
 import { backfillStopEvents } from "../governance/executionStop.js";
 import { buildInvocationSpecsFromDefinitions } from "../workflow/buildInvocationSpecsFromDefinitions.js";
 import { refreshAgentPerformance } from "../projections/agentPerformance.js";
+import { sweepMissionRecoveries } from "./routes/manager.js";
+import { sweepMeetingsToConvene } from "./routes/meetings.js";
+import { sweepOperationalNotices } from "./operationalNotices.js";
+import { refreshAgentProgression } from "../projections/agentProgression.js";
 
 /** How often past-TTL Approvals are expired. A minute is ample against a TTL measured in hours. */
 const APPROVAL_SWEEP_INTERVAL_MS = 60_000;
@@ -119,6 +123,67 @@ async function main() {
   void sweepApprovals();
   setInterval(() => void sweepApprovals(), APPROVAL_SWEEP_INTERVAL_MS).unref();
 
+  // A mission whose delegated work failed on a path that knows nothing about missions (an approval
+  // decision's re-drive, a restart) gets its one governed recovery round here instead. Bounded by the
+  // mission's own limits, so a sweep over an old failure starts nothing.
+  let recovering = false;
+  const sweepRecoveries = async () => {
+    if (recovering) return;
+    recovering = true;
+    try {
+      const started = await sweepMissionRecoveries(db);
+      // eslint-disable-next-line no-console
+      if (started.length > 0) console.log(`Started ${started.length} Manager recovery run(s): ${started.join(", ")}`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Mission recovery sweep failed:", err);
+    } finally {
+      recovering = false;
+    }
+  };
+  void sweepRecoveries();
+  setInterval(() => void sweepRecoveries(), APPROVAL_SWEEP_INTERVAL_MS).unref();
+
+  // A meeting whose time has come is HELD: a Goal and a round-table Workflow Run, or a recorded reason why
+  // it could not be. Nothing else in the runtime makes a diary entry happen.
+  let convening = false;
+  const sweepMeetings = async () => {
+    if (convening) return;
+    convening = true;
+    try {
+      const held = await sweepMeetingsToConvene(db);
+      // eslint-disable-next-line no-console
+      if (held.length > 0) console.log(`Held ${held.length} meeting(s): ${held.join(", ")}`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Meeting convening sweep failed:", err);
+    } finally {
+      convening = false;
+    }
+  };
+  void sweepMeetings();
+  setInterval(() => void sweepMeetings(), APPROVAL_SWEEP_INTERVAL_MS).unref();
+
+  // Runtime facts worth telling someone about become notices (R2 Stage 11). Derived from events the
+  // runtime already wrote and from the clock; it starts nothing and changes no authority.
+  let noticing = false;
+  const sweepNotices = async () => {
+    if (noticing) return;
+    noticing = true;
+    try {
+      const written = await sweepOperationalNotices(db);
+      // eslint-disable-next-line no-console
+      if (written > 0) console.log(`Wrote ${written} operational notice(s).`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Operational notice sweep failed:", err);
+    } finally {
+      noticing = false;
+    }
+  };
+  void sweepNotices();
+  setInterval(() => void sweepNotices(), APPROVAL_SWEEP_INTERVAL_MS).unref();
+
   // Asynchronous projections (spec §8.3, §8.10): an in-process loop, never on the
   // execution path. agent_performance is rebuilt from Events each pass.
   let projecting = false;
@@ -130,6 +195,13 @@ async function main() {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("agent_performance refresh failed; the previous rows remain:", err);
+    }
+    try {
+      // R2 progression: its own transaction, so a failure here never holds back performance.
+      await runInTx((tx) => refreshAgentProgression(tx));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("agent progression refresh failed; the previous rows remain:", err);
     } finally {
       projecting = false;
     }

@@ -48,7 +48,7 @@
  * still "in_progress" is the expected outcome for a run at a human-approval
  * gate (or one whose current Invocation another request is dispatching).
  */
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { workflowDefinitions, workflowRuns } from "../db/schema.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import type { TransactionRunner } from "../db/transactionRunner.js";
@@ -164,7 +164,40 @@ async function performToolDispatch(runInTx: TransactionRunner, dispatch: Pending
   }
 }
 
+/** Further Workflow Runs one drive may continue on the same Goal (a Manager's delegated work and one follow-up). */
+export const MAX_FOLLOW_ON_RUNS = 3;
+
+/**
+ * Drives a Workflow Run until it blocks, then drives any Workflow Run that a step started on the SAME
+ * Goal during that drive (R2 Manager: delegated work and follow-ups are started from inside a step, and
+ * nothing else would drive them until a restart). Every caller — the async start, an approval decision,
+ * an expiry, a grant revocation, a manual advance and the startup re-drive — gets this for free.
+ * Bounded: at most MAX_FOLLOW_ON_RUNS further runs, each one only if it did not exist before this drive.
+ * Driving is safe to repeat: each transaction locks the run, completed positions never re-execute, and
+ * only the process holding a dispatch performs it.
+ */
 export async function advanceWorkflowRunUntilBlocked(
+  runInTx: TransactionRunner,
+  workflowRunId: string,
+  makeBuilder: InvocationSpecBuilderFactory
+): Promise<DriverResult> {
+  const goalRuns = async () =>
+    runInTx(async (tx) => {
+      const [own] = await tx.select({ goalId: workflowRuns.goalId }).from(workflowRuns).where(eq(workflowRuns.id, workflowRunId));
+      return own ? tx.select({ id: workflowRuns.id, status: workflowRuns.status }).from(workflowRuns).where(eq(workflowRuns.goalId, own.goalId)).orderBy(asc(workflowRuns.createdAt)) : [];
+    });
+  const known = new Set((await goalRuns()).map((r) => r.id));
+  const result = await advanceSingleWorkflowRunUntilBlocked(runInTx, workflowRunId, makeBuilder);
+  for (let i = 0; i < MAX_FOLLOW_ON_RUNS; i++) {
+    const next = (await goalRuns()).find((r) => !known.has(r.id));
+    if (!next) break;
+    known.add(next.id);
+    if (next.status === "in_progress") await advanceSingleWorkflowRunUntilBlocked(runInTx, next.id, makeBuilder);
+  }
+  return result;
+}
+
+async function advanceSingleWorkflowRunUntilBlocked(
   runInTx: TransactionRunner,
   workflowRunId: string,
   makeBuilder: InvocationSpecBuilderFactory

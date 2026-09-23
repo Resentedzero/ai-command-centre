@@ -59,6 +59,14 @@ import { registerCostsRoutes } from "./routes/costs.js";
 import { registerTraceRoutes } from "./routes/trace.js";
 import { registerArtifactsRoutes } from "./routes/artifacts.js";
 import { registerKeeperRoutes } from "./routes/keeper.js";
+import { registerAppearanceRoutes } from "./routes/appearances.js";
+import { registerProgressionRoutes } from "./routes/progression.js";
+import { registerWorldRoutes } from "./routes/world.js";
+import { registerHistoryRoutes } from "./routes/history.js";
+import { registerWorkplaceRoutes } from "./routes/workplace.js";
+import { registerRoleIconRoutes } from "./routes/roleIcons.js";
+import { registerTalkRoutes } from "./routes/talk.js";
+import { registerManagerRoutes } from "./routes/manager.js";
 import { makeRequestGuard } from "./requestGuards.js";
 import { SeedMissingError } from "../definitions/lookupSeed.js";
 
@@ -162,6 +170,14 @@ export function buildServer(overrides?: Partial<ApiDeps>): FastifyInstance {
   registerTraceRoutes(app, deps); // Spec 8.4 — a Run's trace, read-only.
   registerArtifactsRoutes(app, deps); // Spec 15.1 screens 2/8 — an Artifact with provenance, read-only.
   registerKeeperRoutes(app, deps); // V1.1 Keeper: deterministic explain and guide; Think as a governed Goal.
+  registerAppearanceRoutes(app, deps); // R2 — agent appearance, presentation only.
+  registerProgressionRoutes(app, deps); // R2 — quality verdicts and the progression read model.
+  registerWorldRoutes(app, deps); // Living workplace — workspace configuration, space only.
+  registerHistoryRoutes(app, deps); // Living workplace — work history and archive (not deletion).
+  registerWorkplaceRoutes(app, deps); // Workplace — calendar, meetings, rooms, internal notifications.
+  registerRoleIconRoutes(app, deps); // Role icons — who an agent is beside its name; identity, never authority.
+  registerTalkRoutes(app, deps); // R2 character interaction — talk to an agent as governed work.
+  registerManagerRoutes(app, deps); // R2 management layer — objectives for the Manager as governed missions.
 
   return app;
 }

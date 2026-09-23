@@ -14,8 +14,9 @@ vi.mock("../../src/router/providers/anthropic.js", () => ({ callAnthropicModel: 
 vi.mock("../../src/router/providers/openai.js", () => ({ callOpenAiModel: vi.fn() }));
 vi.mock("../../src/router/providers/claudeSubscription.js", () => ({ callClaudeSubscriptionModel: vi.fn() }));
 
-import { DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET, seedMissingWorkflows, seedPublishWorkflow } from "../../src/definitions/seed.js";
-import { createTaskDefinition, createWorkflowDefinition } from "../../src/definitions/registryWrites.js";
+import { DEFAULT_RESEARCH_REPORT_CONTEXT_BUDGET, seedKeeper, seedMissingWorkflows, seedPublishWorkflow } from "../../src/definitions/seed.js";
+import { createAgentDefinition, createTaskDefinition, createWorkflowDefinition } from "../../src/definitions/registryWrites.js";
+import { findKeeperAgent, findKeeperRefs } from "../../src/definitions/lookupSeed.js";
 
 beforeAll(async () => {
   await resetTestSchema();
@@ -98,8 +99,20 @@ describe("the seed logs what it creates", () => {
       // project; the Keeper Think workflow; + Workflow 1.
       // R2: + the Field Researcher agent holding both external research Capabilities. `research.search` brings a
       // binding; `research.web` brings none, because its search runs inside a model call rather than a tool.
+      // R2 progression: + `peer.endorse` with its binding, held by no agent.
+      // R2 character interaction: + the Agent Talk task definition and the Direct requests project (talk workflows are made on first use).
+      // R2 management layer: + the Manager (two Grants), manager.inspect_workforce and manager.delegate with bindings, the Manager
+      // Plan and Manager Review task definitions, the Missions project and the Manager Plan workflow.
+      // R2 observability: + system.keep_stats with its binding and the Keeper's third Grant.
+      // Workplace: + workplace.inspect_calendar and workplace.schedule_meeting with bindings, and the Manager's two Grants for them.
+      // Manager recovery: + the Manager Recovery task definition and its one-step workflow (no new Capability: it delegates with manager.delegate).
+      // Meetings the Keep holds: + workplace.record_outcome with its binding and the Manager's fifth Grant, the Meeting Contribution and
+      // Meeting Outcome task definitions, and the "Meetings" Project. No Workflow Definition: a round table's graph names its own
+      // participants, so it is created when the meeting is convened.
       const [agents, tasks, caps, grants, bindings, projects, goals, workflows] = before;
-      expect(after).toEqual([agents! + 3, tasks! + 4, caps! + 5, grants! + 5, bindings! + 4, projects! + 1, goals, workflows! + 2]);
+      // Organisational memory: + manager.inspect_history with its binding and the Manager's sixth Grant. No
+      // table and no projection: history is composed from records that already exist.
+      expect(after).toEqual([agents! + 4, tasks! + 10, caps! + 13, grants! + 12, bindings! + 12, projects! + 4, goals, workflows! + 4]);
 
       const row = await tx.query.workflowDefinitions.findFirst({ where: eq(schema.workflowDefinitions.name, "Research-Report") });
       expect(row).toMatchObject({ version: 1 });
@@ -110,6 +123,37 @@ describe("the seed logs what it creates", () => {
 
       expect(await seedMissingWorkflows(tx)).toEqual({ seededPublish: false, seededResearchReport: false, seededV11: false });
       expect(await counts()).toEqual(after);
+    });
+  });
+
+  it("a Keeper seeded before system.keep_stats is upgraded to a new version holding it, Keeper Think pins that version, and the Manager holds no stats Grant", async () => {
+    await withRollback(async (tx) => {
+      await seedMissingWorkflows(tx);
+      const grantNames = async (agentId: string) =>
+        (await tx.select({ name: schema.capabilities.name }).from(schema.capabilityGrants).innerJoin(schema.capabilities, eq(schema.capabilities.id, schema.capabilityGrants.capabilityId)).where(eq(schema.capabilityGrants.agentDefinitionId, agentId)))
+          .map((r) => r.name)
+          .sort();
+      // Simulate the pre-observability Keeper: a latest version with only its two original Grants.
+      const [inspect, docs] = await Promise.all(["system.inspect", "docs.retrieve"].map((n) => tx.query.capabilities.findFirst({ where: eq(schema.capabilities.name, n) })));
+      const old = await createAgentDefinition(
+        tx,
+        {
+          name: "Keeper", previousVersion: 1, role: "r", objective: "o", instructions: "i", executionProfile: { preferredTier: "CHEAP" },
+          grants: [inspect!, docs!].map((c) => ({ capabilityId: c.id, permissions: ["READ"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: 1 })),
+        },
+        "human:operator"
+      );
+      expect(await seedKeeper(tx)).toBe(true);
+      const keeper = await findKeeperAgent(tx);
+      expect(keeper!.version).toBe(old.version! + 1);
+      expect(await grantNames(keeper!.id)).toEqual(["docs.retrieve", "system.inspect", "system.keep_stats"]);
+      expect(await grantNames(old.id)).toEqual(["docs.retrieve", "system.inspect"]);
+      const think = await tx.query.workflowDefinitions.findFirst({ where: eq(schema.workflowDefinitions.id, (await findKeeperRefs(tx))!.workflowDefinitionId) });
+      expect((think!.graphDefinition as { steps: { agentDefinitionId: string }[] }).steps[0]!.agentDefinitionId).toBe(keeper!.id);
+      for (const manager of await tx.query.agentDefinitions.findMany({ where: eq(schema.agentDefinitions.name, "Manager") })) {
+        expect(await grantNames(manager.id)).not.toContain("system.keep_stats");
+      }
+      expect(await seedKeeper(tx)).toBe(false);
     });
   });
 

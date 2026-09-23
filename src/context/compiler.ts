@@ -42,8 +42,10 @@
  *    unit-testable (rather than only observable indirectly through layer
  *    contents).
  *
- *    Enforcement (updated 2026-09-14): untrusted content reaches ONLY
- *    `layers.artifacts`, and there it is FENCED (`fenceUntrusted`) in a tag
+ *    Enforcement (updated 2026-09-14; extended 2026-09-18): untrusted content
+ *    reaches `layers.artifacts` and — for `untrustedDirective`, which is model
+ *    text destined for the instruction layer (R2 Stage 14, see `fenceDelegated`)
+ *    — `layers.invocationInstruction`. In BOTH it is FENCED in a tag
  *    with a random per-compilation suffix, with any literal fence-like tags
  *    inside it neutralized. Whenever a fenced block is present,
  *    `layers.constraints` carries `untrustedDataPolicy(tag)`. Instructions come
@@ -265,8 +267,29 @@ export function newUntrustedTag(): string {
  * Case-insensitive, since models read `</UNTRUSTED_DATA>` the same way.
  */
 export function fenceUntrusted(artifactId: string, mode: "content" | "ref", text: string, tag: string): string {
-  const neutralized = text.replace(/<(\s*\/?\s*untrusted_data)/gi, "&lt;$1");
-  return `<${tag} artifact="${artifactId}" mode="${mode}">\n${neutralized}\n</${tag}>`;
+  return `<${tag} artifact="${artifactId}" mode="${mode}">\n${neutralizeFenceTags(text)}\n</${tag}>`;
+}
+
+/** Neutralizes any literal fence-like tag inside untrusted text. Case-insensitive. */
+function neutralizeFenceTags(text: string): string {
+  return text.replace(/<(\s*\/?\s*untrusted_data)/gi, "&lt;$1");
+}
+
+/**
+ * Wraps the delegated step parameters (a Manager's `brief` and `completionCriteria`) in the same
+ * fence as an untrusted artifact.
+ *
+ * WHY THIS EXISTS. Those two strings are MODEL OUTPUT: the Manager wrote them, and their content can
+ * have arrived inside a fenced artifact the Manager was reading. Code validates everything around
+ * them — the agent exists, is not the Manager, is not stopped; every tool is backed by a live Grant —
+ * but nothing validates the prose. Rendered plainly into the invocation instruction they would leave
+ * the fence they arrived in and re-enter another agent's instruction channel as if the runtime had
+ * written them. So they get the fence, the policy, and the same unguessable per-compilation tag.
+ * What they can still legitimately do is describe the work; what they can no longer do is
+ * impersonate the runtime.
+ */
+export function fenceDelegated(text: string, tag: string): string {
+  return `<${tag} source="delegated_step_parameters">\n${neutralizeFenceTags(text)}\n</${tag}>`;
 }
 
 /**
@@ -278,9 +301,15 @@ export function fenceUntrusted(artifactId: string, mode: "content" | "ref", text
 export function buildInvocationInstruction(
   intent: CompileContextInput["intent"],
   expectedOutputShape: Record<string, unknown>,
-  directive?: string
+  directive?: string,
+  fencedDelegated?: string
 ): string {
-  return `Intent: ${intent}.\n${directive ? `${directive}\n` : ""}Respond with JSON matching this shape: ${JSON.stringify(expectedOutputShape)}`;
+  return (
+    `Intent: ${intent}.\n` +
+    `${directive ? `${directive}\n` : ""}` +
+    `${fencedDelegated ? `${fencedDelegated}\n` : ""}` +
+    `Respond with JSON matching this shape: ${JSON.stringify(expectedOutputShape)}`
+  );
 }
 
 function trustedArtifactHeader(artifactId: string, mode: "content" | "ref"): string {
@@ -420,7 +449,7 @@ export async function compileContext(
   tx: DrizzleTransaction,
   input: CompileContextInput
 ): Promise<CompiledContext> {
-  const { intent, expectedOutputShape, taskInstanceId, candidateArtifactIds, candidateToolCapabilityIds, budget, runId, directive } = input;
+  const { intent, expectedOutputShape, taskInstanceId, candidateArtifactIds, candidateToolCapabilityIds, budget, runId, directive, untrustedDirective } = input;
 
   // --- Steps 1-3: resolve + validate every id up front, before any packing ---
 
@@ -465,8 +494,19 @@ export async function compileContext(
   // budget, and together they are what tier 1 may never be truncated for.
   const instructionsText = await resolveInstructions(tx, runRow);
   const instructionsTokens = estimateTokens(instructionsText);
-  const invocationInstructionText = buildInvocationInstruction(intent, expectedOutputShape, directive);
-  const invocationInstructionTokens = estimateTokens(invocationInstructionText);
+  // The fence tag is needed before the invocation instruction is built, because delegated model text
+  // is fenced inside it.
+  const untrustedTag = newUntrustedTag();
+  const untrustedPolicyText = untrustedDataPolicy(untrustedTag);
+  const invocationInstructionText = buildInvocationInstruction(
+    intent,
+    expectedOutputShape,
+    directive,
+    untrustedDirective ? fenceDelegated(untrustedDirective, untrustedTag) : undefined
+  );
+  // A fenced directive brings the policy with it, exactly as the first untrusted artifact does — and
+  // it is counted here so the ceiling is enforced against what is really sent.
+  const invocationInstructionTokens = estimateTokens(invocationInstructionText) + (untrustedDirective ? estimateTokens(untrustedPolicyText) : 0);
   if (taskStateTokens + instructionsTokens + invocationInstructionTokens > budget.maxInputTokens) {
     throw new ContextBudgetError(
       `compileContext: the task's required context (~${taskStateTokens} tokens of task state + ` +
@@ -475,8 +515,6 @@ export async function compileContext(
         "Tier-1 input is never dropped or truncated (spec 5.4); raise the Context Budget or shrink the input."
     );
   }
-  const untrustedTag = newUntrustedTag();
-  const untrustedPolicyText = untrustedDataPolicy(untrustedTag);
   const taskStateCandidate: ContextCandidate = {
     kind: "task_state",
     id: taskInstanceId,
@@ -634,7 +672,7 @@ export async function compileContext(
   // untrusted-data policy that its presence adds to the constraints layer.
   // Counting content alone let the real prompt exceed maxInputTokens silently.
   const packedArtifacts: PreparedArtifact[] = [];
-  let policyCounted = false;
+  let policyCounted = untrustedDirective !== undefined;
   for (const a of withinCountCap) {
     const mode = a.kind === "artifact_content" ? "content" : "ref";
     const framingTokens = a.candidate.trusted
@@ -679,7 +717,7 @@ export async function compileContext(
 
   // --- Step 9: layered assembly, fixed declared order ---
 
-  const anyUntrusted = packedArtifacts.some((a) => !a.candidate.trusted);
+  const anyUntrusted = untrustedDirective !== undefined || packedArtifacts.some((a) => !a.candidate.trusted);
   const layers: CompiledContext["layers"] = {
     instructions: instructionsText,
     // Task Definitions carry no success criteria yet, so the only constraint is

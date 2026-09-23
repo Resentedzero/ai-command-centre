@@ -16,6 +16,12 @@ const TABS: [string, string][] = [
   ["Approvals", "/approvals"],
   ["Artifacts", "/artifacts"],
   ["Events", "/events"],
+  // Living workplace (plan §13): finished and archived work lives here, not in the current lists.
+  ["History", "/history"],
+  // R2 management layer: give the Manager an objective.
+  ["Command", "/command"],
+  // Workplace: meetings, rooms, availability and internal notifications.
+  ["Calendar", "/calendar"],
 ];
 
 /** Screens without a slot light the tab they are reached from (screens.md). */
@@ -35,7 +41,7 @@ const CHIP_REFRESH_MS = 30_000;
 
 type Counts = { agents: number; working: boolean; pending: number } | "error" | null;
 
-/** PixelTopBar (Figma 95:242): seven 120 px PixelTab slots and three chips from real reads. */
+/** PixelTopBar (Figma 95:242): nine 90 px PixelTab slots, three chips from real reads, and Settings. */
 export function PixelTopBar() {
   const path = usePathname() ?? "/";
   const active = activeHref(path);
@@ -95,6 +101,9 @@ export function PixelTopBar() {
             <span className={s.chipText}>{status[0]!.toUpperCase() + status.slice(1)}</span>
           </StatusMark>
         </span>
+        <Link href="/settings" className={path.startsWith("/settings") ? `${s.settings} ${s.tabActive}` : s.settings} aria-current={path.startsWith("/settings") ? "page" : undefined}>
+          Settings
+        </Link>
       </div>
     </header>
   );

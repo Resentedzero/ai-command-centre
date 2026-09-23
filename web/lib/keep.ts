@@ -3,8 +3,9 @@
  * Presentation only: nothing here decides a runtime fact. Room rectangles are
  * `assets/gamification/adapted/keep-v4-rooms.json` at 2x; the two agent
  * workshops are anonymous slots, filled by whichever Agent Definitions the API
- * returns (never by agent name).
+ * returns (no room is reserved for a named agent).
  */
+import type { Appearance } from "./api";
 
 export type Rect = { x: number; y: number; w: number; h: number; wall: number };
 
@@ -39,20 +40,21 @@ export function hashOf(id: string): number {
   return Math.abs(h);
 }
 
-/** Preferred workshop for an Agent Definition (a hash of its id), so the Overview room and the Agents close-up agree. */
-export function preferredSlot(id: string): number {
-  return (hashOf(id) >>> 3) % WORKSHOP_SLOTS.length;
+/** Preferred workshop for a persistent agent (a hash of its name), so every version, the Overview room and the Agents close-up agree. */
+export function preferredSlot(name: string): number {
+  return (hashOf(name) >>> 3) % WORKSHOP_SLOTS.length;
 }
 
 /**
- * Workshop per slot: each Agent Definition takes its preferred workshop, or the
- * other one when it is taken, in stable id order. Groups past the slot count get
- * no workshop (the screen lists them). Unbound entries (no id) get none.
+ * Workshop per slot: each active Agent Definition takes its agent's preferred workshop,
+ * or the other one when it is taken, in stable name-then-id order. Groups past the slot
+ * count get no workshop (the screen lists them). Unbound entries (no id) get none.
  */
-export function placeInWorkshops<T extends { id: string | null }>(groups: T[]): (T | undefined)[] {
+export function placeInWorkshops<T extends { id: string | null; name: string }>(groups: T[]): (T | undefined)[] {
   const slots: (T | undefined)[] = WORKSHOP_SLOTS.map(() => undefined);
-  for (const g of groups.filter((x) => x.id).sort((a, b) => (a.id! < b.id! ? -1 : 1))) {
-    const preferred = preferredSlot(g.id!);
+  const order = (a: T, b: T) => (a.name !== b.name ? (a.name < b.name ? -1 : 1) : a.id! < b.id! ? -1 : 1);
+  for (const g of groups.filter((x) => x.id).sort(order)) {
+    const preferred = preferredSlot(g.name);
     const slot = slots[preferred] === undefined ? preferred : slots.findIndex((x) => x === undefined);
     if (slot >= 0) slots[slot] = g;
   }
@@ -69,14 +71,38 @@ export type Character = "knight" | "wizard";
 const CHARACTERS: Character[] = ["knight", "wizard"];
 
 /**
- * Visual identity from the Agent Definition id, never from role or name. With
- * the Registry's definition ids, characters go out in sorted id order (cycling),
- * so the definitions that exist look distinct; without them, a hash of the id.
+ * Default character for an agent with no chosen appearance, keyed on its persistent NAME,
+ * never on a version id, role or objective: every version of an agent looks the same.
+ * With the Registry's names, characters go out in sorted name order (cycling), so the
+ * agents that exist look distinct; without them, a hash of the name.
+ */
+export function characterFor(name: string, names?: string[] | null): Character {
+  const i = names ? [...new Set(names)].sort().indexOf(name) : -1;
+  return CHARACTERS[(i >= 0 ? i : hashOf(name)) % CHARACTERS.length]!;
+}
+
+/**
+ * How a sprite draws an agent: `appearance` is the kit look to draw (its chosen appearance, else the
+ * look the API derives from its name, D28); `character` is the legacy NPC fallback for an agent the
+ * Registry did not return. Presentation only.
+ */
+export type AgentLook = { character: Character; appearance: Appearance | null };
+
+/**
+ * An Agent Definition's look, from the Registry rows (`GET /registry`): the appearance its name
+ * carries, else the default character. `name` is the definition's name when the Registry lists it.
  * Every sprite on every screen goes through here, so an agent looks the same everywhere.
  */
-export function characterFor(id: string, definitionIds?: string[] | null): Character {
-  const i = definitionIds ? [...definitionIds].sort().indexOf(id) : -1;
-  return CHARACTERS[(i >= 0 ? i : hashOf(id)) % CHARACTERS.length]!;
+export type KnownAgent = { id: string; name: string; appearance?: Appearance | null; look?: Appearance };
+
+export function lookFor(
+  id: string,
+  definitions?: KnownAgent[] | null,
+  fallbackName?: string
+): AgentLook & { name: string } {
+  const def = definitions?.find((d) => d.id === id);
+  const name = def?.name ?? fallbackName ?? id;
+  return { name, appearance: def?.appearance ?? def?.look ?? null, character: characterFor(name, definitions?.map((d) => d.name)) };
 }
 
 /** An exact decimal string without trailing zeros ("0.000000" → "0", "1.50" → "1.5"): the same value, readable at a glance. */
@@ -111,6 +137,18 @@ export function toneFor(state: string | null | undefined): Tone {
     case "pending":
     case "proposed":
       return "idle";
+    // Agent states (`GET /agents/state`). Working is active; anything the agent is held by is a wait;
+    // time off the clock and having nothing to do are quiet, not alarming.
+    case "working":
+      return "active";
+    case "waiting_dependency":
+      return "wait";
+    case "in_meeting":
+    case "on_break":
+    case "outside_hours":
+    case "unavailable":
+    case "available":
+      return "neutral";
     default:
       return "neutral";
   }
@@ -329,6 +367,34 @@ export const STRIPS = {
 } as const;
 
 export type Pose = keyof (typeof STRIPS)["knight"];
+
+/**
+ * The character kit (make-agent-kit.ps1, catalogue `frames`/`frameMs`): one 68 px strip per pose,
+ * facing and part option, stacked body, bottom, top, hair, accessory, role mark. Poses: idle, walk
+ * (a real stride), work (at a desk). Facings down, side (drawn facing right) and up; left is the side
+ * strip mirrored. No death or sitting strip exists: a failed or resting agent holds its idle frame.
+ */
+export const KIT = {
+  idle: { w: 68, h: 68, n: 4, ms: 500 },
+  walk: { w: 68, h: 68, n: 6, ms: 120 },
+  work: { w: 68, h: 68, n: 6, ms: 150 },
+} as const;
+export type KitPose = keyof typeof KIT;
+export type Facing = "down" | "up" | "left" | "right";
+
+/** The layer strips for an appearance, bottom layer first. "none" draws nothing for that part. */
+export function kitLayers(a: Appearance, pose: KitPose, facing: Facing = "down"): string[] {
+  const view = facing === "left" || facing === "right" ? "side" : facing;
+  const strip = (...parts: string[]) => `/world/agents/${pose}-${view}-${parts.join("-")}.png`;
+  return [
+    strip("body", a.skin!),
+    strip("bottom", a.bottom!, a.bottomColor!),
+    strip("top", a.top!, a.topColor!),
+    ...(a.hair !== "none" ? [strip("hair", a.hair!, a.hairColor!)] : []),
+    ...(a.accessory !== "none" ? [strip("accessory", a.accessory!)] : []),
+    ...(a.mark !== "none" ? [strip("mark", a.mark!)] : []),
+  ];
+}
 
 /** tile-pack.md state treatments. `null`: no character drawn (pending: absent). */
 export function poseFor(taskStatus: string, stopped: boolean): Pose | null {

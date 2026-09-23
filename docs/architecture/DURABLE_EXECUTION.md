@@ -91,6 +91,20 @@ Every transaction that writes `proposed` also moves the Invocation on before com
 
 ## 4. Interruption recovery
 
+> **Two different things are called "recovery" in this codebase.** This section is about
+> **interruption recovery**: settling Invocations a crash left `executing`. It is code, it never
+> re-dispatches, and no model is involved.
+>
+> **Mission recovery** (R2 Stage 1) is unrelated: when delegated work fails, the Manager gets one
+> bounded round to diagnose and re-plan. The failure *category* is derived in code from `runs.outcome`,
+> the `invocation_failed` record and the policy/budget/approval/stop rows — never from the model, which
+> supplies only explanatory text. `RECOVERY_BY_REASON` bounds what may be proposed;
+> `MISSION_LIMITS.maxRecoveryWorkflowRuns` and `maxRecoveryRounds` bound how often. A recovery may not
+> reassign to the agent that just failed, may not name an agent that does not exist, and does not happen
+> at all when an emergency stop caused the failure. Every outcome — including a refusal — emits
+> `manager_recovery_decided`, so "the Manager chose not to" is a recorded fact rather than silence. A
+> mission that recovers successfully no longer reads as failed. See `TRUST_BOUNDARIES.md` §4.
+
 An Invocation is **interrupted** when it is `executing` and no live dispatcher owns it. That happens after a crash or restart, or when the outcome could not be recorded.
 
 **Decision:** the outcome is **unknown**. The provider may or may not have done the work, and `claude -p` has no idempotency key to ask. Every axis resolves conservatively:

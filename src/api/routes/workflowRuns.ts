@@ -27,7 +27,7 @@
  * Errors: a non-UUID id is 400; an unknown Workflow Run is 404; a Workflow Run
  * in the wrong state for the operation is 409.
  */
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   agentDefinitions,
@@ -54,6 +54,7 @@ import { advanceWorkflowRunUntilBlocked } from "../../workflow/advanceWorkflowRu
 import { buildInvocationSpecsFromDefinitions } from "../../workflow/buildInvocationSpecsFromDefinitions.js";
 import { createWorkflowRelay } from "../liveEventRelay.js";
 import { isUuid } from "../requestGuards.js";
+import { MAX_WINDOW_HOURS, parseHours } from "./history.js";
 import { readPolicyDecisions } from "../policyDecisionRecord.js";
 import { budgetOutcomeOf } from "../budgetOutcome.js";
 import { retryRecordOf, routeRecordOf } from "../routeRecord.js";
@@ -173,8 +174,16 @@ async function runDetail(deps: ApiDeps, runId: string) {
 }
 
 export function registerWorkflowRunsRoutes(app: FastifyInstance, deps: ApiDeps): void {
-  app.get("/workflow-runs", async (_request, reply) => {
+  // Runs of archived Goals are history (`./history.ts`): left out unless `?archived=include`.
+  // `?within=<hours>`: only current work — unfinished, or finished within that many hours (see `./history.ts`).
+  app.get<{ Querystring: { archived?: string; within?: string } }>("/workflow-runs", async (request, reply) => {
+    const within = parseHours(request.query.within);
+    if (within === "invalid") return reply.status(400).send({ error: `within must be a whole number of hours from 0 to ${MAX_WINDOW_HOURS}` });
+    const cutoff = within === undefined ? null : new Date(Date.now() - within * 3_600_000);
     const rows = await deps.db.query.workflowRuns.findMany({
+      where: (w) =>
+        sql`${request.query.archived === "include" ? sql`TRUE` : sql`NOT EXISTS (SELECT 1 FROM goals g WHERE g.id = ${w.goalId} AND g.archived_at IS NOT NULL)`}
+          AND ${cutoff === null ? sql`TRUE` : sql`(${w.status} IN ('in_progress', 'paused') OR COALESCE(${w.completedAt}, ${w.createdAt}) >= ${cutoff})`}`,
       orderBy: (w, { desc }) => desc(w.createdAt),
       limit: 100,
     });

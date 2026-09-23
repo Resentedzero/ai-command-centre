@@ -18,6 +18,9 @@ import { WorldViewport, world } from "../../components/world/World";
 import { budgetFallbackTitle, countLabel, errorText, formatAmount, formatTime, hashOf, policyEvidenceTitle, policyToken, policyTone, routeTitle, routeToken, stateWord } from "../../lib/keep";
 import w from "./workflows.module.css";
 import { LoopPanel } from "../../components/workflows/LoopPanel";
+import { usePreferences } from "../../components/preferences";
+import { windowParam, windowWords } from "../../lib/preferences";
+import { AgentLabel } from "../../components/agents/RoleIcon";
 
 /**
  * Workflows (spec 15.1 screen 3; Figma "Workflows — pixel (corridor of
@@ -79,17 +82,18 @@ function attentionIndex(steps: WorkflowStepDetail[]): number {
 }
 
 export function WorkflowsScreen({ id: routeId }: { id?: string }) {
+  const { preferences } = usePreferences();
   const [runs, setRuns] = useState<WorkflowRunSummary[] | null>(null);
   const [runsError, setRunsError] = useState<string | null>(null);
 
   const loadRuns = useCallback(async () => {
     try {
-      setRuns(await listWorkflowRuns());
+      setRuns(await listWorkflowRuns(windowParam(preferences)));
       setRunsError(null);
     } catch (err) {
       setRunsError(errorText(err));
     }
-  }, []);
+  }, [preferences]);
 
   useEffect(() => {
     void loadRuns();
@@ -112,13 +116,16 @@ export function WorkflowsScreen({ id: routeId }: { id?: string }) {
         <Link href="/workflows/new" className={buttonClass()}>
           Build a workflow
         </Link>
+        <p className={px.detail} data-testid="current-window">
+          Current runs: unfinished, or finished in {windowWords(preferences.currentWindowHours)}. Older runs are in <Link href="/history">History</Link>.
+        </p>
         {!runs && runsError ? (
           <StateNotice role="alert" message="Couldn't load workflow runs." detail={runsError} action={<PixelButton onClick={() => void loadRuns()}>Retry</PixelButton>} />
         ) : !runs ? (
           <StateNotice role="status" message={<Skeleton />} />
         ) : runs.length === 0 ? (
           <StateNotice
-            message="No workflow runs yet."
+            message={preferences.currentWindowHours > 0 ? "No current workflow runs." : "No workflow runs yet."}
             action={
               <Link href="/goals" className={buttonClass()}>
                 Start a goal
@@ -361,7 +368,7 @@ function StepDetail({ step }: { step: WorkflowStepDetail }) {
             <span>
               run <StatusMark state={run.status} />
             </span>
-            <span>{run.agent ? `${run.agent.name} v${run.agent.version}` : "no agent bound"}</span>
+            <span>{run.agent ? <AgentLabel name={run.agent.name} suffix={<>v{run.agent.version}</>} /> : "no agent bound"}</span>
             {run.outcomeReason && <span className={px.dim}>outcome: {run.outcomeReason}</span>}
             <span className={px.dim}>
               {formatTime(run.startedAt)}

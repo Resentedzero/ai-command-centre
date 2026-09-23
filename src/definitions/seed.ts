@@ -30,14 +30,18 @@
  * plan parameters (spec §18.3). Migration 0012 gives rows seeded before then the same
  * kinds and step bindings.
  */
-import { and, eq } from "drizzle-orm";
-import { agentDefinitions, capabilities, goals, projects, taskDefinitions, workflowDefinitions } from "../db/schema.js";
+import { and, eq, isNull } from "drizzle-orm";
+import { agentDefinitions, capabilities, capabilityGrants, goals, projects, taskDefinitions, workflowDefinitions } from "../db/schema.js";
 import { REVIEW_CHECKPOINT_CAPABILITY, REVIEW_CHECKPOINT_PERMISSION } from "../capabilities/reviewCheckpoint/capability.js";
 import { REVIEW_CHECKPOINT_RECORD } from "../capabilities/reviewCheckpoint/adapter.js";
 import { SYSTEM_INSPECT_CAPABILITY } from "../capabilities/systemInspect/capability.js";
 import { SYSTEM_INSPECT_READ } from "../capabilities/systemInspect/adapter.js";
 import { DOCS_RETRIEVE_CAPABILITY } from "../capabilities/docsRetrieve/capability.js";
 import { DOCS_RETRIEVE_GUIDE } from "../capabilities/docsRetrieve/adapter.js";
+import { KEEP_STATS_CAPABILITY, KEEP_STATS_READ } from "../capabilities/keepStats/capability.js";
+import { WORKPLACE_CALENDAR_READ, WORKPLACE_INSPECT_CALENDAR_CAPABILITY, WORKPLACE_MEETING_RECORD, WORKPLACE_OUTCOME_RECORD, WORKPLACE_RECORD_OUTCOME_CAPABILITY, WORKPLACE_SCHEDULE_MEETING_CAPABILITY } from "../capabilities/workplace/capability.js";
+import { ensureDefaultRooms } from "../workplace/workplace.js";
+import { activeAreaNames } from "../world/worldConfig.js";
 import { findSeededPublishWorkflow } from "./lookupSeed.js";
 import type { DrizzleTransaction } from "../events/emit.js";
 import { emitLifecycleEvent, NO_CORRELATION } from "../events/lifecycle.js";
@@ -46,12 +50,15 @@ import type { ContextBudget } from "../context/types.js";
 import { isLinearGraphDefinition, type LinearGraphDefinition, type LinearGraphStep } from "../workflow/graphTypes.js";
 import { RESEARCH_RETRIEVE_CAPABILITY } from "../capabilities/researchRetrieve/capability.js";
 import { RESEARCH_SEARCH_CAPABILITY } from "../capabilities/researchSearch/capability.js";
+import { PEER_ENDORSE_CAPABILITY } from "../capabilities/peerEndorse/capability.js";
+import { PEER_ENDORSE_RECORD } from "../capabilities/peerEndorse/adapter.js";
+import { MANAGER_DELEGATE_CAPABILITY, MANAGER_DELEGATE_PERMISSION, MANAGER_DELEGATE_RECORD, MANAGER_INSPECT_WORKFORCE_CAPABILITY, MANAGER_WORKFORCE_READ, MANAGER_INSPECT_HISTORY_CAPABILITY, MANAGER_HISTORY_READ } from "../capabilities/manager/capability.js";
 import { RESEARCH_SEARCH_PUBLIC_INDEXES } from "../capabilities/researchSearch/adapter.js";
 import { RESEARCH_WEB_CAPABILITY } from "../capabilities/researchWeb/capability.js";
 import { PUBLISH_REPORT_CAPABILITY } from "../capabilities/publishReport/capability.js";
 import { RESEARCH_RETRIEVE_SYNTHETIC } from "../capabilities/researchRetrieve/adapter.js";
 import { PUBLISH_REPORT_FILESYSTEM } from "../capabilities/publishReport/adapter.js";
-import { AGENT_OBJECTIVE_KIND, AGENT_TASK_KIND, KEEPER_ANSWER_KIND, OPERATOR_CHECKPOINT_KIND, PUBLISH_REPORT_TASK_KIND, RESEARCH_REPORT_TASK_KIND } from "../capabilities/taskPlans.js";
+import { AGENT_OBJECTIVE_KIND, AGENT_TALK_KIND, AGENT_TASK_KIND, KEEPER_ANSWER_KIND, MANAGER_PLAN_KIND, MANAGER_RECOVER_KIND, MANAGER_REVIEW_KIND, MEETING_CONTRIBUTION_KIND, MEETING_OUTCOME_KIND, OPERATOR_CHECKPOINT_KIND, PUBLISH_REPORT_TASK_KIND, RESEARCH_REPORT_TASK_KIND } from "../capabilities/taskPlans.js";
 import {
   createAgentDefinition,
   createCapability,
@@ -497,6 +504,240 @@ export async function seedV11Definitions(tx: DrizzleTransaction): Promise<boolea
   }
   if (await seedResearchCapabilities(tx)) created = true;
   if (await seedKeeper(tx)) created = true;
+  if (await seedTalk(tx)) created = true;
+  if (await seedManager(tx)) created = true;
+  return created;
+}
+
+// ---------------------------------------------------------------------------
+// seedManager
+// ---------------------------------------------------------------------------
+
+export const MANAGER_AGENT_NAME = "Manager";
+export const MISSIONS_PROJECT_NAME = "Missions";
+export const MANAGER_PLAN_TASK_NAME = "Manager Plan";
+export const MANAGER_REVIEW_TASK_NAME = "Manager Review";
+export const MANAGER_PLAN_WORKFLOW_NAME = "Manager Plan";
+export const MANAGER_RECOVER_TASK_NAME = "Manager Recovery";
+export const MEETINGS_PROJECT_NAME = "Meetings";
+export const MEETING_CONTRIBUTION_TASK_NAME = "Meeting Contribution";
+export const MEETING_OUTCOME_TASK_NAME = "Meeting Outcome";
+export const MANAGER_RECOVERY_WORKFLOW_NAME = "Manager Recovery";
+
+/** The Manager's planning and review Context Budgets: a compact roster or a few handed deliverables, one structured reply. Documented placeholders. */
+export const MANAGER_PLAN_CONTEXT_BUDGET: ContextBudget = {
+  // R2 Stage 10: a third retrieved item — the Keep's recent history beside the roster and the calendar.
+  // Raised deliberately: at 2, adding history would have silently evicted one of the other two as a
+  // "budget" exclusion rather than failing loudly, and the Manager would have planned without a roster.
+  maxInputTokens: 8_000,
+  maxArtifactTokens: 3_000,
+  maxRetrievedItems: 3,
+  maxToolSchemaTokens: 0,
+  compressionThreshold: 3_000,
+  freshnessRequirementSeconds: 0,
+  expectedOutputTokens: 1_500,
+};
+export const MANAGER_REVIEW_CONTEXT_BUDGET: ContextBudget = { ...MANAGER_PLAN_CONTEXT_BUDGET, maxInputTokens: 9_000, maxArtifactTokens: 6_000, maxRetrievedItems: 5 };
+
+/**
+ * Manager Recovery's Context Budget: the runtime's own diagnosis and the roster, and nothing else. A
+ * recovery never re-reads the failed work's output — the diagnosis already says what happened, in the
+ * runtime's words.
+ */
+/**
+ * A turn in a meeting: the agenda and what has been said, nothing else. No history and no other goals — an
+ * agent speaks from its own role, not from the Keep's archive.
+ */
+export const MEETING_CONTRIBUTION_CONTEXT_BUDGET: ContextBudget = {
+  maxInputTokens: 6_000,
+  maxArtifactTokens: 3_000,
+  maxRetrievedItems: 8,
+  maxToolSchemaTokens: 0,
+  compressionThreshold: 3_000,
+  freshnessRequirementSeconds: 0,
+  expectedOutputTokens: 500,
+};
+
+/** Closing a meeting: every contribution in view, a short outcome out. */
+export const MEETING_OUTCOME_CONTEXT_BUDGET: ContextBudget = { ...MEETING_CONTRIBUTION_CONTEXT_BUDGET, maxInputTokens: 9_000, maxArtifactTokens: 6_000, maxRetrievedItems: 12, expectedOutputTokens: 700 };
+
+export const MANAGER_RECOVERY_CONTEXT_BUDGET: ContextBudget = { ...MANAGER_PLAN_CONTEXT_BUDGET, maxInputTokens: 5_000, maxArtifactTokens: 2_500, maxRetrievedItems: 2, expectedOutputTokens: 700 };
+
+/**
+ * R2 management layer: the Manager as ordinary Definitions. Two internal Capabilities with bindings,
+ * the Manager agent (CHEAP tier) holding exactly two Grants - READ on the workforce roster and CREATE on
+ * delegation, both autonomous because each delegated step is itself governed - the plan and review Task
+ * Definitions, the "Missions" Project and the one-step "Manager Plan" Workflow. It holds no research,
+ * publishing, approval, endorsement or inspection Grant. Each item is created only if missing.
+ *
+ * Workplace: + `workplace.inspect_calendar` (READ) and `workplace.schedule_meeting` (CREATE schedules,
+ * WRITE moves or cancels), both autonomous because they change only internal office records. A Manager
+ * whose latest version lacks them gets a new version holding all four Grants (an existing version is
+ * never re-authorized), and "Manager Plan" gets a new version pinning it. The default meeting rooms are
+ * created if missing.
+ */
+export async function seedManager(tx: DrizzleTransaction): Promise<boolean> {
+  let created = false;
+  const ensureCapability = async (contract: typeof MANAGER_DELEGATE_CAPABILITY, fn: string) => {
+    const existing = await tx.query.capabilities.findFirst({ where: eq(capabilities.name, contract.id) });
+    if (existing) return existing.id;
+    const c = await createCapability(tx, { name: contract.id, description: contract.description, staticRiskTag: contract.staticRiskTag, costProfile: contract.costProfile }, SEED_ACTOR);
+    await createToolBinding(tx, { capabilityId: c.id, kind: "internal", config: { function: fn }, trustLevel: 2 }, SEED_ACTOR);
+    created = true;
+    return c.id;
+  };
+  const inspectId = await ensureCapability(MANAGER_INSPECT_WORKFORCE_CAPABILITY, MANAGER_WORKFORCE_READ);
+  const delegateId = await ensureCapability(MANAGER_DELEGATE_CAPABILITY, MANAGER_DELEGATE_RECORD);
+  const calendarId = await ensureCapability(WORKPLACE_INSPECT_CALENDAR_CAPABILITY, WORKPLACE_CALENDAR_READ);
+  const meetingId = await ensureCapability(WORKPLACE_SCHEDULE_MEETING_CAPABILITY, WORKPLACE_MEETING_RECORD);
+  const outcomeId = await ensureCapability(WORKPLACE_RECORD_OUTCOME_CAPABILITY, WORKPLACE_OUTCOME_RECORD);
+  const historyId = await ensureCapability(MANAGER_INSPECT_HISTORY_CAPABILITY, MANAGER_HISTORY_READ);
+  // The rooms are placed on the drawn rooms this world actually has, and repaired if a template switch moved them.
+  if (await ensureDefaultRooms(tx, SEED_ACTOR, await activeAreaNames(tx))) created = true;
+
+  const ensureTask = async (name: string, kind: string, budget: ContextBudget) => {
+    let task = await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.name, name) });
+    if (!task) {
+      const t = await createTaskDefinition(tx, { name, kind, defaultContextBudget: budget }, SEED_ACTOR);
+      task = await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.id, t.id) });
+      created = true;
+    }
+    return task!;
+  };
+  const planTask = await ensureTask(MANAGER_PLAN_TASK_NAME, MANAGER_PLAN_KIND, MANAGER_PLAN_CONTEXT_BUDGET);
+  await ensureTask(MANAGER_REVIEW_TASK_NAME, MANAGER_REVIEW_KIND, MANAGER_REVIEW_CONTEXT_BUDGET);
+  const recoverTask = await ensureTask(MANAGER_RECOVER_TASK_NAME, MANAGER_RECOVER_KIND, MANAGER_RECOVERY_CONTEXT_BUDGET);
+  // A meeting's own steps. The contribution task is generic: the round-table graph names the speaker.
+  await ensureTask(MEETING_CONTRIBUTION_TASK_NAME, MEETING_CONTRIBUTION_KIND, MEETING_CONTRIBUTION_CONTEXT_BUDGET);
+  await ensureTask(MEETING_OUTCOME_TASK_NAME, MEETING_OUTCOME_KIND, MEETING_OUTCOME_CONTEXT_BUDGET);
+
+  const managerVersions = await tx.query.agentDefinitions.findMany({ where: eq(agentDefinitions.name, MANAGER_AGENT_NAME) });
+  let agent: (typeof managerVersions)[number] | undefined = [...managerVersions].sort((x, y) => y.version - x.version)[0];
+  // A Manager missing ANY of its Grants — a new Capability it has never held, or one the operator
+  // revoked — gets a NEW version holding all five. Gating on a single Capability would leave a Manager
+  // whose other Grant was revoked unrepaired for good. An existing version is never re-authorized.
+  const required = [inspectId, delegateId, calendarId, meetingId, outcomeId, historyId];
+  const heldNow = agent
+    ? await tx.query.capabilityGrants.findMany({ where: and(eq(capabilityGrants.agentDefinitionId, agent.id), isNull(capabilityGrants.revokedAt)) })
+    : [];
+  const holdsAll = agent !== undefined && required.every((id) => heldNow.some((g) => g.capabilityId === id));
+  if (!holdsAll) {
+    const grant = (capabilityId: string, permissions: string[]) => ({ capabilityId, permissions, autonomyState: "AUTONOMOUS", maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED });
+    const a = await createAgentDefinition(
+      tx,
+      {
+        name: MANAGER_AGENT_NAME,
+        ...(agent ? { previousVersion: agent.version } : {}),
+        role: agent?.role ?? "Workforce coordinator",
+        objective: agent?.objective ?? "Turn the operator's objectives into bounded, governed work for the right existing agents, check what they produce, and report the outcome truthfully.",
+        instructions:
+          agent?.instructions ??
+          "Plan the fewest bounded tasks that meet the objective, using only existing agents and what they are allowed to do. Never do the specialist work yourself, " +
+            "never claim authority you do not hold, and escalate to the operator when an objective needs a capability, approval, budget or decision you cannot provide. " +
+            "Judge delegated work only against its completion criteria and say plainly what is missing.",
+        executionProfile: agent?.executionProfile ?? { preferredTier: "CHEAP" },
+        grants: [
+          grant(inspectId, ["READ"]),
+          grant(delegateId, [MANAGER_DELEGATE_PERMISSION]),
+          grant(calendarId, ["READ"]),
+          grant(meetingId, ["CREATE", "WRITE"]),
+          grant(outcomeId, ["WRITE"]),
+          grant(historyId, ["READ"]),
+        ],
+      },
+      SEED_ACTOR
+    );
+    agent = await tx.query.agentDefinitions.findFirst({ where: eq(agentDefinitions.id, a.id) });
+    created = true;
+  }
+
+  if (!(await tx.query.projects.findFirst({ where: eq(projects.name, MISSIONS_PROJECT_NAME) }))) {
+    await tx.insert(projects).values({ name: MISSIONS_PROJECT_NAME, description: "Objectives the operator gave the Manager." });
+    created = true;
+  }
+
+  // Meetings the Keep held live in their own Project, so a round table never makes the Manager "busy" for
+  // a new mission and a mission never blocks a meeting: different work, different Goals.
+  if (!(await tx.query.projects.findFirst({ where: eq(projects.name, MEETINGS_PROJECT_NAME) }))) {
+    await tx.insert(projects).values({ name: MEETINGS_PROJECT_NAME, description: "Meetings the Command Keep actually held." });
+    created = true;
+  }
+
+  const planVersions = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, MANAGER_PLAN_WORKFLOW_NAME) });
+  const latestPlan = [...planVersions].sort((x, y) => y.version - x.version)[0];
+  if (!(latestPlan && isLinearGraphDefinition(latestPlan.graphDefinition) && latestPlan.graphDefinition.steps[0]?.agentDefinitionId === agent!.id)) {
+    await createWorkflowDefinition(
+      tx,
+      {
+        name: MANAGER_PLAN_WORKFLOW_NAME,
+        ...(latestPlan ? { previousVersion: latestPlan.version } : {}),
+        graphDefinition: {
+          kind: "linear",
+          description: "The Manager reads the workforce, plans bounded tasks, and delegates what validation accepts.",
+          steps: [{ stepId: "plan", label: "Plan", taskDefinitionId: planTask.id, taskDefinitionVersion: planTask.version, agentDefinitionId: agent!.id, agentDefinitionVersion: agent!.version }],
+        },
+      },
+      SEED_ACTOR
+    );
+    created = true;
+  }
+
+  // The one-step Workflow a failed mission's recovery runs as. The mission driver starts it, within the
+  // mission's own limits; every step inside it is an ordinary governed invocation.
+  const recoveryVersions = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, MANAGER_RECOVERY_WORKFLOW_NAME) });
+  const latestRecovery = [...recoveryVersions].sort((x, y) => y.version - x.version)[0];
+  if (!(latestRecovery && isLinearGraphDefinition(latestRecovery.graphDefinition) && latestRecovery.graphDefinition.steps[0]?.agentDefinitionId === agent!.id)) {
+    await createWorkflowDefinition(
+      tx,
+      {
+        name: MANAGER_RECOVERY_WORKFLOW_NAME,
+        ...(latestRecovery ? { previousVersion: latestRecovery.version } : {}),
+        graphDefinition: {
+          kind: "linear",
+          description: "The Manager diagnoses failed delegated work from the runtime's records and recovers it, or escalates.",
+          steps: [{ stepId: "recover", label: "Recover", taskDefinitionId: recoverTask.id, taskDefinitionVersion: recoverTask.version, agentDefinitionId: agent!.id, agentDefinitionVersion: agent!.version }],
+        },
+      },
+      SEED_ACTOR
+    );
+    created = true;
+  }
+  return created;
+}
+
+// ---------------------------------------------------------------------------
+// seedTalk
+// ---------------------------------------------------------------------------
+
+export const TALK_PROJECT_NAME = "Direct requests";
+export const TALK_TASK_DEFINITION_NAME = "Agent Talk";
+
+/** A Talk's Context Budget: the agent's own instructions, one request, one short reply. Documented placeholders. */
+export const AGENT_TALK_CONTEXT_BUDGET: ContextBudget = {
+  maxInputTokens: 3_000,
+  maxArtifactTokens: 0,
+  maxRetrievedItems: 0,
+  maxToolSchemaTokens: 0,
+  compressionThreshold: 2_000,
+  freshnessRequirementSeconds: 0,
+  expectedOutputTokens: 900,
+};
+
+/**
+ * R2 character interaction: the `agent_talk` Task Definition and the "Direct requests" Project that
+ * holds what the operator asks agents in the world. The per-agent one-step Workflows are created on
+ * first use through the Registry (`POST /agents/:id/talk`). Each is created only if missing.
+ */
+export async function seedTalk(tx: DrizzleTransaction): Promise<boolean> {
+  let created = false;
+  if (!(await tx.query.taskDefinitions.findFirst({ where: eq(taskDefinitions.name, TALK_TASK_DEFINITION_NAME) }))) {
+    await createTaskDefinition(tx, { name: TALK_TASK_DEFINITION_NAME, kind: AGENT_TALK_KIND, defaultContextBudget: AGENT_TALK_CONTEXT_BUDGET }, SEED_ACTOR);
+    created = true;
+  }
+  if (!(await tx.query.projects.findFirst({ where: eq(projects.name, TALK_PROJECT_NAME) }))) {
+    await tx.insert(projects).values({ name: TALK_PROJECT_NAME, description: "What the operator asked agents directly in the world." });
+    created = true;
+  }
   return created;
 }
 
@@ -520,7 +761,7 @@ export async function seedResearchCapabilities(tx: DrizzleTransaction): Promise<
 
   // Both contracts, not one cast to the other: they differ in cost class, which is the
   // whole point of keeping them separate.
-  const ensure = async (contract: typeof RESEARCH_SEARCH_CAPABILITY | typeof RESEARCH_WEB_CAPABILITY, fn: string | null): Promise<string> => {
+  const ensure = async (contract: typeof RESEARCH_SEARCH_CAPABILITY | typeof RESEARCH_WEB_CAPABILITY | typeof PEER_ENDORSE_CAPABILITY, fn: string | null): Promise<string> => {
     const existing = await tx.query.capabilities.findFirst({ where: eq(capabilities.name, contract.id) });
     if (existing) return existing.id;
     const c = await createCapability(
@@ -535,6 +776,8 @@ export async function seedResearchCapabilities(tx: DrizzleTransaction): Promise<
 
   const searchId = await ensure(RESEARCH_SEARCH_CAPABILITY, RESEARCH_SEARCH_PUBLIC_INDEXES);
   const webId = await ensure(RESEARCH_WEB_CAPABILITY, null);
+  // R2 progression: the endorsement Capability exists so an operator can grant it; no agent holds it by default.
+  await ensure(PEER_ENDORSE_CAPABILITY, PEER_ENDORSE_RECORD);
 
   if (!(await tx.query.agentDefinitions.findFirst({ where: eq(agentDefinitions.name, FIELD_RESEARCHER_AGENT_NAME) }))) {
     await createAgentDefinition(
@@ -585,6 +828,10 @@ export const KEEPER_ANSWER_CONTEXT_BUDGET: ContextBudget = {
  * Agent (CHEAP tier; READ Grants only, autonomous because they only read), the
  * `keeper_answer` Task Definition, the "Keeper" Project that holds Think questions, and
  * the one-step "Keeper Think" Workflow. Each is created only if missing.
+ *
+ * R2 observability: + the READ-only `system.keep_stats` Capability. A Keeper whose latest version lacks its
+ * Grant gets a new version holding all three READ Grants (an existing version is never re-authorized), and
+ * Keeper Think gets a new version pinning it. The Manager is never granted it.
  */
 export async function seedKeeper(tx: DrizzleTransaction): Promise<boolean> {
   let created = false;
@@ -610,20 +857,28 @@ export async function seedKeeper(tx: DrizzleTransaction): Promise<boolean> {
     created = true;
   }
 
-  let agent = await tx.query.agentDefinitions.findFirst({ where: eq(agentDefinitions.name, KEEPER_AGENT_NAME) });
-  if (!agent) {
+  const statsId = await ensureCapability(KEEP_STATS_CAPABILITY, KEEP_STATS_READ);
+  const keeperGrants = [inspectId, docsId, statsId].map((capabilityId) => ({
+    capabilityId,
+    permissions: ["READ"],
+    autonomyState: "AUTONOMOUS",
+    maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED,
+  }));
+  const keeperVersions = await tx.query.agentDefinitions.findMany({ where: eq(agentDefinitions.name, KEEPER_AGENT_NAME) });
+  let agent: (typeof keeperVersions)[number] | undefined = [...keeperVersions].sort((x, y) => y.version - x.version)[0];
+  const holdsStats =
+    agent && (await tx.query.capabilityGrants.findFirst({ where: and(eq(capabilityGrants.agentDefinitionId, agent.id), eq(capabilityGrants.capabilityId, statsId), isNull(capabilityGrants.revokedAt)) }));
+  if (!holdsStats) {
     const a = await createAgentDefinition(
       tx,
       {
         name: KEEPER_AGENT_NAME,
-        role: "The Command Keep's guide",
-        objective: "Help the operator understand and operate the Command Keep, from its real records.",
-        instructions: "Explain plainly and briefly. Read state only through your capabilities. Never claim to change anything; propose instead.",
-        executionProfile: { preferredTier: "CHEAP" },
-        grants: [
-          { capabilityId: inspectId, permissions: ["READ"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED },
-          { capabilityId: docsId, permissions: ["READ"], autonomyState: "AUTONOMOUS", maxTrustLevelRequired: MVP_MAX_TRUST_LEVEL_REQUIRED },
-        ],
+        ...(agent ? { previousVersion: agent.version } : {}),
+        role: agent?.role ?? "The Command Keep's guide",
+        objective: agent?.objective ?? "Help the operator understand and operate the Command Keep, from its real records.",
+        instructions: agent?.instructions ?? "Explain plainly and briefly. Read state only through your capabilities. Never claim to change anything; propose instead.",
+        executionProfile: agent?.executionProfile ?? { preferredTier: "CHEAP" },
+        grants: keeperGrants,
       },
       SEED_ACTOR
     );
@@ -636,11 +891,15 @@ export async function seedKeeper(tx: DrizzleTransaction): Promise<boolean> {
     created = true;
   }
 
-  if (!(await tx.query.workflowDefinitions.findFirst({ where: eq(workflowDefinitions.name, KEEPER_WORKFLOW_NAME) }))) {
+  const thinkVersions = await tx.query.workflowDefinitions.findMany({ where: eq(workflowDefinitions.name, KEEPER_WORKFLOW_NAME) });
+  const latestThink = [...thinkVersions].sort((x, y) => y.version - x.version)[0];
+  const pinsLatestKeeper = latestThink && isLinearGraphDefinition(latestThink.graphDefinition) && latestThink.graphDefinition.steps[0]?.agentDefinitionId === agent!.id;
+  if (!pinsLatestKeeper) {
     await createWorkflowDefinition(
       tx,
       {
         name: KEEPER_WORKFLOW_NAME,
+        ...(latestThink ? { previousVersion: latestThink.version } : {}),
         graphDefinition: {
           kind: "linear",
           description: "The Keeper thinks about one operator question, reading state and guide cards only.",

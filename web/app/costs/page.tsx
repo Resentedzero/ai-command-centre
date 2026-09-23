@@ -27,6 +27,31 @@ function counterLabel(ct: Counter): string {
  * by the API per (scope, unit) and never added across units or scopes, and
  * `agent_performance` rows shown as a measurement only.
  */
+/**
+ * What a unit's consumption is made of. `reconcileBudget` charges a counter either from the
+ * provider's own reported usage or, when consumption is unknowable, at a client-side estimate — and
+ * the counter keeps only the number. An estimate is not money spent and is never shown as though it
+ * were, so where any of it is estimated the screen says so. Nothing is drawn when the API reported
+ * no basis for this unit: an absent fact is left absent, not rendered as zero.
+ */
+function basisNote(basis: CostsData["consumedBasis"][string] | undefined, unit?: string) {
+  if (!basis) return null;
+  const estimate = Number(basis.estimate);
+  const reported = Number(basis.reported);
+  if (!Number.isFinite(estimate) || !Number.isFinite(reported) || estimate + reported === 0) return null;
+  if (estimate === 0) {
+    // For a token unit the provider really did report the amount. For usd it reported the TOKENS and
+    // the price came from local configuration, so the stronger phrase would be untrue.
+    return <div className={px.detail}>{unit === "usd" ? "priced from provider-reported tokens at a local rate — not a billed amount" : "all of it the provider’s own reported usage"}</div>;
+  }
+  if (reported === 0) return <div className={px.detail}>all of it charged at estimate — not measured spend</div>;
+  return (
+    <div className={px.detail}>
+      {formatAmount(basis.reported)} provider-reported · {formatAmount(basis.estimate)} charged at estimate
+    </div>
+  );
+}
+
 export default function CostsPage() {
   const [scope, setScope] = useState<string | undefined>(undefined);
   const [data, setData] = useState<CostsData | null>(null);
@@ -95,6 +120,7 @@ export default function CostsPage() {
                   <div title={`${t.consumed} consumed · ${t.reserved} reserved`}>
                     {formatAmount(t.consumed)} consumed · {formatAmount(t.reserved)} reserved
                   </div>
+                  {basisNote(data.consumedBasis[t.resourceUnit], t.resourceUnit)}
                   <div>
                     across {t.counters} counter{t.counters === 1 ? "" : "s"}
                   </div>

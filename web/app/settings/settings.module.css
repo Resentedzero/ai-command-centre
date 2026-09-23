@@ -1,0 +1,224 @@
+/* Settings: a slim section rail and one wood board per section. World: a mini-map, the building → area → workstation tree, and an editor. */
+.screen {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  height: 100%;
+}
+.sections,
+.world {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.sections > span:first-child {
+  align-self: flex-start;
+}
+.sections p,
+.world p {
+  margin: 0;
+}
+.section {
+  font: 16px/20px var(--font-pixel), monospace;
+  color: var(--pixel-label-dim);
+  padding: var(--space-xs) var(--space-sm);
+  border: 2px solid transparent;
+}
+.sectionActive {
+  color: var(--pixel-label);
+  background: var(--pixel-wood);
+  border-color: var(--pixel-wood-edge);
+}
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.inline {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-sm);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.error {
+  border-left: 2px solid var(--state-fail);
+  padding-left: var(--space-sm);
+}
+.body {
+  display: grid;
+  grid-template-columns: auto minmax(240px, 1fr);
+  grid-template-areas: "map lists" "editor lists";
+  gap: var(--space-md);
+  align-items: start;
+}
+@media (max-width: 1440px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "map" "editor" "lists";
+  }
+}
+.map {
+  grid-area: map;
+  position: relative;
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+  overflow: hidden;
+}
+.mapImage {
+  position: absolute;
+  inset: 0;
+  image-rendering: pixelated;
+  opacity: 0.8;
+}
+.mapArea {
+  position: absolute;
+  padding: 0;
+  background: transparent;
+  border: 1px dashed var(--pixel-label-dim);
+  cursor: pointer;
+}
+.mapArea[data-purpose="corridor"] {
+  border-style: dotted;
+  border-color: color-mix(in srgb, var(--pixel-label-dim) 60%, transparent);
+}
+.mapArea[data-purpose="common"],
+.mapArea[data-purpose="rest"],
+.mapArea[data-purpose="social"] {
+  border-color: var(--identity-violet);
+}
+.mapSelected {
+  border: 2px solid var(--pixel-label);
+}
+.mapStation {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  background: var(--pixel-label);
+  box-shadow: 0 0 0 1px var(--pixel-outline);
+  pointer-events: none;
+}
+.lists {
+  grid-area: lists;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: flex-start;
+  min-width: 0;
+}
+.group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.items {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs) var(--space-sm);
+  text-align: left;
+  font: 13px/18px var(--font-mono), monospace;
+  color: var(--pixel-label);
+  background: var(--pixel-wood);
+  border: 2px solid var(--pixel-wood-edge);
+  padding: 2px var(--space-sm);
+  cursor: pointer;
+}
+.row:disabled {
+  cursor: default;
+}
+.rowSelected {
+  border-color: var(--pixel-label);
+}
+.inactive {
+  opacity: 0.55;
+}
+.purpose {
+  font: 12px/16px var(--font-mono), monospace;
+  color: var(--pixel-label-dim);
+}
+.purpose[data-purpose="common"],
+.purpose[data-purpose="rest"],
+.purpose[data-purpose="social"] {
+  color: var(--pixel-label);
+}
+.editor {
+  grid-area: editor;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-width: 480px;
+}
+.numbers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+button.section {
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+button.sectionActive {
+  background: var(--pixel-wood);
+}
+button.section:focus-visible {
+  outline: 2px solid var(--pixel-label);
+  outline-offset: 2px;
+}
+/* Workplace settings: rooms and working hours as compact tables, checkboxes inline. */
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font: 13px/18px var(--font-mono), monospace;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 13px/18px var(--font-mono), monospace;
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--pixel-wood-edge);
+  vertical-align: middle;
+}
+.table select,
+.table input[type="time"] {
+  max-width: 200px;
+}
+.narrow {
+  width: 72px;
+}
+.inline {
+  flex-wrap: wrap;
+}

@@ -1,0 +1,12 @@
+-- Stage 7: may WORK start outside an agent's working hours?
+--
+-- `workplace_settings.outside_working_hours` already answers a different question — may a MEETING be
+-- booked outside working hours — and has governed only the diary. Making it govern execution too would
+-- conflate scheduling with running work (the two the brief keeps apart) and would silently change what
+-- every existing Keep does: an objective given at 20:00 would start being refused.
+--
+-- So execution gets its own operator switch, defaulting to 'allow' — exactly today's behaviour. An
+-- operator who wants an office that only works office hours sets it to 'forbid', and then the Manager
+-- will not START new work for an agent outside its hours. It never stops work already running, and it is
+-- never a substitute for an emergency stop.
+ALTER TABLE "workplace_settings" ADD COLUMN "work_outside_hours" text NOT NULL DEFAULT 'allow';

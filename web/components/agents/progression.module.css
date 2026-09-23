@@ -1,0 +1,121 @@
+/* Progress (R2): a parchment card beside the character. Identity violet only; never a state hue. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.card p {
+  margin: 0;
+}
+.levelRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.level {
+  flex: 0 0 auto;
+  font: 20px/24px var(--font-pixel), monospace;
+  color: var(--pixel-label);
+  background: var(--pixel-wood);
+  border: 2px solid var(--identity-violet);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+  padding: 2px var(--space-sm);
+}
+.grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.bar {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+  padding: 2px;
+  background: var(--pixel-outline);
+  height: 14px;
+}
+.segment {
+  background: var(--pixel-wood-dark);
+}
+.filled {
+  background: var(--identity-violet);
+}
+.xp {
+  font: 12px/16px var(--font-mono), monospace;
+  margin-top: 2px;
+}
+.facts dd {
+  margin: 0;
+}
+.badges {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font: 14px/18px var(--font-pixel), monospace;
+  color: var(--pixel-label);
+  background: var(--pixel-wood);
+  border: 2px solid var(--pixel-wood-edge);
+  box-shadow: 0 0 0 2px var(--pixel-outline);
+  padding: 2px var(--space-sm);
+}
+/* A 6 px pixel mark in identity violet. */
+.star {
+  width: 6px;
+  height: 6px;
+  background: var(--identity-violet);
+}
+.none {
+  opacity: 0.85;
+}
+.ledger summary {
+  cursor: pointer;
+  font: 14px/20px var(--font-pixel), monospace;
+}
+.awards {
+  list-style: none;
+  margin: var(--space-xs) 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+  font: 12px/18px var(--font-mono), monospace;
+}
+.awards li {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: baseline;
+}
+.plus {
+  flex: 0 0 44px;
+  text-align: right;
+}
+.when {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+.note {
+  margin-top: var(--space-xs) !important;
+  font: 12px/16px var(--font-mono), monospace;
+}
+
+/* Ask the Keeper why: small ink links on the parchment. */
+.whys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+}
+.why {
+  font: 12px/16px var(--font-mono), monospace;
+  color: var(--pixel-ink);
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}

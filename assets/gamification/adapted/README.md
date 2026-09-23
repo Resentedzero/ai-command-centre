@@ -25,6 +25,8 @@ Run it with `powershell -File compose-w2-keep.ps1`. It needs Windows PowerShell 
 | `strips-outlined-2x/` | `make-outlined-strips.ps1` | Animation strips for the motion prototype and the UI. |
 | `motion-prototype.html` | hand-written | Local-only motion prototype over the keep art. Open it from this folder; it reads the generated PNGs next to it. It runs scripted demo states, never live data. |
 | `room-*` crops | cropped from the composites | Close-ups and vignettes. |
+| `make-agent-kit.ps1` | the recipe | The character kit v2 (D24, D28). Reads Pixel Crawler `Body_A` Idle, Walk and Collect in Down, Side and Up read-only, finds each frame's head, neck, body, eyes and hands, and draws each part option as its own layer per pose and facing (skin retint, hair, top, bottom, accessory, role mark; back views draw no face details) with the palettes in `src/definitions/appearanceCatalogue.json`, crops 34×34 and scales 2×. Collect frames 0–5 only (6–7 raise the arms over the head). ~2.5 min. |
+| `agent-kit-2x/` | `make-agent-kit.ps1` | 1,782 layer strips, `{idle,walk,work}-{down,side,up}-{part}-{option}[-{colour}].png`, 68 px frames (idle 4, walk 6, work 6). Stack body, bottom, top, hair, accessory, mark; left = side mirrored in CSS. Copied (old strips removed first) to `web/public/world/agents/`. No sitting or death strips exist. |
 
 **`compose-keep-v4.ps1` layout:**
 - A larger command room, 24 px halls and a wider side rim with rampart columns, so it fills 1440 px at 2×.
